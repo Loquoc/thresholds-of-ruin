@@ -314,7 +314,7 @@ mod tests {
 
     fn snapshot() -> ServerMessage {
         let samples = crate::fixture::load(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v74.json"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v75.json"),
             crate::PROTOCOL_VERSION,
         )
         .expect("regenerate current wire samples");

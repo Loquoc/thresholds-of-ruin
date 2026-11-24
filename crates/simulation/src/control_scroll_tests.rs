@@ -86,6 +86,13 @@ fn game() -> Game {
     for (id, restrictions, preparation) in [
         ("fixture.scared", vec![], "preserve"),
         ("fixture.held", vec!["voluntary_actions"], "pause"),
+        ("fixture.sleep", vec!["voluntary_actions"], "pause"),
+        ("fixture.frozen", vec!["voluntary_actions"], "pause"),
+        ("fixture.medusa_confusion", vec![], "preserve"),
+        ("fixture.potion_confusion", vec![], "preserve"),
+        ("fixture.hallucination", vec![], "preserve"),
+        ("fixture.blindness", vec![], "preserve"),
+        ("fixture.invisibility", vec![], "preserve"),
         ("fixture.confused", vec![], "preserve"),
         ("fixture.scoped", vec![], "preserve"),
         ("fixture.permanent", vec![], "preserve"),
@@ -102,6 +109,41 @@ fn game() -> Game {
         );
     }
     for condition in &mut document.conditions {
+        match condition.id.as_str() {
+            "fixture.medusa_confusion" | "fixture.potion_confusion" => {
+                condition.modifiers.push(
+                    serde_json::from_value(serde_json::json!({
+                        "scope": "always",
+                        "op": {"kind": "locomotion", "value": {"kind": "confused",
+                            "chance": {"numerator": 4, "denominator": 5}}},
+                    }))
+                    .unwrap(),
+                );
+            }
+            "fixture.blindness" => {
+                condition.modifiers.push(
+                    serde_json::from_value(serde_json::json!({
+                        "scope": "always",
+                        "op": {"kind": "perception", "value": {"kind": "sight", "enabled": false}},
+                    }))
+                    .unwrap(),
+                );
+            }
+            "fixture.invisibility" => {
+                condition.modifiers.push(
+                    serde_json::from_value(serde_json::json!({
+                        "scope": "always",
+                        "op": {"kind": "perception", "value": {"kind": "invisible", "enabled": true}},
+                    }))
+                    .unwrap(),
+                );
+            }
+            "fixture.hallucination" => {
+                condition.hallucinating = true;
+                condition.stacking = crate::rules::Stacking::Extend;
+            }
+            _ => {}
+        }
         if condition.id.as_str() == "fixture.scoped" {
             condition.source_scoped = true;
         }
@@ -119,6 +161,17 @@ fn game() -> Game {
         },
     )
     .unwrap();
+    let content = crate::creatures::Content::with_presentation_catalog(
+        &content,
+        crate::appearance_catalog::PresentationCatalog::new(
+            vec![crate::appearance_catalog::CreatureAppearance {
+                name: "clockwork teapot".into(),
+                asset: None,
+            }],
+            vec![],
+        )
+        .unwrap(),
+    );
     let build = crate::creatures::CreatureBuild::new(
         content.clone(),
         species_id,
@@ -220,6 +273,78 @@ fn occupied_scroll_applies_no_roll_flee_snapshot_and_queries_do_not_refresh() {
         Some(at(1)),
         "a genuine return is a new approach"
     );
+}
+
+#[test]
+fn ward_recoil_is_seen_once_and_uses_the_observers_apparent_creature() {
+    for (blind, hallucinating) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut game = game();
+        let reader = ActorId(1);
+        let target = ActorId(2);
+        scare(&mut game);
+        for (active, id) in [
+            (blind, "fixture.blindness"),
+            (hallucinating, "fixture.hallucination"),
+        ] {
+            if active {
+                game.apply_condition(reader, &ConditionId::new(id).unwrap(), reader, 1_000)
+                    .unwrap();
+            }
+        }
+        game.take_script_report();
+        game.teleport(target, at(2)).unwrap();
+        game.reconcile_control_contacts().unwrap();
+        assert_eq!(
+            game.forced_flee_location(target),
+            Some(at(1)),
+            "sight cannot change the ward"
+        );
+        let report = game.take_script_report();
+        if blind {
+            assert!(
+                report.gameplay_narration.is_empty(),
+                "no visual ward cue while blind"
+            );
+        } else {
+            let view = game.observe(reader).unwrap();
+            let mob = view
+                .visible_actors
+                .iter()
+                .find(|actor| actor.id == target)
+                .unwrap();
+            assert_eq!(
+                mob.name.as_str(),
+                if hallucinating {
+                    "clockwork teapot"
+                } else {
+                    "subject4"
+                },
+            );
+            assert_eq!(
+                report.gameplay_narration.len(),
+                1,
+                "one cue when flight begins"
+            );
+            assert_eq!(
+                report.gameplay_narration[0].audience,
+                crate::scripting::Audience::Actor(reader)
+            );
+            assert_eq!(
+                report.gameplay_narration[0].segments,
+                [crate::scripting::MessageSegment::Text(format!(
+                    "The {} recoils and flees.",
+                    mob.name
+                ))]
+            );
+        }
+        for _ in 0..3 {
+            game.reconcile_control_contacts().unwrap();
+        }
+        assert!(
+            game.take_script_report().gameplay_narration.is_empty(),
+            "no repeats while still near"
+        );
+    }
 }
 
 #[test]
@@ -348,7 +473,7 @@ fn hold_release_uses_the_shared_condition_and_preserves_unrelated_conditions() {
 }
 
 #[test]
-fn reading_scare_wastes_one_unit_through_the_ordinary_paid_read_path() {
+fn paid_read_of_a_nothing_payload_still_spends_one_unit() {
     let mut game = game();
     let item = scare(&mut game);
     game.items
@@ -375,6 +500,207 @@ fn reading_scare_wastes_one_unit_through_the_ordinary_paid_read_path() {
     );
     assert!(game.tick > 0, "the wasted read is not a free command");
     assert_eq!(game.actors[&ActorId(1)].control, ControlState::default());
+}
+
+fn read_last_scare(game: &mut Game, item: ItemId, cursed: bool) {
+    let reader = ActorId(1);
+    game.items
+        .edit(item, |item| {
+            let fear = item.spec.ground_scare.clone().unwrap();
+            item.spec.readable.as_mut().unwrap().control = Some(ControlSpec::ScareVisible {
+                fear,
+                wake_conditions: ["fixture.sleep", "fixture.frozen"]
+                    .map(|id| ConditionId::new(id).unwrap()),
+            });
+            item.location = ItemLocation::Carried(reader);
+            item.condition.cursed = cursed;
+        })
+        .unwrap();
+    game.combat.ai.clear();
+    game.actors.get_mut(&ActorId(2)).unwrap().ready_at = 10_000;
+    let issued = game
+        .admit_intention(
+            reader,
+            crate::Action::Read { item },
+            crate::IntentionOrigin::Human,
+        )
+        .unwrap();
+    let done = game.execute_next_intention().unwrap();
+    assert_eq!(done.intention.id, issued);
+    done.outcome.unwrap();
+    assert!(
+        !game.items.contains_key(&item),
+        "the exact last unit was consumed"
+    );
+}
+
+#[test]
+fn paid_scare_reversal_requires_real_sight_and_uses_curse_or_either_confusion() {
+    let reader = ActorId(1);
+    let target = ActorId(2);
+    for (cursed, special_condition, reversed) in [
+        (true, None, true),
+        (false, Some("fixture.medusa_confusion"), true),
+        (false, Some("fixture.potion_confusion"), true),
+        (false, Some("fixture.hallucination"), false),
+        (true, Some("fixture.blindness"), false),
+    ] {
+        let mut game = game();
+        let item = scare(&mut game);
+        game.teleport(target, at(2)).unwrap();
+        game.reconcile_control_contacts().unwrap();
+        assert_eq!(game.forced_flee_location(target), Some(at(1)));
+        if let Some(id) = special_condition {
+            game.apply_condition(reader, &ConditionId::new(id).unwrap(), reader, 1_000)
+                .unwrap();
+        }
+        assert_eq!(
+            game.genuinely_sees_actor(reader, target, 8),
+            special_condition != Some("fixture.blindness"),
+            "certify the sight/near-field distinction before the read"
+        );
+        let [sleep, frozen, held] = ["fixture.sleep", "fixture.frozen", "fixture.held"]
+            .map(|id| ConditionId::new(id).unwrap());
+        for condition in [&sleep, &frozen, &held] {
+            game.apply_condition(target, condition, reader, 1_000)
+                .unwrap();
+        }
+        game.take_script_report(); // discard the separate, earlier ward cue
+        read_last_scare(&mut game, item, cursed);
+        assert_eq!(
+            game.forced_flee_location(target),
+            (!reversed).then_some(at(1)),
+            "cursed={cursed}, condition={special_condition:?}"
+        );
+        let mob = game.creature(target).unwrap();
+        assert_eq!(mob.conditions().has_active(&sleep), !reversed);
+        assert_eq!(mob.conditions().has_active(&frozen), !reversed);
+        assert!(
+            mob.conditions().has_active(&held),
+            "unrelated action denial must remain"
+        );
+        let cue = match special_condition {
+            Some("fixture.blindness") => "You hear a drawn-out wail in the distance.",
+            Some("fixture.hallucination") => "You hear teapots cackling nearby.",
+            _ => "You hear a drawn-out wail nearby.",
+        };
+        let report = game.take_script_report();
+        assert_eq!(report.gameplay_narration.len(), 1);
+        assert_eq!(
+            report.gameplay_narration[0].segments,
+            [crate::scripting::MessageSegment::Text(cue.into())]
+        );
+    }
+}
+
+#[test]
+fn arming_confusion_uses_the_readers_actual_senses_not_a_creature_reaction() {
+    for (blind, hallucinating, cue) in [
+        (false, false, "Your hands begin to glow red."),
+        (true, false, "Your hands begin to tingle."),
+        (false, true, "Your hands glow a color you can't quite name."),
+        (
+            true,
+            true,
+            "Your hands tingle as if they were full of tiny bells.",
+        ),
+    ] {
+        let mut game = game();
+        let reader = ActorId(1);
+        for (active, id) in [
+            (blind, "fixture.blindness"),
+            (hallucinating, "fixture.hallucination"),
+        ] {
+            if active {
+                game.apply_condition(reader, &ConditionId::new(id).unwrap(), reader, 1_000)
+                    .unwrap();
+            }
+        }
+        let condition = condition();
+        let read = ControlSpec::ArmConfusion {
+            condition: condition.clone(),
+            duration: 200,
+        };
+        assert!(game.resolve_control_read(reader, &read, false).unwrap());
+        assert!(game.actors[&reader].control.confusion.is_some());
+        assert!(!game
+            .creature(ActorId(2))
+            .unwrap()
+            .conditions()
+            .has_active(&condition));
+        let report = game.take_script_report();
+        assert_eq!(report.gameplay_narration.len(), 1);
+        assert_eq!(
+            report.gameplay_narration[0].segments,
+            [crate::scripting::MessageSegment::Text(cue.into())]
+        );
+    }
+}
+
+#[test]
+fn ordinary_paid_scare_distinguishes_resistance_from_the_audible_distance() {
+    for landed in [true, false] {
+        let mut game = game();
+        let reader = ActorId(1);
+        let target = ActorId(2);
+        let item = scare(&mut game);
+        assert!(game.genuinely_sees_actor(reader, target, 8));
+        assert_eq!(game.forced_flee_location(target), None);
+        // Check the independent resistance kernel once per seed. The actual
+        // paid read must agree without a second roll or a hidden cue change.
+        game.rules_rng = (0..128)
+            .find(|&seed| {
+                let mut trial = game.clone();
+                trial.rules_rng = seed;
+                trial.control_lore_check(reader, target).unwrap() == landed
+            })
+            .expect("the ordinary fixture exercises each resistance result");
+        read_last_scare(&mut game, item, false);
+        assert_eq!(game.forced_flee_location(target), landed.then_some(at(1)));
+        let report = game.take_script_report();
+        let cue = &report.gameplay_narration;
+        assert_eq!(cue.len(), 1, "the reader hears one cue even when resisted");
+        assert_eq!(cue[0].audience, crate::scripting::Audience::Actor(reader));
+        assert_eq!(
+            cue[0].segments,
+            [crate::scripting::MessageSegment::Text(
+                "You hear a burst of laughter nearby.".into()
+            )]
+        );
+    }
+}
+
+#[test]
+fn scare_laughter_signals_nearby_unseen_life_on_a_visible_square() {
+    let mut game = game();
+    let reader = ActorId(1);
+    let target = ActorId(2);
+    let item = scare(&mut game);
+    game.apply_condition(
+        target,
+        &ConditionId::new("fixture.invisibility").unwrap(),
+        target,
+        1_000,
+    )
+    .unwrap();
+    assert!(game
+        .scene_snapshot(reader)
+        .unwrap()
+        .1
+        .iter()
+        .any(|cell| { cell.physical && !cell.wall && cell.location == at(4) }));
+    assert!(!game.genuinely_sees_actor(reader, target, 8));
+    read_last_scare(&mut game, item, false);
+    let report = game.take_script_report();
+    let cue = &report.gameplay_narration;
+    assert_eq!(cue.len(), 1);
+    assert_eq!(
+        cue[0].segments,
+        [crate::scripting::MessageSegment::Text(
+            "You hear a burst of laughter nearby.".into(),
+        )],
+        "the sound discloses proximity, not the creature or its position",
+    );
 }
 
 #[test]
@@ -673,7 +999,9 @@ fn horizontal_body_receives_one_hold_check_and_one_token_consumption() {
         let mut actual = base.clone();
         actual.rules_rng = seed;
         assert_eq!(
-            actual.resolve_control_read(ActorId(1), &spec).unwrap(),
+            actual
+                .resolve_control_read(ActorId(1), &spec, false)
+                .unwrap(),
             landed
         );
         assert_eq!(
@@ -730,7 +1058,9 @@ fn tall_eye_hold_uses_body_plane_and_has_landed_and_resisted_outcomes() {
         let mut trial = base.clone();
         trial.rules_rng = seed;
         let before = trial.rules_rng;
-        let landed = trial.resolve_control_read(ActorId(1), &spec).unwrap();
+        let landed = trial
+            .resolve_control_read(ActorId(1), &spec, false)
+            .unwrap();
         assert_ne!(
             trial.rules_rng, before,
             "the ordinary tall target must actually receive the Lore test"

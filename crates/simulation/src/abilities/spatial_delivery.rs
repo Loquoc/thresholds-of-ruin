@@ -126,6 +126,7 @@ impl Game {
         };
         // Ordinary strikes and searches already publish their own results.
         if definition.basic_attack
+            || ability.as_str() == "rattling_blow"
             || matches!(
                 outcome.effects.as_slice(),
                 [super::ResolvedEffect::SearchAdjacentGuises { .. }]

@@ -215,6 +215,14 @@ impl Game {
         Ok(())
     }
 
+    /// Only periodic wanderers have a standing interest in the protagonist.
+    /// The birth record outlives their disposable, anonymous starting lead.
+    pub(crate) fn wandering_pursuit_target(&self, actor: ActorId) -> Option<ActorId> {
+        let floor = self.floor_activation.as_ref()?;
+        let birth = floor.wandering.as_ref()?.births.get(&actor)?;
+        (birth.origin == BirthOrigin::Wandering).then_some(floor.plan.protagonist)
+    }
+
     pub fn wandering_policy(&self) -> Option<&WanderingPolicy> {
         self.floor_activation
             .as_ref()?
@@ -668,7 +676,13 @@ mod tests {
         configured_regions(false)
     }
     fn configured_regions(multiple: bool) -> Game {
-        let content = crate::test_creatures::content();
+        configured_with_content(multiple, crate::test_creatures::content())
+    }
+
+    fn configured_with_content(
+        multiple: bool,
+        content: std::sync::Arc<crate::creatures::Content>,
+    ) -> Game {
         let mut world = tor_world::World::new(vec![], vec![]).unwrap();
         world
             .add_region(tor_world::Region {
@@ -970,6 +984,254 @@ mod tests {
         let created = game.create_population_monster(ActorId(1)).unwrap().unwrap();
         assert!(game.actors[&created].awareness.alert.is_none());
     }
+    fn wanderer_fixture(
+        disposition: crate::behavior::Disposition,
+        erratic: bool,
+        origin: Option<BirthOrigin>,
+    ) -> (Game, ActorId) {
+        use crate::behavior::{Disposition, IdleBehavior};
+        use crate::locomotion::{LocomotionValue, MovementChance};
+        use crate::rules::{Modifier, ModifierOp, Scope};
+
+        let mut species = crate::test_creatures::species();
+        species.id = crate::content_ids::SpeciesId::new(match (erratic, disposition) {
+            (true, _) => "test_bat",
+            (_, Disposition::Greedy) => "test_orc",
+            _ => "test_yeti",
+        })
+        .unwrap();
+        species.behavior.disposition = disposition;
+        species.behavior.idle = IdleBehavior::Wait;
+        species.behavior.memory_ticks = 1000;
+        if erratic {
+            species.modifiers.extend([
+                Modifier {
+                    cancellable: false,
+                    scope: Scope::Always,
+                    op: ModifierOp::Locomotion {
+                        value: LocomotionValue::Flying { enabled: true },
+                    },
+                },
+                Modifier {
+                    cancellable: false,
+                    scope: Scope::Always,
+                    op: ModifierOp::Locomotion {
+                        value: LocomotionValue::Erratic {
+                            chance: Some(MovementChance {
+                                numerator: 1,
+                                denominator: 2,
+                            }),
+                        },
+                    },
+                },
+            ]);
+        }
+        let content = crate::test_creatures::content_with(species.clone(), vec![]);
+        let mut game = configured_with_content(false, content);
+        let pc = ActorId(1);
+        crate::test_creatures::configure(&mut game, pc, "hero", species.clone());
+        game.configure_run(
+            pc,
+            BTreeSet::from([pc]),
+            BTreeMap::from([("foe".into(), BTreeSet::from(["hero".into()]))]),
+        )
+        .unwrap();
+        let state = game.floor_activation.as_mut().unwrap();
+        let mut plan = (*state.plan).clone();
+        let PopulationContent::Actors { bands, .. } =
+            &mut plan.profiles.get_mut("baseline").unwrap().stages[0].population
+        else {
+            unreachable!()
+        };
+        let recipe = &mut bands[0].choices[0].actor;
+        let build = crate::test_creatures::build(species);
+        recipe.build = Some(crate::creatures::record::BuildRecord::capture(&build));
+        recipe.identity = Some(crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.wanderer".parse().unwrap(),
+            name: "passive foe".into(),
+            faction: "foe".into(),
+        });
+        recipe.ai = Some(crate::ai::AiProfile {
+            idle: IdleBehavior::Wait,
+            flee_percent: 0,
+            gold: disposition == Disposition::Greedy,
+            ..Default::default()
+        });
+        let definition = recipe.clone();
+        state.plan = Shared::new(plan);
+        let foe = if let Some(origin) = origin {
+            let foe = game
+                .spawn_living_population("floor/1", origin, None)
+                .unwrap()
+                .unwrap();
+            game.teleport(foe, at(5, 1)).unwrap();
+            foe
+        } else {
+            game.spawn_prepared_actor_in_candidate(
+                &definition,
+                at(5, 1),
+                NonZeroU64::new(100).unwrap(),
+                Some(build),
+                None,
+            )
+            .unwrap()
+            .0
+        };
+        game.teleport(pc, at(8, 1)).unwrap();
+        // Fixture relocations bypass observed travel. Teach the current
+        // disclosed cells exactly as ordinary in-world movement does.
+        game.refresh_navigation();
+        assert!(game.travel_route(foe, at(8, 1)).is_ok());
+        assert!(game
+            .observe(foe)
+            .unwrap()
+            .visible_actors
+            .iter()
+            .any(|v| v.id == pc));
+        assert!(!game.attack_available(foe, pc));
+        let sight = game.decision_snapshot(foe).unwrap().sight;
+        assert!(game.actor_visible_in_sight(foe, pc, &sight));
+        assert_eq!(game.actors[&foe].behavior.engagement, None);
+        (game, foe)
+    }
+
+    #[test]
+    fn passive_wanderers_acquire_the_visible_player_with_or_without_a_lead() {
+        use crate::{behavior::Disposition, Action, Direction};
+        let pc = ActorId(1);
+        for (erratic, stale_lead) in [(true, true), (true, false), (false, false)] {
+            let (mut game, foe) =
+                wanderer_fixture(Disposition::Passive, erratic, Some(BirthOrigin::Wandering));
+            // Ordinary location alerts are limited by disposition. Install
+            // the requested stale-lead witness after positioning the actors;
+            // the no-lead case uses the actual passive birth defaults.
+            let expires = game.actor_clock(foe) + 1000;
+            game.actors.get_mut(&foe).unwrap().awareness.alert =
+                stale_lead.then_some(crate::awareness::LocationAlert {
+                    location: at(1, 1),
+                    expires,
+                });
+            // SplitMix state's first draw at zero is odd: decline the erratic turn.
+            game.actors.get_mut(&foe).unwrap().behavior.rng = 0;
+            let chosen = game.choose_ai(foe).unwrap();
+            assert_eq!(
+                chosen.behavior.engagement.map(|e| (e.target, e.location)),
+                Some((pc, at(8, 1))),
+                "visible player should supersede search, erratic={erratic} stale={stale_lead}"
+            );
+            assert_eq!(chosen.action, Action::Move(Direction::East));
+
+            game.teleport(pc, at(6, 1)).unwrap();
+            assert!(game.attack_available(foe, pc));
+            let chosen = game.choose_ai(foe).unwrap();
+            assert!(
+                matches!(
+                    chosen.action,
+                    Action::UseAbility { id, invocation: crate::abilities::AbilityInvocation {
+                        aim: crate::abilities::AbilityAim::ActorTarget { target }, ..
+                    }, .. } if id.as_str() == "basic_melee" && target == pc
+                ),
+                "in reach the wanderer must attempt a melee attack"
+            );
+        }
+
+        for origin in [None, Some(BirthOrigin::Created)] {
+            let (mut game, ordinary) = wanderer_fixture(Disposition::Passive, true, origin);
+            game.actors.get_mut(&ordinary).unwrap().behavior.rng = 0;
+            game.teleport(pc, at(6, 1)).unwrap();
+            assert!(game.attack_available(ordinary, pc));
+            let decision = game.choose_ai(ordinary).unwrap();
+            assert_eq!(decision.action, Action::Wait);
+            assert!(decision.behavior.engagement.is_none());
+        }
+    }
+
+    #[test]
+    fn a_wandering_bat_can_deviate_and_resume_pursuit() {
+        use crate::{behavior::Disposition, Action};
+        let pc = ActorId(1);
+        let (mut game, bat) =
+            wanderer_fixture(Disposition::Passive, true, Some(BirthOrigin::Wandering));
+
+        // Select a reproducible away move followed by a non-erratic draw.
+        let preview = (0..128)
+            .find_map(|seed| {
+                let mut rng = seed;
+                if crate::dice::random_word(&mut rng) % 2 != 0 {
+                    return None;
+                }
+                crate::dice::random_word(&mut rng);
+                if crate::dice::random_word(&mut rng) % 2 != 1 {
+                    return None;
+                }
+                game.actors.get_mut(&bat).unwrap().behavior.rng = seed;
+                let Action::Move(direction) = game.choose_ai(bat)?.action else {
+                    return None;
+                };
+                (direction.delta().0 < 0).then_some(direction)
+            })
+            .expect("at least one disclosed erratic move steps away before an ordinary turn");
+        game.act(pc, Action::Wait).unwrap();
+        game.admit_ai_intention(bat).unwrap();
+        let execution = game.execute_next_intention().unwrap();
+        assert_eq!(execution.action, Some(Action::Move(preview)));
+        execution.outcome.unwrap();
+        assert!(game.actors[&bat].location.position.x < 5);
+        assert_eq!(
+            game.actors[&bat]
+                .behavior
+                .engagement
+                .map(|entry| entry.target),
+            Some(pc)
+        );
+        assert!(game.travel_route(bat, at(8, 1)).is_ok());
+        let next = game.choose_ai(bat).unwrap();
+        assert!(matches!(next.action, Action::Move(direction) if direction.delta().0 > 0));
+        assert_eq!(next.behavior.engagement.map(|entry| entry.target), Some(pc));
+    }
+
+    #[test]
+    fn a_greedy_wanderer_switches_from_safe_gold_only_after_sight() {
+        use crate::{behavior::Disposition, Action, Direction, ItemClass, ItemId, ItemSpec};
+        let pc = ActorId(1);
+        let (mut game, orc) =
+            wanderer_fixture(Disposition::Greedy, false, Some(BirthOrigin::Wandering));
+        game.actors.get_mut(&orc).unwrap().awareness.alert = None;
+        game.teleport(pc, at(40, 1)).unwrap();
+        let sight = game.decision_snapshot(orc).unwrap().sight;
+        assert!(!game.actor_visible_in_sight(orc, pc, &sight));
+        let mut gold =
+            ItemSpec::ordinary("item.test.gold-coin".parse().unwrap(), "gold coin".into());
+        gold.class = ItemClass::Coin;
+        gold.stackable = true;
+        gold.currency = Some(crate::CurrencyKind::Gold);
+        game.place_item_stack(20, at(5, 1), None, 7, gold).unwrap();
+        let before = game.choose_ai(orc).unwrap();
+        assert_eq!(
+            before.action,
+            Action::Take {
+                item: ItemId(20),
+                quantity: Some(7)
+            }
+        );
+        assert!(before.behavior.engagement.is_none());
+
+        game.teleport(pc, at(8, 1)).unwrap();
+        let after = game.choose_ai(orc).unwrap();
+        assert!(game
+            .observe(orc)
+            .unwrap()
+            .visible_actors
+            .iter()
+            .any(|other| other.id == pc));
+        assert!(!game.attack_available(pc, orc));
+        assert_eq!(
+            after.behavior.engagement.map(|entry| entry.target),
+            Some(pc)
+        );
+        assert_eq!(after.action, Action::Move(Direction::East));
+    }
+
     fn partial_transition(
         game: &mut Game,
         active: &[u64],

@@ -452,7 +452,10 @@ fn only_the_server_side_endings_require_a_decision() {
         (Settled::Journey(TravelPhase::Blocked), BeatEnd::PlanEnded),
         (Settled::Deferred, BeatEnd::PlanEnded),
         (
-            Settled::Rejected(ErrorCode::InvalidAction),
+            Settled::Rejected {
+                code: ErrorCode::InvalidAction,
+                detail: None,
+            },
             BeatEnd::PlanEnded,
         ),
     ] {

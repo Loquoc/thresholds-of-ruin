@@ -268,3 +268,18 @@ fn ordered_outcome_keeps_ordinary_ability_animation_without_spatial_effect() {
         matches!(&events[..], [Happening::Ability {caster: Some(caster), id, outcome: AbilityOutcome::Miss, ..}] if *caster == actor && id == "fixture.swing")
     );
 }
+
+#[test]
+fn interruption_and_private_status_do_not_create_a_3d_contact() {
+    let mut observed = observation();
+    let target = observed.self_target;
+    for event in [
+        CombatEventView::Interrupted { actor: target },
+        CombatEventView::Condition {
+            condition: content("rattled"),
+        },
+    ] {
+        observed.combat.as_mut().unwrap().events = vec![event];
+        assert!(happenings(&observed).is_empty());
+    }
+}

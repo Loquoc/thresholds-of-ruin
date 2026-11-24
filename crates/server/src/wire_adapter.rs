@@ -308,20 +308,6 @@ fn decode_projectile_delivery(
         }
         Ok(item)
     };
-    let carried_ammunition = |token: p::ItemTarget| {
-        let item = owned_item(token)?;
-        // Plain ammunition has no equipment/use interaction row. The complete
-        // inventory still discloses its owner-scoped identity, and any equipped
-        // row would make this carried-only operand unavailable.
-        if interactions
-            .inventory
-            .iter()
-            .any(|offer| offer.item == item && offer.equipped_slot.is_some())
-        {
-            return Err(unavailable());
-        }
-        Ok(item.0)
-    };
     Ok(match delivery {
         p::ProjectileDeliverySelection::Throw { source } => a::ProjectileDeliverySelection::Throw {
             source: match source {
@@ -346,15 +332,49 @@ fn decode_projectile_delivery(
             launcher,
             ammunition,
         } => {
-            if launcher.item == ammunition {
+            if launcher.item == ammunition || !socket_exists(launcher.socket) {
                 return Err(unavailable());
+            }
+            // Validate both owner tokens even if we can explain a known
+            // equipment mismatch. A hint cannot grant a different operand.
+            let (item, equipped_slot) = owned(launcher.item)?;
+            let ammunition = owned_item(ammunition)?;
+            let known_launcher = || {
+                interactions
+                    .inventory
+                    .iter()
+                    .any(|offer| offer.item.0 == item && offer.launch_range.is_some())
+            };
+            if equipped_slot != Some(s::EquipmentSlotId(launcher.socket)) {
+                return Err(if equipped_slot.is_none() && known_launcher() {
+                    crate::Failure::action_requirement(s::ActionRequirement::WieldLauncher)
+                } else {
+                    unavailable()
+                });
+            }
+            // Plain ammunition needs no interaction row, but an equipped
+            // item cannot serve as a carried-only operand.
+            if interactions
+                .inventory
+                .iter()
+                .any(|offer| offer.item == ammunition && offer.equipped_slot.is_some())
+            {
+                let known_ammunition = observation
+                    .inventory
+                    .iter()
+                    .any(|row| row.id == ammunition && row.identified);
+                return Err(if known_ammunition && known_launcher() {
+                    crate::Failure::action_requirement(s::ActionRequirement::CompatibleAmmunition)
+                } else {
+                    unavailable()
+                });
             }
             a::ProjectileDeliverySelection::Launch {
                 launcher: a::EquippedProjectileWeapon {
-                    item: equipped(launcher.item, launcher.socket)?,
+                    item,
                     socket: launcher.socket,
                 },
-                ammunition: carried_ammunition(ammunition)?,
+                ammunition: ammunition.0,
             }
         }
     })
@@ -1243,6 +1263,7 @@ pub fn disclose_entry(
         },
     };
     Some(tor_protocol::HistoryEntry {
+        narration: vec![],
         id: entry.id.clone(),
         branch: entry.branch.clone(),
         actor: entry.actor,

@@ -172,7 +172,8 @@ pub(crate) fn readiness(game: &Game) -> &'static str {
         return "FALLEN";
     }
     if game.busy {
-        return "WORKING";
+        // Transport busy still gates input; it isn't an action outcome.
+        return "";
     }
     if view.can_act {
         "READY"
@@ -1156,7 +1157,11 @@ mod tests {
         game.view.as_mut().unwrap().has_control = true;
         assert_eq!(readiness(&game), "READY");
         game.busy = true;
-        assert_eq!(readiness(&game), "WORKING");
+        assert_eq!(
+            readiness(&game),
+            "",
+            "ordinary requests keep the badge quiet"
+        );
         game.view.as_mut().unwrap().hp = Some((0, 18));
         assert_eq!(readiness(&game), "FALLEN");
         game.fatal = true;

@@ -436,9 +436,7 @@ impl crate::Game {
         if !selection.valid() {
             return Err(invalid());
         }
-        if !self.projectile_source_eligible(actor, selection) {
-            return Err(crate::GameError::ItemUnavailable);
-        }
+        self.check_projectile_source(actor, selection)?;
         let creature = self.creature(actor).ok_or(crate::GameError::UnknownActor)?;
         let (source, mut attack, payload_hit) = match selection {
             ProjectileDeliverySelection::Throw {

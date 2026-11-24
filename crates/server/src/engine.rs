@@ -817,6 +817,32 @@ pub struct Failure {
 }
 
 impl Failure {
+    pub(crate) fn action_requirement(requirement: tor_simulation::ActionRequirement) -> Self {
+        use tor_simulation::ActionRequirement;
+        let message = match requirement {
+            ActionRequirement::WieldLauncher => "Wield a compatible launcher before using Launch.",
+            ActionRequirement::CompatibleAmmunition => {
+                "Choose available, compatible ammunition before firing."
+            }
+        };
+        Self::new(ErrorCode::InvalidAction, message)
+    }
+
+    /// Only simulation errors that already account for the owner's knowledge
+    /// are safe to explain through a player-facing refusal.
+    pub(crate) fn disclosed_action_refusal(error: tor_simulation::GameError) -> Option<Self> {
+        match error {
+            tor_simulation::GameError::ActionRequirement(requirement) => {
+                Some(Self::action_requirement(requirement))
+            }
+            tor_simulation::GameError::InsufficientGrip => Some(Self::new(
+                ErrorCode::InvalidAction,
+                "You do not have enough free grip capacity to equip this weapon. Unequip another held item to free a grip.",
+            )),
+            _ => None,
+        }
+    }
+
     pub(crate) fn simulation_failure(error: tor_simulation::GameError) -> Option<Self> {
         if matches!(error, tor_simulation::GameError::PopulationCapacity(_)) {
             return Some(Self::new(
@@ -1197,6 +1223,38 @@ pub(crate) struct Record {
     pub(crate) hooks: Option<tor_simulation::scripting::ScriptReport>,
 }
 
+const _: () = assert!(
+    tor_simulation::scripting::MAX_GAMEPLAY_NARRATION_LINES
+        == tor_protocol::MAX_HISTORY_NARRATION_LINES
+);
+
+impl Record {
+    /// Built-in, event-time lines only. Script tutorials don't change anyone's
+    /// history scope, and literal wording is validated identically at look-up.
+    pub(crate) fn historic_cues(&self) -> impl Iterator<Item = (ActorId, &str)> {
+        use tor_simulation::scripting::{Audience, MessageSegment};
+        self.hooks
+            .iter()
+            .flat_map(|report| &report.gameplay_narration)
+            .filter_map(|cue| match (cue.audience, cue.segments.as_slice()) {
+                (Audience::Actor(actor), [MessageSegment::Text(line)])
+                    if tor_protocol::valid_history_narration_line(line) =>
+                {
+                    Some((ActorId(actor.0), line.as_str()))
+                }
+                _ => None,
+            })
+    }
+
+    fn foreign_cue_visible_to(&self, actor: ActorId) -> bool {
+        self.entry.audience == Audience::Actor
+            && self.entry.actor != actor
+            && self
+                .historic_cues()
+                .any(|(recipient, _)| recipient == actor)
+    }
+}
+
 /// The user-message facts `report` shows `actor`'s controller. Messages
 /// outside the protocol's vocabulary or bounds are never delivered; the
 /// simulation already rejects them, so this only guards the wire contract.
@@ -1210,6 +1268,7 @@ pub(crate) fn user_message_facts(
     report
         .messages
         .iter()
+        .chain(&report.gameplay_narration)
         .filter(|message| game.hears_script_message(message, SimActor(actor.0)))
         .filter_map(|message| {
             let style = match message.style {
@@ -1610,7 +1669,13 @@ pub struct CommandResult {
     /// True when a matching request returned its entry without repeating effects.
     pub duplicate: bool,
     /// Private live evidence, correlated to the admission and never part of a save.
-    pub(crate) intention_failure: Option<(EntryId, IntentionFailure)>,
+    pub(crate) intention_failure: Option<(EntryId, OwnerIntentionFailure)>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum OwnerIntentionFailure {
+    Status(IntentionFailure),
+    Requirement(Failure),
 }
 
 /// Diagnostic phase measurements for the checked-in performance harness.
@@ -3745,10 +3810,13 @@ impl Engine {
         let end = match before {
             Some(id) => {
                 let position = self.history_index.find(id).ok_or_else(invalid_anchor)?;
-                let entry = &self.archive.records[position].entry;
+                let record = &self.archive.records[position];
+                let entry = &record.entry;
                 #[cfg(test)]
                 HISTORY_RECORD_VISITS.with(|visits| visits.set(visits.get() + 1));
-                if &entry.branch != branch || !entry.visible_to(actor, user) {
+                if &entry.branch != branch
+                    || !(entry.visible_to(actor, user) || record.foreign_cue_visible_to(actor))
+                {
                     return Err(invalid_anchor());
                 }
                 position
@@ -3761,7 +3829,40 @@ impl Engine {
         Ok(HistoryPage {
             entries: positions
                 .iter()
-                .filter_map(|&position| self.disclose_entry(&self.archive.records[position].entry))
+                .filter_map(|&position| {
+                    let record = &self.archive.records[position];
+                    let narration: Vec<String> = record
+                        .historic_cues()
+                        .filter(|(recipient, _)| *recipient == actor)
+                        .take(tor_protocol::MAX_HISTORY_NARRATION_LINES)
+                        .map(|(_, line)| line.to_owned())
+                        .collect();
+                    let mut entry = if record.entry.visible_to(actor, user) {
+                        self.disclose_entry(&record.entry)?
+                    } else if record.entry.audience == Audience::Actor
+                        && record.entry.actor != actor
+                        && !narration.is_empty()
+                    {
+                        // Same stable history cursor; never project the foreign
+                        // actor, action, author or private targeting capability.
+                        HistoryEntry {
+                            id: record.entry.id.clone(),
+                            branch: record.entry.branch.clone(),
+                            actor,
+                            tick: record.after_tick,
+                            author: Author::Backend {
+                                component: "perception".into(),
+                            },
+                            audience: Audience::Actor,
+                            content: HistoryContent::Narration {},
+                            narration: Vec::new(),
+                        }
+                    } else {
+                        return None;
+                    };
+                    entry.narration = narration;
+                    Some(entry)
+                })
                 .collect(),
             older_before: older.then(|| self.archive.records[positions[0]].entry.id.clone()),
         })
@@ -4346,9 +4447,11 @@ impl Engine {
                 .game
                 .act_for_host(SimActor(actor.0), adapt::action(action))
                 .map_err(|error| {
-                    Failure::simulation_failure(error).unwrap_or_else(|| {
-                        Failure::new(ErrorCode::InvalidAction, "Action is unavailable")
-                    })
+                    Failure::disclosed_action_refusal(error)
+                        .or_else(|| Failure::simulation_failure(error))
+                        .unwrap_or_else(|| {
+                            Failure::new(ErrorCode::InvalidAction, "Action is unavailable")
+                        })
                 })?,
         };
         if let Some(profile) = profile.as_deref_mut().filter(|_| !already_executed) {
@@ -4566,10 +4669,10 @@ impl Engine {
                         tor_simulation::IntentionOrigin::Human,
                     )
                     .map_err(|error| match error {
-                        tor_simulation::GameError::InsufficientGrip => Failure::new(
-                            ErrorCode::InvalidAction,
-                            "You do not have enough free grip capacity to equip this weapon.",
-                        ),
+                        tor_simulation::GameError::ActionRequirement(_)
+                        | tor_simulation::GameError::InsufficientGrip => {
+                            Failure::disclosed_action_refusal(error).expect("matched disclosed refusal")
+                        }
                         tor_simulation::GameError::Rule(tor_simulation::abilities::RuleError::MeleeOutOfReach) => Failure::new(
                             ErrorCode::InvalidAction,
                             "You can't reach that target in melee from here. Try from an open adjacent square.",
@@ -5097,7 +5200,7 @@ impl Engine {
 
     fn append_record(&mut self, record: Record) {
         let position = self.archive.records.len();
-        self.history_index.append(&record.entry, position);
+        self.history_index.append_record(&record, position);
         if let Some(receipt) = &record.receipt {
             self.receipts
                 .insert((receipt.user.clone(), receipt.request_id.clone()), position);

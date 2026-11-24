@@ -229,6 +229,7 @@ pub struct App {
     pub state: Option<ClientState>,
     pub connected: bool,
     pub busy: bool,
+    submitted: Option<(tor_client_common::compositor::AdmissionBoundary, bool)>,
     pub status: String,
     pub note: Option<NoteDraft>,
     pub wizard_command: Option<String>,
@@ -314,6 +315,7 @@ impl App {
             state: None,
             connected: false,
             busy: true,
+            submitted: None,
             status: "Connecting to the local server...".into(),
             note: None,
             wizard_command: None,
@@ -367,6 +369,7 @@ impl App {
             .as_ref()
             .map(|s| (s.branch().clone(), s.state().revision));
         self.state = Some(state);
+        self.submitted = None;
         // A new transport owner has no matching local chart selection.
         self.charts.clear();
         self.chart_selected = 0;
@@ -392,7 +395,7 @@ impl App {
             _ => Vec::new(),
         };
         let action_message = match &update.body {
-            UpdateBody::Intention { status, failure } => {
+            UpdateBody::Intention { status, failure } if status.phase != IntentionPhase::Queued => {
                 Some(failure.map_or_else(|| phase_status(status.phase), |reason| reason.message()))
             }
             _ => None,
@@ -435,6 +438,9 @@ impl App {
             self.effect_animations.push(event);
         }
         if control_changed {
+            if !state.has_control() {
+                self.submitted = None;
+            }
             self.movement_prefix = self
                 .movement_prefix
                 .map(|_| controls::MovementPrefix::Cancelled);
@@ -530,6 +536,7 @@ impl App {
             .movement_prefix
             .map(|_| controls::MovementPrefix::Cancelled);
         self.effect_animations.clear();
+        self.submitted = None;
         // Recovery cancels the transport's chart request. Return to the catalog
         // only after validation succeeds rather than leaving a loading selection
         // that has no corresponding worker query.
@@ -855,6 +862,17 @@ impl App {
         self.act(Action::Move { direction })
     }
 
+    pub fn note_admission(&mut self, receipt: &RequestReceipt) {
+        self.submitted = tor_client_common::compositor::AdmissionBoundary::new(receipt)
+            .map(|work| (work, false));
+    }
+
+    pub fn input_yielded(&mut self) {
+        if let (Some((work, yielded)), Some(state)) = (&mut self.submitted, &self.state) {
+            *yielded = work.remains_queued(state);
+        }
+    }
+
     pub fn intention_hint(&self) -> Option<String> {
         if self.role == AccessRole::Spectator {
             return None;
@@ -865,7 +883,14 @@ impl App {
             IntentionPhase::Paused => "Attack paused.",
             IntentionPhase::Started => "Attack in progress.",
             IntentionPhase::Suspended => "Action suspended.",
-            _ => "Action queued.",
+            _ if self
+                .submitted
+                .as_ref()
+                .is_some_and(|(work, yielded)| *yielded && work.remains_queued(state)) =>
+            {
+                tor_client_common::compositor::ACTION_PENDING
+            }
+            _ => "",
         };
         let mut hint = String::from(label);
         if state.can_resume_intention() {
@@ -3933,7 +3958,7 @@ pub const MESSAGE_LOG_ROWS: usize = 24;
 /// A request's progress in plain words; a finished action needs none.
 pub fn phase_status(phase: IntentionPhase) -> &'static str {
     match phase {
-        IntentionPhase::Queued => "Action queued.",
+        IntentionPhase::Queued => "",
         IntentionPhase::Suspended => "Action suspended. F8 resumes, F9 cancels.",
         IntentionPhase::Paused => "Attack paused.",
         IntentionPhase::Started => "Action under way.",

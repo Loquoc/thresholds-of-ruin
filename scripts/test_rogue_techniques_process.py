@@ -197,9 +197,15 @@ class RogueTechniquesProcesses(ProcessTestCase):
             before, start = current, len(player.transcript)
             current = self.act_settled(player, {"type": "use_ability", "id": identity,
                 "invocation": {"aim": {"kind": "actor_target", "target": target["id"]}, "weapon": {"kind": "default"}}})
-            events = list(resolved_events(disclosed_frames(player, start), before,
-                                          identity, target["id"]))
+            frames = list(disclosed_frames(player, start))
+            events = list(resolved_events(frames, before, identity, target["id"]))
             self.assertTrue(events, f"No disclosed resolved {identity} against {target['name']}")
+            if identity == "rattling_blow":
+                self.assertFalse(any(
+                    event["type"] == "effect" and (event.get("ability") or {}).get("id") == identity
+                    or event["type"] == "condition" and event["condition"]["id"] == "rattled"
+                    for event in ordered_combat_events(frames)
+                ), "A real strike has no generic flash, and its wielder cannot read the foe's status")
             outcomes.extend(event["outcome"] for event in events)
             if any(event["outcome"] == "applied" for event in events):
                 self.assertEqual(bandages(current), 3)

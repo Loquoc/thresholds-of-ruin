@@ -21,6 +21,7 @@ pub(crate) struct HistoryIndex {
 }
 
 impl HistoryIndex {
+    #[cfg(test)]
     pub fn rebuild<'a>(entries: impl IntoIterator<Item = &'a JournalEntry>) -> Self {
         let mut index = Self::default();
         for (position, entry) in entries.into_iter().enumerate() {
@@ -29,7 +30,36 @@ impl HistoryIndex {
         index
     }
 
-    pub fn append(&mut self, entry: &JournalEntry, position: usize) {
+    pub fn rebuild_records(records: &[crate::engine::Record]) -> Self {
+        let mut index = Self::default();
+        for (position, record) in records.iter().enumerate() {
+            index.append_record(record, position);
+        }
+        index
+    }
+
+    pub fn append_record(&mut self, record: &crate::engine::Record, position: usize) {
+        self.append(&record.entry, position);
+        if record.entry.audience != Audience::Actor {
+            return;
+        }
+        for (recipient, _) in record.historic_cues() {
+            if recipient == record.entry.actor {
+                continue;
+            }
+            let scope = self
+                .branches
+                .entry(record.entry.branch.0.clone())
+                .or_default()
+                .entry(recipient)
+                .or_default();
+            if scope.public.last() != Some(&position) {
+                scope.public.push(position);
+            }
+        }
+    }
+
+    fn append(&mut self, entry: &JournalEntry, position: usize) {
         assert_eq!(
             position,
             self.entries.len(),

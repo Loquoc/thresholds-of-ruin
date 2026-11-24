@@ -105,8 +105,21 @@ fn read_consumes_without_eligible_gear_and_never_identifies_with_or_without_effe
                 .parse::<crate::ItemIdentity>()
                 .unwrap()
         ));
+        let report = game.take_script_report();
         if let Some(armor) = armor {
             assert_eq!(game.items[&armor].condition.armor_enchantment, 1);
+            assert_eq!(report.gameplay_narration.len(), 1);
+            assert_eq!(
+                report.gameplay_narration[0].segments,
+                [crate::scripting::MessageSegment::Text(
+                    "Your armor glows for a moment.".into()
+                )]
+            );
+        } else {
+            assert!(
+                report.gameplay_narration.is_empty(),
+                "no false success without gear"
+            );
         }
     }
 }

@@ -42,6 +42,7 @@ async fn capture_upload_keeps_exact_bytes_anchor_and_live_messages() {
         assert_eq!(metadata.media_type, AttachmentMediaType::Text);
         assert_eq!(metadata.byte_len, 8197);
         let note = HistoryEntry {
+            narration: vec![],
             id: EntryId("live-note".into()),
             branch: initial.branch.clone(),
             actor: initial.actor,

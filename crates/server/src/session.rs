@@ -1,6 +1,6 @@
 #[path = "attachment_session.rs"]
 mod attachment_session;
-use crate::engine::valid_label;
+use crate::engine::{valid_label, OwnerIntentionFailure};
 use crate::{Engine, Failure};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -1461,6 +1461,9 @@ impl Service {
                             }
                         }
                     }
+                    HistoryContent::Narration {} => {
+                        unreachable!("history-only records do not become command receipts");
+                    }
                     HistoryContent::Annotation { .. } => self.annotation_update(&visible_entry),
                     HistoryContent::PlaceRenamed { .. } | HistoryContent::Action { .. } => {
                         self.action_result_update(&before_states, &result)?;
@@ -1494,20 +1497,40 @@ impl Service {
                 .map(|(&id, _)| id)
                 .collect();
             for recipient in recipients {
+                let owner_failure =
+                    result
+                        .intention_failure
+                        .as_ref()
+                        .and_then(|(admission, reason)| {
+                            (status.phase == IntentionPhase::Failed
+                                && admission == &status.entry_id
+                                && self.controllers.get(&status.actor) == Some(&recipient))
+                            .then_some(reason)
+                        });
                 self.update(
                     recipient,
                     UpdateBody::Intention {
-                        failure: result.intention_failure.as_ref().and_then(
-                            |(admission, reason)| {
-                                (status.phase == IntentionPhase::Failed
-                                    && admission == &status.entry_id
-                                    && self.controllers.get(&status.actor) == Some(&recipient))
-                                .then_some(*reason)
-                            },
-                        ),
+                        failure: match owner_failure {
+                            Some(OwnerIntentionFailure::Status(reason)) => Some(*reason),
+                            _ => None,
+                        },
                         status: status.clone(),
                     },
                 );
+                // Keep the committed failed status even if the reason can't
+                // be sent. This is private, attachment-scoped guidance, not
+                // a retryable execution error or a second journal outcome.
+                if let Some(OwnerIntentionFailure::Requirement(reason)) = owner_failure {
+                    self.send(
+                        recipient,
+                        ServerMessage::Error {
+                            scope: self.error_scope(recipient),
+                            request_id: None,
+                            code: reason.code,
+                            message: reason.message.clone(),
+                        },
+                    );
+                }
             }
         }
     }

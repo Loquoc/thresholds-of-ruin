@@ -132,6 +132,28 @@ impl Game {
         }
     }
 
+    pub(crate) fn narrate_gameplay(&mut self, actor: ActorId, text: String) {
+        if self
+            .script_report
+            .gameplay_narration
+            .iter()
+            .filter(|cue| cue.audience == Audience::Actor(actor))
+            .take(super::MAX_GAMEPLAY_NARRATION_LINES)
+            .count()
+            == super::MAX_GAMEPLAY_NARRATION_LINES
+        {
+            return;
+        }
+        let segments = vec![super::MessageSegment::Text(text)];
+        debug_assert!(super::valid_message(&segments));
+        self.script_report.gameplay_narration.push(ScriptMessage {
+            tick: self.tick,
+            audience: Audience::Actor(actor),
+            style: super::MessageStyle::Narration,
+            segments,
+        });
+    }
+
     pub fn script_state(&self) -> Option<&ScriptState> {
         self.script.as_ref()
     }

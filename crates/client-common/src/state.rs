@@ -1548,6 +1548,7 @@ mod outcome_stream_tests {
         facts.self_target = ActorTarget::from_digest([2; 32]);
         facts.validate_at(client.cursor().tick).unwrap();
         *event = Some(Box::new(HistoryEntry {
+            narration: vec![],
             id: EntryId("wrong-self-event".into()),
             branch: client.branch().clone(),
             actor: client.actor(),
@@ -1607,6 +1608,7 @@ mod outcome_stream_tests {
         let before = client.clone();
         let tick = client.cursor().tick;
         let entry = HistoryEntry {
+            narration: vec![],
             id: EntryId("outcome-only".into()),
             branch: client.branch().clone(),
             actor: client.actor(),

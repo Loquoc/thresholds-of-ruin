@@ -876,28 +876,33 @@ pub fn stats(state: &StateView) -> String {
 }
 
 pub fn history(entry: &HistoryEntry) -> String {
-    let content = match &entry.content {
-        HistoryContent::PlaceRenamed { name, .. } => format!("Place named {}.", safe(name)),
-        HistoryContent::Travel { .. } => "Travel requested.".into(),
-        HistoryContent::Wizard { summary, .. } => safe(summary),
-        HistoryContent::Action { event, .. } => match event.as_ref() {
-            Event::EscapeStarted { .. } => "You begin trying to escape a hold.".into(),
-            event => format!("{event:?}"),
-        },
-        HistoryContent::Annotation {
-            anchor,
-            category,
-            text,
-            attachments,
-        } => format!(
-            "{category:?} {anchor:?}: {}{}",
-            safe(text),
-            if attachments.is_empty() {
-                String::new()
-            } else {
-                format!(" [{} saved attachment(s)]", attachments.len())
-            }
-        ),
+    let content = if let Some(narration) = tor_client_common::history::recorded_narration(entry) {
+        safe(&narration)
+    } else {
+        match &entry.content {
+            HistoryContent::Narration {} => "No narration was recorded.".into(),
+            HistoryContent::PlaceRenamed { name, .. } => format!("Place named {}.", safe(name)),
+            HistoryContent::Travel { .. } => "Travel requested.".into(),
+            HistoryContent::Wizard { summary, .. } => safe(summary),
+            HistoryContent::Action { event, .. } => match event.as_ref() {
+                Event::EscapeStarted { .. } => "You begin trying to escape a hold.".into(),
+                event => format!("{event:?}"),
+            },
+            HistoryContent::Annotation {
+                anchor,
+                category,
+                text,
+                attachments,
+            } => format!(
+                "{category:?} {anchor:?}: {}{}",
+                safe(text),
+                if attachments.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{} saved attachment(s)]", attachments.len())
+                }
+            ),
+        }
     };
     safe(&format!(
         "[{}] tick {} {:?} {:?}: {content} (branch {})",

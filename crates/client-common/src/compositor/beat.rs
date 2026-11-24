@@ -134,7 +134,9 @@ impl<P: BeatPolicy> Compositor<P> {
             return Pushed::Ended(end);
         }
         match settled {
-            Settled::Waiting(_) | Settled::Lost => self.end(BeatEnd::DecisionRequired),
+            Settled::Waiting(_) | Settled::Pending | Settled::Lost => {
+                self.end(BeatEnd::DecisionRequired)
+            }
             Settled::Journey(TravelPhase::DecisionRequired | TravelPhase::ControlLost) => {
                 self.end(BeatEnd::DecisionRequired)
             }

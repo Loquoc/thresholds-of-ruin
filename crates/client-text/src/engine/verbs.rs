@@ -1905,13 +1905,25 @@ pub fn inventory(scene: &Scene) -> String {
     text
 }
 
-/// The character's condition, without numbers beyond HP.
-/// How the character is, and what the run asks of them.
+/// Explicit status inspection, not ambient turn narration.
 fn condition(state: &StateView) -> String {
-    match objective_text(state) {
-        Some(goal) => format!("{} {goal}", diagnose(state)),
-        None => diagnose(state),
+    let mut text = diagnose(state);
+    if let Some(combat) = state
+        .observation
+        .combat
+        .as_ref()
+        .filter(|combat| !combat.dead && !combat.terminal && combat.recovery_remaining > 0)
+    {
+        text.push_str(&format!(
+            " Recovery: {} ticks remaining.",
+            combat.recovery_remaining
+        ));
     }
+    if let Some(goal) = objective_text(state) {
+        text.push(' ');
+        text.push_str(&goal);
+    }
+    text
 }
 
 pub fn diagnose(state: &StateView) -> String {

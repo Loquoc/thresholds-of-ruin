@@ -177,8 +177,11 @@ available health information instead.
 
 For a granted projectile ability, enter its name alone. The server lists exact
 throwing sources or equipped launchers using your current inventory names.
-Choose a numbered row; launching then asks for compatible ammunition. Use `next`
-and `previous` for pages, including empty filtered pages with a continuation, or
+Choose a numbered row; launching then asks for compatible ammunition. When a
+known carried bow is not wielded, wield it before using Launch. If the launcher
+has no available compatible ammunition, carry a matching stack, then select it
+to fire. These explanations do not identify hidden item types. Use `next` and
+`previous` for pages, including empty filtered pages with a continuation, or
 `cancel` to leave. After selecting the source, enter a direction (`north`, `ne`,
 `up`, and the usual abbreviations). The server's exact cost, time to next strike
 and recovery appear before a separate `yes`/`no` confirmation. Only `yes` sends

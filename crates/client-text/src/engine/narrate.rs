@@ -48,6 +48,8 @@ pub enum End {
     Done,
     /// Other actors must act; narrate observed effects without finishing this goal.
     Waiting,
+    /// This exact action remains queued after the server yielded input.
+    Pending,
     /// Processing was refused, without completing or cancelling queued work.
     Deferred,
     /// The journey ended before arriving.
@@ -710,9 +712,12 @@ fn episode(teller: &mut Teller, e: &Episode) {
             tell(teller, &e.beats);
             teller.say(text);
         }
-        (End::Waiting | End::Deferred, _) => {
+        (End::Waiting | End::Pending | End::Deferred, _) => {
             own_actions(teller, &e.beats);
             tell(teller, &e.beats);
+            if e.end == End::Pending {
+                teller.say(tor_client_common::compositor::ACTION_PENDING);
+            }
         }
         (End::Lost, _) => tell(teller, &e.beats),
     }

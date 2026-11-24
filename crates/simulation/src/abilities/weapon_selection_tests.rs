@@ -2509,6 +2509,71 @@ fn projectile_choices_ignore_hidden_instance_values_and_do_not_mutate_state() {
 }
 
 #[test]
+fn launch_refusal_identifies_known_requirements_without_disclosing_hidden_types() {
+    use crate::{ActionRequirement, GameError};
+
+    let (game, ability, selection, launcher, ammo) = projectile_launch_fixture();
+    let owner = ActorId(1);
+    let launch =
+        |game: &Game| game.capture_projectile_plan(owner, &ability, StepDirection::East, selection);
+    assert!(launch(&game).is_ok());
+    let edit = |game: &mut Game, item, update: fn(&mut crate::ItemSpec)| {
+        game.items
+            .edit(item, |item| {
+                let mut spec = (*item.spec).clone();
+                update(&mut spec);
+                item.spec = tor_world::Shared::new(spec);
+            })
+            .unwrap();
+    };
+
+    let mut carried = game.clone();
+    carried
+        .actors
+        .get_mut(&owner)
+        .unwrap()
+        .equipment
+        .remove(&EquipmentSlotId(0));
+    let before = carried.clone();
+    assert_eq!(
+        launch(&carried).unwrap_err(),
+        GameError::ActionRequirement(ActionRequirement::WieldLauncher),
+    );
+    assert_eq!(carried, before);
+    carried
+        .equip_authored(owner, launcher, EquipmentSlotId(0))
+        .unwrap();
+    assert!(
+        launch(&carried).is_ok(),
+        "wielding the selected launcher fixes the refusal"
+    );
+
+    let mut wrong_family = game.clone();
+    edit(&mut wrong_family, ammo, |spec| {
+        spec.projectile.as_mut().unwrap().family =
+            crate::content_ids::LauncherFamilyId::new("fixture.other").unwrap();
+    });
+    assert_eq!(
+        launch(&wrong_family).unwrap_err(),
+        GameError::ActionRequirement(ActionRequirement::CompatibleAmmunition),
+    );
+    edit(&mut wrong_family, ammo, |spec| spec.concealed = true);
+    assert_eq!(
+        launch(&wrong_family).unwrap_err(),
+        GameError::ItemUnavailable
+    );
+
+    let mut concealed_launcher = before;
+    edit(&mut concealed_launcher, launcher, |spec| {
+        spec.concealed = true
+    });
+    assert_eq!(
+        launch(&concealed_launcher).unwrap_err(),
+        GameError::ItemUnavailable
+    );
+}
+
+#[test]
 fn projectile_throw_choices_use_primary_first_real_free_grips_and_active_expertise() {
     let (mut game, plan, item) = paid_throw_fixture(false);
     let ability = plan.ability_id().unwrap().clone();

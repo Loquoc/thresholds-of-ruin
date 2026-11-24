@@ -4,7 +4,7 @@
 use crate::content_ids::ConditionId;
 use crate::{ActorId, Game, GameError, ItemId, ItemLocation};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tor_world::{Direction, Location};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -61,6 +61,10 @@ pub enum ControlSpec {
         condition: ConditionId,
         duration: u64,
     },
+    ScareVisible {
+        fear: ConditionPayload,
+        wake_conditions: [ConditionId; 2],
+    },
     Aggravate {},
     CreateMonster {},
     Nothing {},
@@ -78,6 +82,10 @@ impl<'de> Deserialize<'de> for ControlSpec {
             ArmConfusion {
                 condition: ConditionId,
                 duration: u64,
+            },
+            ScareVisible {
+                fear: ConditionPayload,
+                wake_conditions: [ConditionId; 2],
             },
             Aggravate {},
             CreateMonster {},
@@ -100,6 +108,13 @@ impl<'de> Deserialize<'de> for ControlSpec {
                 condition,
                 duration,
             },
+            Fields::ScareVisible {
+                fear,
+                wake_conditions,
+            } => Self::ScareVisible {
+                fear,
+                wake_conditions,
+            },
             Fields::Aggravate {} => Self::Aggravate {},
             Fields::CreateMonster {} => Self::CreateMonster {},
             Fields::Nothing {} => Self::Nothing {},
@@ -118,6 +133,14 @@ impl ControlSpec {
             } => (1..=8).contains(radius) && (1..=crate::limits::NUMERIC as u64).contains(duration),
             Self::ArmConfusion { duration, .. } => {
                 (1..=crate::limits::NUMERIC as u64).contains(duration)
+            }
+            Self::ScareVisible {
+                fear,
+                wake_conditions,
+            } => {
+                fear.valid_shape()
+                    && wake_conditions[0] != wake_conditions[1]
+                    && wake_conditions.iter().all(|id| id != &fear.condition)
             }
             _ => true,
         }
@@ -140,6 +163,15 @@ impl ControlSpec {
                 duration: *duration,
             }
             .valid(rules),
+            Self::ScareVisible {
+                fear,
+                wake_conditions,
+            } => {
+                fear.valid(rules)
+                    && wake_conditions
+                        .iter()
+                        .all(|id| rules.condition(id).is_some())
+            }
             _ => true,
         }
     }
@@ -519,18 +551,137 @@ impl Game {
         }))
     }
 
+    /// A ward can work without the occupant perceiving its victim. Name only
+    /// an actually sighted creature, through the ordinary appearance projection.
+    fn sighted_actor_name(&self, observer: ActorId, subject: ActorId) -> Option<String> {
+        let owner = self.actors.get(&observer)?;
+        if !owner.perception().sight {
+            return None;
+        }
+        let (_, sight) = self.scene_snapshot(observer).ok()?;
+        if !self.actor_visible_in_sight(observer, subject, &sight) {
+            return None;
+        }
+        let appearance = self
+            .hallucinated_actor_presentation(observer, subject, &sight)
+            .ok()?;
+        let target = self.actors.get(&subject)?;
+        let name = appearance.as_ref().map_or_else(
+            || crate::observation::projected_actor_name(owner, target),
+            |shown| shown.name.as_ref(),
+        );
+        let name = if name.trim().is_empty() {
+            "creature"
+        } else {
+            name
+        };
+        Some(name.to_owned())
+    }
+
+    /// Different from near-field contact: only bodies on physical eye-sight
+    /// cells are subject to an ordinary or reversed Scare read.
+    fn visible_scare_targets(&self, reader: ActorId) -> Result<BTreeSet<ActorId>, GameError> {
+        let (_, sight) = self.scene_snapshot(reader)?;
+        let mut targets = BTreeSet::new();
+        for cell in sight.iter().filter(|cell| cell.physical && !cell.wall) {
+            targets.extend(
+                self.actors
+                    .at(&self.world, cell.location)
+                    .keys()
+                    .copied()
+                    .filter(|&target| {
+                        target != reader && self.alive(target) && self.creature(target).is_some()
+                    }),
+            );
+        }
+        Ok(targets)
+    }
+
+    fn resolve_scare_read(
+        &mut self,
+        reader: ActorId,
+        fear: &ConditionPayload,
+        wake_conditions: &[ConditionId; 2],
+        cursed: bool,
+    ) -> Result<bool, GameError> {
+        let actor = self.actors.get(&reader).ok_or(GameError::UnknownActor)?;
+        let reversed = cursed || actor.locomotion().confused.is_some();
+        let source = actor.location;
+        let targets = self.visible_scare_targets(reader)?;
+        // Allied followers never determine the audible distance, even though
+        // eligible creatures may still be affected by the magic.
+        let nearby = targets.iter().any(|&target| !self.allied(reader, target));
+        let hallucinating = self.projected_hallucination(reader)?.is_some();
+        let mut changed = false;
+        for target in targets {
+            if reversed {
+                let mut conditions = BTreeSet::from([fear.condition.clone()]);
+                conditions.extend(wake_conditions.iter().cloned());
+                if let Some(flee) = &self.actors[&target].control.flee {
+                    conditions.insert(flee.owned.condition.clone());
+                }
+                let effects: Vec<_> = conditions
+                    .into_iter()
+                    .map(|condition| crate::rules::Effect::RemoveCondition { condition })
+                    .collect();
+                changed |= self.apply_effects_in_transaction(target, &effects)?;
+            } else if self.forced_flee_location(target).is_none()
+                && self.control_lore_check(reader, target)?
+                && self.apply_control_condition(reader, target, fear)?
+            {
+                let mut outcome = self.actor_outcome(target)?;
+                outcome.state.control.flee = self
+                    .owned_control_condition(target, &fear.condition)
+                    .map(|owned| FleeSource {
+                        owned,
+                        location: source,
+                    });
+                self.apply_outcome(outcome)?;
+                changed = true;
+            }
+        }
+        let sound = match (reversed, hallucinating) {
+            (false, false) => "a burst of laughter",
+            (true, false) => "a drawn-out wail",
+            (false, true) => "teapots cackling",
+            (true, true) => "a choir of tea kettles wailing",
+        };
+        let distance = if nearby { "nearby" } else { "in the distance" };
+        self.narrate_gameplay(reader, format!("You hear {sound} {distance}."));
+        Ok(changed)
+    }
+
     pub(crate) fn resolve_control_read(
         &mut self,
         reader: ActorId,
         control: &ControlSpec,
+        cursed: bool,
     ) -> Result<bool, GameError> {
         match control {
+            ControlSpec::ScareVisible {
+                fear,
+                wake_conditions,
+            } => self.resolve_scare_read(reader, fear, wake_conditions, cursed),
             ControlSpec::Nothing {} => Ok(false),
             ControlSpec::Aggravate {} => {
-                self.alert_location_pulse(reader)?;
+                if self.alert_location_pulse(reader)? {
+                    let cue = if self.projected_hallucination(reader)?.is_some() {
+                        "You feel an itch of unease crawl up your spine."
+                    } else {
+                        "You feel a sudden jolt of unease."
+                    };
+                    self.narrate_gameplay(reader, cue.into());
+                }
                 Ok(true)
             }
-            ControlSpec::CreateMonster {} => Ok(self.create_population_monster(reader)?.is_some()),
+            ControlSpec::CreateMonster {} => {
+                let created = self.create_population_monster(reader)?;
+                if let Some(name) = created.and_then(|actor| self.sighted_actor_name(reader, actor))
+                {
+                    self.narrate_gameplay(reader, format!("The {name} appears."));
+                }
+                Ok(created.is_some())
+            }
             ControlSpec::ArmConfusion {
                 condition,
                 duration,
@@ -541,6 +692,15 @@ impl Game {
                     duration: *duration,
                 });
                 self.apply_outcome(outcome)?;
+                let sight = self.actors[&reader].perception().sight;
+                let hallucinating = self.projected_hallucination(reader)?.is_some();
+                let cue = match (sight, hallucinating) {
+                    (true, false) => "Your hands begin to glow red.",
+                    (true, true) => "Your hands glow a color you can't quite name.",
+                    (false, false) => "Your hands begin to tingle.",
+                    (false, true) => "Your hands tingle as if they were full of tiny bells.",
+                };
+                self.narrate_gameplay(reader, cue.into());
                 Ok(true)
             }
             ControlSpec::HoldNearby {
@@ -591,6 +751,9 @@ impl Game {
                 };
                 let mut applied = false;
                 for target in targets {
+                    let already_held = self
+                        .creature(target)
+                        .is_some_and(|target| target.conditions().has_active(condition));
                     if self.hold_target_in_range(reader, target, *radius)?
                         && self.control_lore_check(reader, target)?
                         && self.hold_target_in_range(reader, target, *radius)?
@@ -600,6 +763,11 @@ impl Game {
                         outcome.state.control.held =
                             self.owned_control_condition(target, condition);
                         self.apply_outcome(outcome)?;
+                        if !already_held {
+                            if let Some(name) = self.sighted_actor_name(reader, target) {
+                                self.narrate_gameplay(reader, format!("The {name} stops short."));
+                            }
+                        }
                         applied = true;
                     }
                 }
@@ -668,7 +836,19 @@ impl Game {
             if self.alive(outcome.target)
                 && self.control_lore_check(outcome.actor, outcome.target)?
             {
-                self.apply_control_condition(outcome.actor, outcome.target, &payload)?;
+                let already_confused = self
+                    .creature(outcome.target)
+                    .is_some_and(|target| target.conditions().has_active(&payload.condition));
+                if self.apply_control_condition(outcome.actor, outcome.target, &payload)?
+                    && !already_confused
+                {
+                    if let Some(name) = self.sighted_actor_name(outcome.actor, outcome.target) {
+                        self.narrate_gameplay(
+                            outcome.actor,
+                            format!("The {name} reels in confusion."),
+                        );
+                    }
+                }
             }
         }
         Ok(())
@@ -780,6 +960,14 @@ impl Game {
                             location: *location,
                         });
                     self.apply_outcome(outcome)?;
+                    if self.forced_flee_location(recipient).is_some() {
+                        if let Some(name) = self.sighted_actor_name(*source, recipient) {
+                            self.narrate_gameplay(
+                                *source,
+                                format!("The {name} recoils and flees."),
+                            );
+                        }
+                    }
                     break;
                 }
             }

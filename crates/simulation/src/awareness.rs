@@ -557,7 +557,7 @@ impl Game {
     }
     /// A floor-wide supernatural cue conveys this point only. It cannot license
     /// an attack or pierce a guise, and never cancels magical sleep.
-    pub(crate) fn alert_location_pulse(&mut self, source: ActorId) -> Result<(), GameError> {
+    pub(crate) fn alert_location_pulse(&mut self, source: ActorId) -> Result<bool, GameError> {
         let location = self
             .actors
             .get(&source)
@@ -574,33 +574,38 @@ impl Game {
                     && self.same_population_scope(self.actors[id].location, location)
             })
             .collect();
+        let mut changed = false;
         for id in listeners {
-            self.install_location_alert(id, location)?;
+            changed |= self.install_location_alert(id, location)?;
         }
-        Ok(())
+        Ok(changed)
     }
     pub(crate) fn install_location_alert(
         &mut self,
         listener: ActorId,
         location: Location,
-    ) -> Result<(), GameError> {
+    ) -> Result<bool, GameError> {
         let actor = &self.actors[&listener];
         let Some(policy) = actor.behavior_policy() else {
-            return Ok(());
+            return Ok(false);
         };
         if policy.disposition != crate::behavior::Disposition::Mean || policy.memory_ticks == 0 {
-            return Ok(());
+            return Ok(false);
         }
         let expires = self
             .actor_clock(listener)
             .checked_add(policy.memory_ticks)
             .ok_or(GameError::Schedule(crate::ScheduleError::TimeExhausted))?;
+        let alert = Some(LocationAlert { location, expires });
+        if actor.awareness.alert == alert {
+            return Ok(false);
+        }
         self.actors
             .get_mut(&listener)
             .expect("listener")
             .awareness
-            .alert = Some(LocationAlert { location, expires });
-        Ok(())
+            .alert = alert;
+        Ok(true)
     }
     pub(crate) fn settle_aggravation_for(&mut self, id: ActorId) -> Result<(), GameError> {
         let pending = self

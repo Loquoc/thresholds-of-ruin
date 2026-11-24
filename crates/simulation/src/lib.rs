@@ -105,6 +105,7 @@ mod preparation_facts;
 pub mod projectile_profiles;
 mod region_contributions;
 pub mod scope_projection;
+mod scroll_narration;
 mod search_clock;
 pub mod spatial_scope;
 mod traps;
@@ -483,6 +484,13 @@ pub enum ScheduleError {
     InvalidIntention,
 }
 
+/// An unmet structural requirement safe to explain to the action's owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionRequirement {
+    WieldLauncher,
+    CompatibleAmmunition,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameError {
     PopulationCapacity(prepared_spawn::PopulationCapacity),
@@ -503,7 +511,7 @@ pub enum GameError {
     StairsWhileLevitating,
     /// No distinction between unknown, hidden, carried, and out-of-reach items.
     ItemUnavailable,
-
+    ActionRequirement(ActionRequirement),
     InsufficientGrip,
     InvalidQuantity,
     DoorUnavailable,

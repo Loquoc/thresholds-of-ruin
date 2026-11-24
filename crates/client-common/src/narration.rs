@@ -576,7 +576,9 @@ pub fn outcome_line(outcomes: &OutcomeFacts, fact: &OutcomeFact) -> Option<Line>
             Topic::Combat(event.clone()),
             combat_event_with_names(event, outcomes.self_target, &actor_name),
         ),
-        OutcomeFact::Status { status } => Line::new(Topic::Status, combat_status_facts(status)),
+        OutcomeFact::Status { status } => {
+            Line::new(Topic::Status, combat_status_facts(status, false))
+        }
     };
     match fact {
         OutcomeFact::OwnAction {
@@ -665,7 +667,10 @@ fn observation_lines_legacy(
                     || (combat.sequence.is_some()
                         && c.preparation_active != combat.preparation_active)
             }) {
-                lines.push(Line::new(Topic::Status, combat_status(combat)));
+                lines.push(Line::new(
+                    Topic::Status,
+                    combat_status_facts(&OutcomeStatusFacts::from(combat), false),
+                ));
             }
         }
     }
@@ -757,6 +762,7 @@ fn combat_event_with_names(
             let incoming_basic_attack = ability.id == "basic_melee"
                 && *target == Some(observer)
                 && caster.is_some_and(|id| id != observer);
+            let own = *caster == Some(observer);
             let (subject, object) = (subject(*caster), object(*target));
             let ordinal = strike
                 .filter(|ordinal| *ordinal > 0)
@@ -780,6 +786,10 @@ fn combat_event_with_names(
                 };
             }
             let name = label(&ability.name, "ability");
+            if ability.id == "rattling_blow" && *outcome == AbilityOutcome::Applied {
+                let verb = if own { "hit" } else { "hits" };
+                return format!("{subject} {verb} {object} with {name}{ordinal}.");
+            }
             match outcome {
                 // This marker describes the primary, not every possible rider.
                 // Uniform neutral wording does not disclose hidden rider state.
@@ -858,10 +868,10 @@ pub fn injury(injury: Injury) -> &'static str {
 }
 
 pub fn combat_status(c: &CombatView) -> String {
-    combat_status_facts(&OutcomeStatusFacts::from(c))
+    combat_status_facts(&OutcomeStatusFacts::from(c), true)
 }
 
-fn combat_status_facts(c: &OutcomeStatusFacts) -> String {
+fn combat_status_facts(c: &OutcomeStatusFacts, show_recovery: bool) -> String {
     let mut text = format!("HP {}/{}", c.hp, c.max_hp);
     if c.dead {
         text.push_str(" — You died. This run has ended.");
@@ -889,7 +899,7 @@ fn combat_status_facts(c: &OutcomeStatusFacts) -> String {
                 " (interrupted)"
             }
         ));
-    } else if c.recovery_remaining > 0 {
+    } else if show_recovery && c.recovery_remaining > 0 {
         text.push_str(&format!(" — Recovering: {} ticks.", c.recovery_remaining));
     }
     text
@@ -2356,6 +2366,26 @@ mod tests {
     }
 
     #[test]
+    fn ambient_health_updates_do_not_add_a_recovery_countdown() {
+        let before = crate::test_support::observation();
+        let mut after = before.clone();
+        after.tick += 1;
+        let combat = after.combat.as_mut().unwrap();
+        combat.hp -= 1;
+        combat.recovery_remaining = 37;
+        assert!(
+            combat_status(combat).contains("37 ticks"),
+            "explicit combat report"
+        );
+        let lines = observation_lines(&before, &after, None);
+        let line = lines
+            .iter()
+            .find(|line| line.topic == Topic::Status)
+            .unwrap();
+        assert_eq!(line.text, "HP 11/12");
+    }
+
+    #[test]
     fn unaffected_primary_keeps_neutral_narration_with_visible_or_concealed_riders() {
         // The ordinary event deliberately contains no rider outcome. A fully
         // reduced primary must use the same wording for a visible push, a blocked
@@ -2484,6 +2514,43 @@ mod tests {
             combat_event(&event, &before, &after),
             "Something used an unidentified effect on you."
         );
+    }
+
+    #[test]
+    fn rattling_blow_reports_contact_without_inventing_rattled() {
+        let before = crate::test_support::observation();
+        let mut after = before.clone();
+        let caster = after.visible_actors[0].id;
+        for name in ["sentinel", "painted phantom"] {
+            // A changed apparent name never changes the outcome.
+            after.visible_actors[0].name = name.into();
+            for (outcome, expected) in [
+                (
+                    AbilityOutcome::Applied,
+                    format!("The {name} hits you with Rattling Blow."),
+                ),
+                (
+                    AbilityOutcome::Miss,
+                    format!("The {name} used Rattling Blow on you, but missed."),
+                ),
+                (
+                    AbilityOutcome::Unaffected,
+                    format!("The {name} used Rattling Blow on you."),
+                ),
+            ] {
+                let event = CombatEventView::Ability {
+                    caster: Some(caster),
+                    target: Some(after.self_target),
+                    ability: tor_protocol::ContentRef {
+                        id: "rattling_blow".into(),
+                        name: "Rattling Blow".into(),
+                    },
+                    outcome,
+                    strike: None,
+                };
+                assert_eq!(combat_event(&event, &before, &after), expected);
+            }
+        }
     }
 
     #[test]

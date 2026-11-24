@@ -245,6 +245,16 @@ impl Sources<'_> {
                         {
                             self.add(Source::Condition(condition.to_string()));
                         }
+                        if let Some(tor_simulation::control_scrolls::ControlSpec::ScareVisible {
+                            fear,
+                            wake_conditions,
+                        }) = &readable.control
+                        {
+                            self.add(Source::Condition(fear.condition.to_string()));
+                            for condition in wake_conditions {
+                                self.add(Source::Condition(condition.to_string()));
+                            }
+                        }
                     }
                     if let Some(scare) = &item.ground_scare {
                         self.add(Source::Condition(scare.condition.to_string()));

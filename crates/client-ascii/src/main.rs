@@ -488,6 +488,8 @@ fn window_loop(
                         }
                         Event::CombatDiagnostics(report) => app.show_combat_diagnostics(&report)?,
                         Event::Status(status) => app.status = status,
+                        Event::Admission(receipt) => app.note_admission(&receipt),
+                        Event::InputYield => app.input_yielded(),
                         Event::Refused(status) => app.refused(status),
                         Event::Ready => app.ready(),
                         Event::History(page) => {

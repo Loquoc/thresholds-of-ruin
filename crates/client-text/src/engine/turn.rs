@@ -869,6 +869,8 @@ pub async fn run_goal(
             episode.end = End::Lost;
         } else if resumed == Settled::Deferred {
             episode.end = End::Deferred;
+        } else if resumed == Settled::Pending {
+            episode.end = End::Pending;
         } else if matches!(resumed, Settled::Waiting(_)) {
             episode.end = End::Waiting;
         } else if !link.client().character_ready() || !link.client().can_admit_intention() {
@@ -897,19 +899,30 @@ pub async fn run_goal(
                 match settle(link, &mut reader, request, Until::Acted).await? {
                     Settled::Done | Settled::Journey(_) => acted = true,
                     Settled::Waiting(_) => episode.end = End::Waiting,
+                    Settled::Pending => episode.end = End::Pending,
                     Settled::Deferred => episode.end = End::Deferred,
-                    Settled::Rejected(code) => {
+                    Settled::Rejected { code, detail } => {
                         // A figure that moved off while you closed in is out
                         // of reach, not unreachable.
                         let now = Scene::new(link.client().state(), link.palette());
                         let away = matches!(goal, Goal::Attack { target }
                             if code == ErrorCode::InvalidAction
                                 && now.get(Key::Actor(target)).is_some_and(|r| !r.reachable));
-                        episode.end = End::Refused(if away {
-                            OUT_OF_REACH.into()
+                        let fallback = || {
+                            if away {
+                                OUT_OF_REACH.into()
+                            } else {
+                                refusal(code, &goal)
+                            }
+                        };
+                        let text = if code == ErrorCode::InvalidAction
+                            && matches!(goal, Goal::UseAbility { .. } | Goal::UseItem { .. })
+                        {
+                            detail.map_or_else(fallback, |message| crate::safe(&message))
                         } else {
-                            refusal(code, &goal)
-                        });
+                            fallback()
+                        };
+                        episode.end = End::Refused(text);
                     }
                     Settled::Lost => episode.end = End::Lost,
                 }
@@ -1056,8 +1069,9 @@ pub async fn run_goal(
                         }
                         Settled::Done => episode.end = End::Stopped(TravelPhase::Active),
                         Settled::Waiting(_) => episode.end = End::Waiting,
+                        Settled::Pending => episode.end = End::Pending,
                         Settled::Deferred => episode.end = End::Deferred,
-                        Settled::Rejected(code) => {
+                        Settled::Rejected { code, .. } => {
                             episode.approached = false;
                             episode.end = End::Refused(refusal(code, &goal));
                         }
@@ -1153,7 +1167,7 @@ pub async fn run_request(
     if !pages.is_empty() {
         record.say(pages.join("\n"));
     }
-    if let Settled::Rejected(code) = settled {
+    if let Settled::Rejected { code, .. } = settled {
         record.say(match code {
             ErrorCode::NotController | ErrorCode::ControlTaken => {
                 "Another player has control. You are only watching."

@@ -57,6 +57,15 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Explicit status and ordinary narration
+
+When suppressing routine preparation and recovery feedback, keep one full text
+Adventure test that exercises explicit status, self-examination, and an ordinary
+room description separately. The integrated suite caught an obsolete expectation
+that explicit diagnosis would never show a recovery count, although the new
+contract requires it. Updating that expectation did not relax the controls that
+keep timing out of ambient description and self-examination.
+
 ## Disclosure and observation boundaries
 
 ### Event-time sighting absence, 5 November 2026

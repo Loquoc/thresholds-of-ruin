@@ -496,12 +496,21 @@ pub fn stage(
         }
         _ => 0.0,
     };
-    if landed {
+    if landed && action == Move::Heavy {
+        // A heavy weapon contact is grounded, not a flash on the victim.
+        shockwave(
+            commands,
+            library,
+            meshes,
+            target.0 + Vec3::Y * 0.05,
+            Accent::Gold,
+            impact,
+        );
+    } else if landed {
         let (accent, size) = match action {
             Move::Touch(accent) => (accent, 0.55),
             Move::Bite(accent) => (accent, 0.4),
             Move::Breath(accent) => (accent, 0.5),
-            Move::Heavy => (Accent::Gold, 0.45),
             Move::Bash | Move::Shove => (Accent::Gold, 0.35),
             Move::Cast(_) | Move::Hex | Move::Drain | Move::Fear | Move::Gaze => {
                 (Accent::White, 0.0)
@@ -516,16 +525,6 @@ pub fn stage(
                 chest(target),
                 accent,
                 size,
-                impact,
-            );
-        }
-        if action == Move::Heavy {
-            shockwave(
-                commands,
-                library,
-                meshes,
-                target.0 + Vec3::Y * 0.05,
-                Accent::Gold,
                 impact,
             );
         }

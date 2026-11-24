@@ -23,7 +23,7 @@ def observation(frame):
 
 
 class LivingDungeonProcesses(ProcessTestCase):
-    def package(self):
+    def package(self, *, perception=False):
         package = self.directory / "living-dungeon"
         shutil.copytree(ROOT / "scenarios/tests/magic-items", package)
         path = package / "scenario.toml"
@@ -39,12 +39,27 @@ class LivingDungeonProcesses(ProcessTestCase):
                             {"kind": "alter_equipment", "selection": {"kind": "all"},
                              "alteration": "remove_curse"}]}},
         }
+        if perception:
+            manifest["archetypes"].update({
+                "blind": {"name": "blind draught", "identity": "item.potion.fixture-blind",
+                          "class": "potion", "stackable": True,
+                          "consumable": {"discovery": "on_use", "effects": [
+                              {"kind": "apply_condition", "condition": "fixture.blindness",
+                               "duration": 1000}]}},
+                "confusion": {"name": "bewildering page", "identity": "item.scroll.fixture-confusion",
+                              "class": "scroll", "stackable": True,
+                              "readable": {"control": {"kind": "arm_confusion", "condition": "fixture.scared",
+                                                       "duration": 1000}, "discovery": "never"}},
+            })
         manifest["appearance_pools"] = {}
         path.write_text(toml_source(manifest), encoding="utf-8")
         region_path = package / "regions/1.toml"
         region = tomllib.loads(region_path.read_text(encoding="utf-8"))
         region["items"] = [{"id": 10, "at": [1, 2, 0], "archetype": "scare", "quantity": 3},
                            {"id": 20, "at": [1, 2, 0], "archetype": "uncurse", "quantity": 1}]
+        if perception:
+            region["items"] += [{"id": 30, "at": [1, 2, 0], "archetype": "blind", "quantity": 1},
+                                {"id": 31, "at": [1, 2, 0], "archetype": "confusion", "quantity": 1}]
         region_path.write_text(toml_source(region), encoding="utf-8")
         with (package / "rules.toml").open("a", encoding="utf-8") as output:
             output.write('''
@@ -53,10 +68,23 @@ op = "add"
 path = ["conditions", "fixture.scared"]
 value = { id = "fixture.scared", family = "fixture.scared", name = "Scared", lifecycle = "timed", modifiers = [], stacking = { kind = "keep" }, source_scoped = false, descriptors = [], capacity = "reject", timing = { kind = "actor_active", on_expiry = { kind = "remove" } }, restrictions = [], preparation = "preserve" }
 ''')
+            if perception:
+                output.write("""\n[[overrides]]
+op = "add"
+path = ["conditions", "fixture.blindness"]
+value = { id = "fixture.blindness", family = "fixture.blindness", name = "Blind", lifecycle = "timed", modifiers = [{ scope = "always", op = { kind = "perception", value = { kind = "sight", enabled = false } } }], stacking = { kind = "extend" }, source_scoped = false, descriptors = [], capacity = "reject", timing = { kind = "actor_active", on_expiry = { kind = "remove" } }, restrictions = [], preparation = "preserve" }
+""")
         result = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
                                 capture_output=True, text=True, encoding="utf-8", timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return package
+
+    def raw_history(self, client, *, before=None, limit=100):
+        client.write(json.dumps({"type": "request", "request": {
+            "type": "history", "before": before, "limit": limit}}))
+        response = self.frame(client, lambda frame: (frame.get("message") or {}).get("type") == "history")
+        self.frame(client, lambda frame: frame["type"] == "ready")
+        return response["message"]
 
     def snapshot(self, client):
         frame = self.request(client, {"type": "snapshot"})
@@ -301,6 +329,116 @@ value = { id = "fixture.scared", family = "fixture.scared", name = "Scared", lif
         self.assertEqual(observation(self.snapshot(hard))["combat"]["hp"], hp)
         self.assertIsNone(self.shown_condition(hard, "fixture.held"), "the committed miss releases Hold")
 
+    def test_foreign_ward_recoil_is_persisted_without_the_other_actors_action(self):
+        package = self.package()
+        manifest_path = package / "scenario.toml"
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["characters"][0]["creature"]["faction"] = "reader"
+        manifest["factions"] = {"reader": ["subject"], "subject": ["reader"]}
+        manifest["ai_profiles"] = {"ward_walk": {"idle": "wait", "doors": False,
+            "care": False, "equipment": False, "loot": False, "gold": False,
+            "flee_percent": 0}}
+        manifest_path.write_text(toml_source(manifest), encoding="utf-8")
+        region_path = package / "regions/1.toml"
+        region = tomllib.loads(region_path.read_text(encoding="utf-8"))
+        creature = copy.deepcopy(manifest["characters"][0]["creature"])
+        creature.update(name="ward walker", faction="subject",
+                        corpse_identity="item.corpse.fixture.ward-walker")
+        region["actors"] = [{"id": 2, "at": [3, 2, 0], "turn_ticks": 100,
+                            "controller": "ai", "ai": "ward_walk", "creature": creature}]
+        region_path.write_text(toml_source(region), encoding="utf-8")
+        validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
+                                   capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        server = self.server("--checkpoint-interval", 1, scenario=package)
+        reader, _ = self.client()
+        walker, _ = self.client(SPECTATOR_TOKEN, observe=True, actor=2)
+        self.assertIsNone(self.shown_condition(walker, "fixture.scared"))
+        start = len(reader.transcript)
+        self.paid(reader, {"type": "wait"})
+        self.assertIsNotNone(self.shown_condition(walker, "fixture.scared"))
+        cue = "The ward walker recoils and flees."
+        for _ in range(2):
+            self.paid(reader, {"type": "wait"})
+        facts = []
+        for line in reader.transcript[start:]:
+            if not line.startswith("{"):
+                continue
+            message = json.loads(line).get("message") or {}
+            body = (message.get("update") or {}).get("body") or {}
+            if body.get("type") == "outcome":
+                facts.extend(fact for fact in body["facts"]["facts"]
+                             if fact["kind"] == "user_message" and
+                             fact["segments"] == [{"text": cue}])
+        self.assertEqual(len(facts), 1)
+        history = self.raw_history(reader)
+        row, = [entry for entry in history["page"]["entries"] if entry.get("narration")]
+        self.assertEqual(row["narration"], [cue])
+        self.assertEqual(row["actor"], "1")
+        self.assertEqual(row["content"], {"type": "narration"})
+        self.assertEqual(row["author"], {"type": "backend", "component": "perception"})
+        older = self.raw_history(reader, before=row["id"], limit=1)
+        self.assertNotIn(row["id"], [entry["id"] for entry in older["page"]["entries"]])
+        other = self.raw_history(walker)
+        recorded_move, = [entry for entry in other["page"]["entries"] if entry["id"] == row["id"]]
+        self.assertEqual(recorded_move["content"]["event"]["type"], "moved")
+        self.assertNotIn("narration", recorded_move)
+        checkpoint(self, reader)
+        reader.stop()
+        walker.stop()
+        server.stop(save=False)
+        package.rename(self.directory / "retained-ward-source")
+        self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        restored, _ = self.client()
+        after = self.raw_history(restored)
+        self.assertEqual([entry for entry in after["page"]["entries"] if entry.get("narration")], [row])
+        self.ward_narration_sample = after
+
+    def test_paid_blind_scroll_cue_is_unchanged_in_history_after_sight_returns(self):
+        package = self.package(perception=True)
+        server = self.server("--checkpoint-interval", 1, scenario=package)
+        owner, current = self.client()
+        for name in ("blind draught", "bewildering page"):
+            item = self.item(current, name, ground=True)
+            current = self.paid(owner, {"type": "take", "item": item, "quantity": None})
+        draught = self.item(current, "blind draught")
+        page = self.item(current, "bewildering page")
+        current = self.paid(owner, {"type": "drink", "item": draught})
+        self.assertIsNotNone(self.shown_condition(owner, "fixture.blindness"))
+        start = len(owner.transcript)
+        self.paid(owner, {"type": "read", "item": page})
+        cue = "Your hands begin to tingle."
+        outcomes = []
+        for line in owner.transcript[start:]:
+            if not line.startswith("{"):
+                continue
+            message = json.loads(line).get("message") or {}
+            update = message.get("update") or {}
+            body = update.get("body") or {}
+            if body.get("type") == "outcome" and cue in json.dumps(body["facts"]):
+                outcomes.append(message)
+        self.assertEqual(len(outcomes), 1, "one paid read produces one live perceptual cue")
+        for _ in range(15):
+            if self.shown_condition(owner, "fixture.blindness") is None:
+                break
+            self.paid(owner, {"type": "wait"})
+        self.assertIsNone(self.shown_condition(owner, "fixture.blindness"))
+        def wording(message):
+            return [(entry["id"], entry["narration"]) for entry in message["page"]["entries"]
+                    if entry.get("narration")]
+        first = self.raw_history(owner)
+        self.assertEqual([lines for _, lines in wording(first)], [[cue]])
+        checkpoint(self, owner)  # prove the paid action is durable before source-free reopen
+        owner.stop()
+        server.stop(save=False)
+        package.rename(self.directory / "retained-perception-source")
+        self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        restored, _ = self.client()
+        self.assertIsNone(self.shown_condition(restored, "fixture.blindness"))
+        later = self.raw_history(restored)
+        self.assertEqual(wording(later), wording(first))
+        self.scroll_narration_samples = {"history": later, "live": outcomes[0]}
+
     def test_paid_scare_pickup_curse_crumble_remove_curse_and_restart(self):
         package = self.package()
         server = self.server("--checkpoint-interval", 1, scenario=package)
@@ -341,9 +479,20 @@ value = { id = "fixture.scared", family = "fixture.scared", name = "Scared", lif
         cleansing = self.item(crumbled, "cleansing page", ground=True)
         picked = self.paid(owner, {"type": "take", "item": cleansing, "quantity": None})
         cleansing = self.item(picked, "cleansing page")
+        start = len(owner.transcript)
         cleared = self.paid(owner, {"type": "read", "item": cleansing})
         uncursed = checkpoint(self, owner)
         self.assertTrue(all(not item["condition"]["cursed"] for item in uncursed["items"].values()))
+        cues = []
+        for line in owner.transcript[start:]:
+            if not line.startswith("{"):
+                continue
+            body = (json.loads(line).get("message") or {}).get("update", {}).get("body", {})
+            if body.get("type") == "outcome":
+                cues.extend(fact for fact in body["facts"]["facts"]
+                            if fact.get("kind") == "user_message" and
+                            fact["segments"] == [{"text": "You feel a weight lift."}])
+        self.assertEqual(len(cues), 1, "the real curse removal produces one tactile cue")
         ward = self.item(cleared, "ward page", quantity=1)
         dropped = self.paid(owner, {"type": "drop", "item": ward, "quantity": None})
         source = self.item(dropped, "ward page", ground=True, quantity=2)

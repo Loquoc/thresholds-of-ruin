@@ -438,3 +438,46 @@ fn disclosed_bolt_and_griffin_reaction_stay_aligned_across_a_long_frame() {
         "wing release on impact stays in phase"
     );
 }
+
+#[test]
+fn rattling_blow_lands_one_contact_ring_at_the_end_of_the_windup() {
+    let (mut app, caster, target) = scene("rattling_blow", "Rattling Blow", true, true);
+    app.world_mut()
+        .resource_mut::<Game>()
+        .pending
+        .push(Happening::Hurt(ActorTarget::from_digest([12; 32])));
+    app.update();
+    let world = app.world_mut();
+    assert_eq!(
+        world.get::<Anim>(caster).unwrap().action.unwrap().0,
+        Move::Heavy
+    );
+    assert!((world.get::<Anim>(target).unwrap().hurt.unwrap() + 0.495).abs() < 1e-5);
+    assert_eq!(
+        world.query::<&Fade>().iter(world).count(),
+        1,
+        "only the low impact ring, not a chest flash, is staged"
+    );
+}
+
+#[test]
+fn rattling_blow_does_not_stage_contact_on_a_miss_or_at_an_undisclosed_target() {
+    for disclose in [true, false] {
+        let (mut app, caster, target) = scene("rattling_blow", "Rattling Blow", true, disclose);
+        if disclose {
+            let mut game = app.world_mut().resource_mut::<Game>();
+            let Happening::Ability { outcome, .. } = &mut game.pending[0] else {
+                panic!("expected technique");
+            };
+            *outcome = AbilityOutcome::Miss;
+        }
+        app.update();
+        let world = app.world_mut();
+        assert_eq!(
+            world.get::<Anim>(caster).unwrap().action.unwrap().0,
+            Move::Heavy
+        );
+        assert!(world.get::<Anim>(target).unwrap().hurt.is_none());
+        assert_eq!(world.query::<&Fade>().iter(world).count(), 0);
+    }
+}

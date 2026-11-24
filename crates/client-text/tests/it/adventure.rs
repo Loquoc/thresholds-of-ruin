@@ -896,7 +896,7 @@ fn carried_things_drop_and_unusable_actions_are_refused() {
 }
 
 #[test]
-fn condition_and_inventory_are_told_without_numbers_beyond_hp() {
+fn explicit_status_shows_recovery_without_adding_ambient_timing() {
     let mut s = state();
     assert_eq!(said("diagnose", &s), "You feel fine.");
     s.observation.combat = Some(CombatView {
@@ -917,7 +917,7 @@ fn condition_and_inventory_are_told_without_numbers_beyond_hp() {
     });
     assert_eq!(
         said("diagnose", &s),
-        "You have a few cuts and bruises. (HP 18/20)"
+        "You have a few cuts and bruises. (HP 18/20) Recovery: 3 ticks remaining."
     );
     assert_eq!(
         said("examine me", &s),

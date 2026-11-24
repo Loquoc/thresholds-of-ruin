@@ -8,7 +8,7 @@ mod beat;
 mod settle;
 mod timeline;
 
-pub use admission::AdmissionBoundary;
+pub use admission::{is_input_yield, AdmissionBoundary, ACTION_PENDING};
 pub use beat::{BeatEnd, BeatPolicy, Caution, Compositor, Pushed};
 pub use settle::{SettleBoundary, Settled, Silence, Until};
 pub use timeline::{

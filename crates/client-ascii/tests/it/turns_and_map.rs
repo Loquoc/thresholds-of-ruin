@@ -208,6 +208,7 @@ fn streamed_basic_attack_keeps_history_and_stays_quiet_until_its_result() {
     combat.preparation_active = true;
     let target = super::actor_target(2);
     let started = HistoryEntry {
+        narration: vec![],
         id: EntryId("basic-attack-start".into()),
         branch: initial.branch.clone(),
         actor: initial.actor,
@@ -580,6 +581,7 @@ fn coalesced_moves_keep_event_time_underfoot_names_quantities_and_order() {
         destination.ground_items[0].item.name = name.into();
         destination.ground_items[0].item.quantity = quantity;
         let event = HistoryEntry {
+            narration: vec![],
             id: EntryId(format!("underfoot-move-{sequence}")),
             branch: branch.clone(),
             actor: destination.actor,

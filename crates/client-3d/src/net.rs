@@ -673,10 +673,13 @@ async fn settle(
             continue;
         }
         let refused = execution_refused(connection, &message);
-        if boundary
-            .observe(&connection.state, false, refused, &message)
-            .is_some()
-        {
+        if let Some(result) = boundary.observe(&connection.state, false, refused, &message) {
+            if result == tor_client_common::compositor::Settled::Pending {
+                publish(
+                    tx,
+                    Event::Status(tor_client_common::compositor::ACTION_PENDING.into()),
+                )?;
+            }
             return current_picture(connection, tx).await;
         }
     }

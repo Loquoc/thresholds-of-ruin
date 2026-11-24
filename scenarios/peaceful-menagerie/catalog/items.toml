@@ -814,7 +814,7 @@ magical = true
 class = "scroll"
 stackable = true
 appearance_pool = "rogue.scrolls"
-readable = { control = { kind = "nothing" }, discovery = "never" }
+readable = { control = { kind = "scare_visible", fear = { condition = "rogue.scared", duration = 1000 }, wake_conditions = ["rogue.sleep", "rogue.frozen"] }, discovery = "never" }
 ground_scare = { condition = "rogue.scared", duration = 1000 }
 
 # Supplemental live stock; no starting-kit entry. The paid effect remains empty.

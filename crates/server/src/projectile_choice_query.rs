@@ -1,5 +1,6 @@
 //! Read-only structural owner menus, bounded in scanned inventory rows.
 use super::{ActorId, Engine, Failure};
+use std::cell::Cell;
 use tor_protocol as p;
 use tor_simulation::{self as s, abilities as a};
 
@@ -133,41 +134,67 @@ impl Engine {
                 a::ProjectileChoiceQuery::Ammunition { launcher }
             }
         };
+        let known_unwielded_launcher = Cell::new(false);
         let rows = inventory.iter().skip(query.offset as usize).map(|item| {
             // Type knowledge only: no numeric/instance identification requirement.
             if !item.identified {
                 return None;
             }
-            game.projectile_choice_for_item(owner, &ability, domain, item.id)
-                .map(|choice| match choice {
-                    a::ProjectileChoice::Throw { source } => p::ProjectileChoice::Throw {
-                        source: match source {
-                            a::ThrownSourceSelection::Equipped { item, socket } => {
-                                p::ThrownSourceSelection::Equipped {
-                                    item: scope.item(item),
-                                    socket: socket.0,
-                                }
+            let choice = game.projectile_choice_for_item(owner, &ability, domain, item.id);
+            if query.offset == 0
+                && choice.is_none()
+                && domain == a::ProjectileChoiceQuery::Launchers
+                && !known_unwielded_launcher.get()
+                && game.known_unwielded_launcher(owner, item.id)
+            {
+                known_unwielded_launcher.set(true);
+            }
+            choice.map(|choice| match choice {
+                a::ProjectileChoice::Throw { source } => p::ProjectileChoice::Throw {
+                    source: match source {
+                        a::ThrownSourceSelection::Equipped { item, socket } => {
+                            p::ThrownSourceSelection::Equipped {
+                                item: scope.item(item),
+                                socket: socket.0,
                             }
-                            a::ThrownSourceSelection::Carried { item, socket } => {
-                                p::ThrownSourceSelection::Carried {
-                                    item: scope.item(item),
-                                    socket: socket.0,
-                                }
+                        }
+                        a::ThrownSourceSelection::Carried { item, socket } => {
+                            p::ThrownSourceSelection::Carried {
+                                item: scope.item(item),
+                                socket: socket.0,
                             }
-                        },
+                        }
                     },
-                    a::ProjectileChoice::Launcher { launcher } => p::ProjectileChoice::Launcher {
-                        launcher: p::EquippedProjectileWeapon {
-                            item: scope.item(launcher.item),
-                            socket: launcher.socket.0,
-                        },
+                },
+                a::ProjectileChoice::Launcher { launcher } => p::ProjectileChoice::Launcher {
+                    launcher: p::EquippedProjectileWeapon {
+                        item: scope.item(launcher.item),
+                        socket: launcher.socket.0,
                     },
-                    a::ProjectileChoice::Ammunition { item } => p::ProjectileChoice::Ammunition {
-                        item: scope.item(item),
-                    },
-                })
+                },
+                a::ProjectileChoice::Ammunition { item } => p::ProjectileChoice::Ammunition {
+                    item: scope.item(item),
+                },
+            })
         });
-        pack(query, total, rows, budget)
+        let page = pack(query, total, rows, budget)?;
+        // An empty continuation page is not proof the menu has no choices.
+        // Explain only an exhausted first scan; never scan extra pages for a hint.
+        if query.offset == 0 && page.choices.is_empty() && page.next_offset.is_none() {
+            let requirement = match domain {
+                a::ProjectileChoiceQuery::Launchers if known_unwielded_launcher.get() => {
+                    Some(s::ActionRequirement::WieldLauncher)
+                }
+                a::ProjectileChoiceQuery::Ammunition { .. } => {
+                    Some(s::ActionRequirement::CompatibleAmmunition)
+                }
+                _ => None,
+            };
+            if let Some(requirement) = requirement {
+                return Err(Failure::action_requirement(requirement));
+            }
+        }
+        Ok(page)
     }
 }
 

@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":74,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":75,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -1327,6 +1327,12 @@ Snapshots contain up to 100 recent visible entries in chronological order.
 `history` requests accept `limit` (1–100) and an optional `before` entry ID.
 `older_before` provides the next pagination cursor. Filtering happens before
 pagination, so private entries do not create visible gaps or total-count leaks.
+
+A history entry may include `narration`, a bounded list of literal lines recorded
+for the entry's actor. These are the words disclosed at the action's original
+resolution, not a new description based on the actor's current senses.
+A perception caused by another actor can appear as a narration-only entry.
+It discloses neither that actor's command nor its private history payload.
 
 ```json client-message
 {"type":"request","request_id":"history-1","request":{"type":"history","before":null,"limit":50}}
