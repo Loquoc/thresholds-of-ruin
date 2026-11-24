@@ -2410,7 +2410,7 @@ with ExitStack() as clients:
                                "at": [*foe_at, 0], "turn_ticks": 1000000}])
         if trap_at:
             region["traps"] = [{"id": 1, "at": [*trap_at, 0], "dc": 0, "avoidance_dc": 100,
-                                "kind": {"kind": "bear_trap", "condition": "rogue.bear_trap", "duration": 300}}]
+                                "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0}}]
         server = self.server(scenario=write_package(self, contents, "rogue-bot-learned-threat-retreat"))
         self.install_bot_extension()
         code = """
