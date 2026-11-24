@@ -1,0 +1,50 @@
+"""Food observations and inventory estimates used by the Rogue player."""
+
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
+
+from tor_client_bot import Item, ItemUse, Turn
+
+
+def edible_items(turn: Turn) -> Iterator[Item]:
+    return (item for item in turn.inventory if ItemUse.EAT in item.uses)
+
+
+def carried_quantity(turn: Turn, identity: str) -> int:
+    return sum(item.quantity for item in turn.inventory if item.identity == identity)
+
+
+@dataclass(frozen=True)
+class PendingMeal:
+    identity: str
+    quantity_before: int
+    reserve_before: int
+
+    def observed_gain(self, turn: Turn) -> int | None:
+        if turn.nutrition is None or carried_quantity(turn, self.identity) >= self.quantity_before:
+            return None
+        gain = turn.nutrition.reserve - self.reserve_before
+        return gain if gain > 0 else None
+
+
+@dataclass(frozen=True)
+class FoodEstimate:
+    known_reserve: int
+    has_unmeasured_meals: bool
+
+
+@dataclass(frozen=True)
+class FoodScout:
+    deadline: int
+    starting_meals: int
+
+
+def estimate_carried_food(meals: Iterable[Item], food_value: Mapping[str, int]) -> FoodEstimate:
+    known_reserve = 0
+    has_unmeasured_meals = False
+    for meal in meals:
+        if meal.identity is None or meal.identity not in food_value:
+            has_unmeasured_meals = True
+        else:
+            known_reserve += food_value[meal.identity] * meal.quantity
+    return FoodEstimate(known_reserve, has_unmeasured_meals)

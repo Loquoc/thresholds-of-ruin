@@ -173,6 +173,7 @@ class CohortSummaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             cli, hashes = snapshot_policy(scripts, Path(directory))
             self.assertIn("rogue_runner.py", hashes)
+            self.assertIn("rogue_food.py", hashes)
             probe = """import sys
 from importlib import import_module
 from typing import get_type_hints

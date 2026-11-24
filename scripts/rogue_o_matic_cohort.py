@@ -19,7 +19,7 @@ from process_harness import Process, ROOT
 from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH, player_exit_code
 
 
-POLICY_FILES = ("rogue_o_matic.py", "rogue_player.py", "rogue_runner.py", "rogue_gear.py")
+POLICY_FILES = ("rogue_o_matic.py", "rogue_player.py", "rogue_runner.py", "rogue_gear.py", "rogue_food.py")
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
 
 

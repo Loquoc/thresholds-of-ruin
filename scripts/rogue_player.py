@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from statistics import median_low
@@ -45,7 +45,7 @@ from tor_client_bot import (
     Zap,
 )
 
-
+from rogue_food import FoodScout, PendingMeal, carried_quantity, edible_items, estimate_carried_food
 from rogue_gear import (
     IDENTIFY_CATEGORIES, choose_armor, choose_ring, improve_worn_gear,
     needs_identification, ready_weapon, ring_upgrades,
@@ -114,39 +114,6 @@ def training_choices(training: Training, skill: str) -> Iterator[tuple[PointPool
 def trial_appearance(item: Item) -> str:
     """Recognize a sampled item type even when a different instance is offered."""
     return item.appearance or item.name
-
-
-def edible_items(turn: Turn) -> Iterator[Item]:
-    return (item for item in turn.inventory if ItemUse.EAT in item.uses)
-
-
-def carried_quantity(turn: Turn, identity: str) -> int:
-    return sum(item.quantity for item in turn.inventory if item.identity == identity)
-
-
-@dataclass(frozen=True)
-class PendingMeal:
-    identity: str
-    quantity_before: int
-    reserve_before: int
-
-    def observed_gain(self, turn: Turn) -> int | None:
-        if turn.nutrition is None or carried_quantity(turn, self.identity) >= self.quantity_before:
-            return None
-        gain = turn.nutrition.reserve - self.reserve_before
-        return gain if gain > 0 else None
-
-
-@dataclass(frozen=True)
-class FoodEstimate:
-    known_reserve: int
-    has_unmeasured_meals: bool
-
-
-@dataclass(frozen=True)
-class FoodScout:
-    deadline: int
-    starting_meals: int
 
 
 class SearchRank(NamedTuple):
@@ -897,7 +864,7 @@ class Adventurer:
         travel = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
                      if direction is Direction.DOWN or floor <= self.depth)
         # Meals can pay for later travel. A rest must still fit the current food clock.
-        packed = self.estimate_carried_food(edible_items(turn))
+        packed = estimate_carried_food(edible_items(turn), self.food_value)
         travel_from_current_reserve = max(0, travel - packed.known_reserve * nutrition.ticks_per_unit)
         return available - travel_from_current_reserve
 
@@ -1099,16 +1066,6 @@ class Adventurer:
                 return step
         return memory.toward(turn, food_cells)
 
-    def estimate_carried_food(self, meals: Iterable[Item]) -> FoodEstimate:
-        known_reserve = 0
-        has_unmeasured_meals = False
-        for meal in meals:
-            if meal.identity is None or meal.identity not in self.food_value:
-                has_unmeasured_meals = True
-            else:
-                known_reserve += self.food_value[meal.identity] * meal.quantity
-        return FoodEstimate(known_reserve, has_unmeasured_meals)
-
     def finish_food_scout(self) -> None:
         """A completed scout stays closed on later visits to the same floor."""
         if self.depth in self.food_scouts:
@@ -1122,7 +1079,7 @@ class Adventurer:
         if nutrition.ticks_until_empty >= required:
             return None
         meals = list(edible_items(turn))
-        packed = self.estimate_carried_food(meals)
+        packed = estimate_carried_food(meals, self.food_value)
         if packed.has_unmeasured_meals:
             return None
         available_ticks = nutrition.ticks_until_empty + packed.known_reserve * nutrition.ticks_per_unit
