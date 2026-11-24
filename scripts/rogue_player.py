@@ -907,13 +907,20 @@ class Adventurer:
                     return UseItem(item, ItemUse.DRINK), "test_unknown_potion"
         if weapon := ready_weapon(turn, bow=False):
             return weapon
-        # An unread scroll might open a paid identification choice or move the player.
-        # Try it while healthy, with something to identify and a usable exit.
-        if (can_experiment and 3 <= self.depth < self.retrieval_depth and turn.cell and turn.cell.stairs_down
-                and self.unsafe_stairs.get((turn.cell.key, Direction.DOWN), 0) <= turn.tick
-                and turn.cell.key not in self.danger_until and not turn.holds and not self.trapped(turn)
-                and not turn.has_condition("rogue.levitation")
-                and any(i.identity is None and i.category in {"wand", "ring", "potion"} for i in turn.inventory)):
+        if can_experiment:
+            return self.study_scroll_at_exit(turn)
+        return None
+
+    def study_scroll_at_exit(self, turn: Turn) -> tuple[UseItem, MemoryReason] | None:
+        """Try an unidentified scroll with a usable escape stair and something to identify."""
+        here = turn.cell
+        if not 3 <= self.depth < self.retrieval_depth or here is None or not here.stairs_down:
+            return None
+        if here.key in self.danger_until or self.unsafe_stairs.get((here.key, Direction.DOWN), 0) > turn.tick:
+            return None
+        if turn.holds or self.trapped(turn) or turn.has_condition("rogue.levitation"):
+            return None
+        if any(item.identity is None and item.category in {"wand", "ring", "potion"} for item in turn.inventory):
             return self.scroll_trial(turn, at_exit=True)
         return None
 

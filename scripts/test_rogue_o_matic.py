@@ -125,6 +125,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                   "identity": DEFAULT_OBJECTIVE_IDENTITY}
         for depth, down, hp, pack, guarded, expected in (
             (3, True, 20, [scroll, ring], False, True),
+            (3, True, 16, [scroll, ring], False, True),  # Exactly 80% health.
+            (25, True, 20, [scroll, ring], False, True),
+            (26, True, 20, [scroll, ring], False, False),
             (1, True, 20, [scroll, ring], False, False),
             (3, False, 20, [scroll, ring], False, False),
             (3, True, 15, [scroll, ring], False, False),
