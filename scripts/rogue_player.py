@@ -1063,10 +1063,14 @@ class Adventurer:
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
         food_cells = {key for key, items in memory.items.items() if any(item.category == "food" for item in items)}
-        if food_cells and self.danger_until:
-            if step := memory.toward(turn, food_cells, avoid=self.danger_until.keys()):
+        return self.food_route(turn, memory, food_cells)
+
+    def food_route(self, turn: Turn, memory: FloorMap, goals: set[str]) -> Action | None:
+        """Cross recent danger for food only when every route requires it."""
+        if goals and self.danger_until:
+            if step := memory.toward(turn, goals, avoid=self.danger_until.keys()):
                 return step
-        return memory.toward(turn, food_cells)
+        return memory.toward(turn, goals)
 
     def finish_food_scout(self) -> None:
         """A completed scout stays closed on later visits to the same floor."""
@@ -1100,7 +1104,7 @@ class Adventurer:
             )
         scout = self.food_scouts[self.depth]
         if scout is not None and turn.tick < scout.deadline:
-            if step := memory.toward(turn, memory.frontier):
+            if step := self.food_route(turn, memory, memory.frontier):
                 return step, "scout_for_food"
         return None
 

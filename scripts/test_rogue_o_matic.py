@@ -2914,6 +2914,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    interactions={"inventory": [{"item": "meal", "edible": True}]})
                 self.assertEqual(choose(player, turn)[1], reason)
 
+    def test_food_scout_prefers_a_clear_frontier_over_a_recent_threat(self):
+        cells = [cell("stairs", down=True), cell("near", -1), cell("hall", 1), cell("far", 2)]
+        turn = player_turn(cells, tick=100, stats={"nutrition": {
+            "kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
+            "hunger": "nourished", "elapsed": 0}})
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.ascent_ticks_by_floor[2] = 50000
+        player.observe(turn)
+        player.maps[3].visited.add("hall")
+        player.danger_until["near"] = 900
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "scout_for_food"))
+        player.maps[3].visited.add("far")
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "scout_for_food"))
+
     def test_injured_food_scout_keeps_moving_until_the_scouting_budget_expires(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]
