@@ -1016,14 +1016,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                       "identified": True, "quantity": 1} for name in ("shortbow", "mace", "arrow")]
         slot = {"id": "weapon", "name": "Weapon"}
         foe = {"id": "enemy", "name": "orc", "position": cell("enemy", 5)["position"]}
-        for offered, expected in ((["mace"], "equip_melee"), (["mace", "shortbow"], "equip_bow")):
+        for offered, expected, target in (
+            (["mace"], "equip_melee", "mace"),
+            (["mace", "shortbow"], "equip_bow", "shortbow"),
+            (["shortbow", "mace"], "equip_bow", "shortbow"),
+        ):
             with self.subTest(offered=offered):
                 turn = player_turn([cell("here")], actors=[foe], hostiles=["enemy"], inventory=inventory,
                                    interactions={"slots": [slot], "inventory": [
                                        {"item": name, "slot": slot} for name in offered]})
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual(reason, expected)
-                self.assertEqual(action.item.target, offered[-1])
+                self.assertEqual(action.item.target, target)
 
     def test_replaces_empty_bow_while_an_enemy_is_visible(self):
         from tor_client_bot import Unequip

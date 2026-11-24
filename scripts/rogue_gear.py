@@ -179,17 +179,17 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     if slot is None or (slot.removal_blocked and turn.hostiles):
         return None
     worn = slot.occupant
-    choices = [c for c in turn.equip_choices() if c.slot is slot and not c.item.known_cursed]
-    if bow and worn and worn.identity == "item.weapon.shortbow":
+
+    def rank(item: Item | None) -> tuple[bool, float]:
+        if item is None:
+            return False, -1
+        preferred_bow = bow and item.identity == "item.weapon.shortbow"
+        return preferred_bow, melee_score(item)
+
+    choices = (choice for choice in turn.equip_choices() if choice.slot is slot and not choice.item.known_cursed)
+    choice = max(choices, key=lambda candidate: rank(candidate.item), default=None)
+    if choice is None or rank(choice.item) <= rank(worn):
         return None
-    choice = None
-    if bow:
-        choice = next((c for c in choices if c.item.identity == "item.weapon.shortbow"), None)
-    if choice is None:
-        choice = max(choices, key=lambda candidate: melee_score(candidate.item), default=None)
-        worn_score = melee_score(worn) if worn else -1
-        if choice is None or melee_score(choice.item) <= worn_score:
-            return None
     if slot.removal_blocked:
         for item in turn.inventory:
             if item.identity == "item.scroll.remove-curse" and ItemUse.READ in item.uses:
