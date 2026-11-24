@@ -2183,7 +2183,10 @@ with ExitStack() as stack:
     def test_bot_enters_a_corridor_before_two_hostiles_reach_it(self):
         self.check_outnumbered_move(True)
 
-    def check_outnumbered_move(self, approaching):
+    def test_trapped_bot_does_not_claim_a_corridor_while_pursuers_approach(self):
+        self.check_outnumbered_move(True, trapped=True)
+
+    def check_outnumbered_move(self, approaching, *, trapped=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -2200,6 +2203,10 @@ with ExitStack() as stack:
                           walls=[[2, y, z] for y in (1, 3) for z in range(2)])
             for actor, y in zip(region["actors"], (2, 3)):
                 actor.update(at=[5, y, 0], turn_ticks=100)
+        if trapped:
+            region["anchors"]["start"] = [3, 1, 0]
+            region["traps"] = [{"id": 1, "at": [3, 2, 0], "dc": 100, "avoidance_dc": 100,
+                                "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0}}]
         self.server(scenario=write_package(self, contents, "confined-melee-retreat"))
         self.install_bot_extension()
         code = """
@@ -2214,6 +2221,24 @@ with ExitStack() as stack:
                          os.environ["TOR_SERVER_TOKEN"], actor)) for actor in [1, 3, 4]]
     turn = game.wait_for_decision()
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    if os.environ["TRAPPED"] == "True":
+        assert turn.submit(Move(Direction.SOUTH)).status is Outcome.CONFIRMED
+        for enemy in (east, north):
+            assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
+        assert player.trapped(turn)
+        player.observe(turn)
+        step, reason = player.choose(turn)
+        assert isinstance(step, Move) and reason == "escape_bear_trap", (step, reason)
+        receipt = turn.submit(step)
+        assert receipt.status is Outcome.CONFIRMED
+        player.admitted(turn, step, receipt, reason=reason)
+        assert player.corridor_stand is None
+        for enemy in (east, north):
+            assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+        released = game.wait_for_decision()
+        assert released.cell.key == turn.cell.key and not player.trapped(released)
+        raise SystemExit(0)
     player.observe(turn)
     approaching = os.environ["APPROACHING"] == "True"
     assert sum(turn.in_contact(foe) for foe in turn.hostiles) == (0 if approaching else 2)
@@ -2262,7 +2287,7 @@ with ExitStack() as stack:
         assert after.submit(action).status is Outcome.CONFIRMED
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
-                             env={**os.environ, "APPROACHING": str(approaching), "PYTHONPATH": str(ROOT / "scripts"),
+                             env={**os.environ, "APPROACHING": str(approaching), "TRAPPED": str(trapped), "PYTHONPATH": str(ROOT / "scripts"),
                                   "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN},
                              capture_output=True, text=True, timeout=55)
         self.assertEqual(run.returncode, 0, run.stderr)

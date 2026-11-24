@@ -373,6 +373,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(player, player_turn(entrance, tick=599)), (Wait(), "hold_corridor"))
         self.assertNotEqual(choose(player, player_turn(entrance, tick=600))[1], "hold_corridor")
 
+        for remaining, expected in ((None, "escape_bear_trap"), (500, "wait_for_restraint")):
+            with self.subTest(remaining=remaining):
+                pinned = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                trap = {"condition": {"id": "rogue.bear_trap", "name": "Bear trap"},
+                        "phase": "active", "remaining_ticks": remaining}
+                turn = player_turn(cells, actors=foes, hostiles=["0", "1"], stats={"conditions": [trap]})
+                action, reason = choose(pinned, turn)
+                self.assertEqual(reason, expected)
+                pinned.admitted(turn, action, reason=reason)
+                self.assertIsNone(pinned.corridor_stand)
+
         cells[2]["wall"] = True
         turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
         self.assertNotEqual(choose(player, turn)[1], "take_corridor")

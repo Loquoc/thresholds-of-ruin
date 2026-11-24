@@ -517,7 +517,7 @@ class Adventurer:
         if escape := self.retreat_to_stairs(turn, pressed=injured or close_pursuit or two_hit_threat):
             return escape
         approaching_group = not adjacent and sum(turn.distance_to(foe) <= 3 for foe in turn.hostiles) >= 2
-        if approaching_group:
+        if approaching_group and not self.trapped(turn):
             if step := self.take_corridor(turn):
                 return step, MemoryReason.TAKE_CORRIDOR
         if turn.hostiles and not adjacent and health and (decision := self.counter_threat(turn, health.current)):
