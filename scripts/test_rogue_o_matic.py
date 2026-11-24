@@ -209,6 +209,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Unequip(turn.equipment[1]), "change_ring"))
 
+    def test_regeneration_outranks_slow_digestion_only_when_injured_with_edible_food(self):
+        slot = {"id": "ring", "name": "Finger"}
+        rings = [{"id": name, "name": name, "class": "ring", "identified": True,
+                  "identity": "item.ring.ring-" + name, "quantity": 1} for name in ("regeneration", "slow-digestion")]
+        ration = {"id": "ration", "name": "ration", "class": "food", "identified": True,
+                  "identity": "item.food.ration", "quantity": 1}
+        for hp, edible, expected in ((10, True, "slow-digestion"), (9, False, "slow-digestion"),
+                                     (9, True, "regeneration")):
+            with self.subTest(hp=hp, edible=edible):
+                offers = [{"item": ring["id"], "slot": slot} for ring in rings]
+                offers.append({"item": "ration", "edible": edible})
+                turn = player_turn([cell("stairs", down=True)], inventory=[*rings, ration],
+                                   combat={"hp": hp, "max_hp": 10}, interactions={"slots": [slot], "inventory": offers})
+                action, _ = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(action.item.target, expected)
+
     def test_unseen_attack_uses_a_free_sight_ring_and_keeps_a_spare_dose(self):
         from tor_client_bot import describe_action
 
