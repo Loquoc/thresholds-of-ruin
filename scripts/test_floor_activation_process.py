@@ -261,12 +261,12 @@ class OmittedRoomTopologyProcess(ProcessTestCase):
     """Actual Rogue stock, creatures, traps and wandering; no diagnostic tuning."""
 
     def test_ordinary_search_traversal_and_source_free_revisit_keep_real_rooms(self):
-        self.run_topology_route(mazes=False)
+        self.run_topology_route(mazes=False, seed=0)
 
     def test_dark_maze_search_traversal_and_source_free_revisit_keep_real_cells(self):
-        self.run_topology_route(mazes=True)
+        self.run_topology_route(mazes=True, seed=42)
 
-    def run_topology_route(self, *, mazes):
+    def run_topology_route(self, *, mazes, seed):
         import json
         import tomllib
         from arena_matrix import toml_source
@@ -304,7 +304,7 @@ class OmittedRoomTopologyProcess(ProcessTestCase):
         result = subprocess.run([self.bin / ("tor-scenario" + SUFFIX), "validate", package],
                                 text=True, capture_output=True, encoding="utf-8", timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        server = self.server("--checkpoint-interval", 1, scenario=package, seed=42)
+        server = self.server("--checkpoint-interval", 1, scenario=package, seed=seed)
         player, current = self.client(omit_memory=True)
         sweep = DisclosedSearchSweep()
         sweep.observe(current["state"]["observation"])

@@ -15,19 +15,6 @@ def actor(x, y, z=0):
     return {"position": {"x": x, "y": y, "z": z}}
 
 
-class FixedWalkthroughStartTests(unittest.TestCase):
-    def test_fixed_entry_changes_only_the_character_anchor(self):
-        manifest = {"characters": [
-            {"id": 1, "anchor": "dungeon/1/up", "equipment": ["weapon"]},
-            {"id": 2, "anchor": "dungeon/1/up", "equipment": ["staff"]},
-        ], "generation_recipes": {"exploration": {"hidden_traps": {"dc": 12}}}}
-        expected = copy.deepcopy(manifest)
-        for character in expected["characters"]:
-            character["anchor"] = "dungeon/1/start"
-        fixed_walkthrough_start(manifest)
-        self.assertEqual(manifest, expected)
-
-
 class DisclosedAbilityReceipts(unittest.TestCase):
     @staticmethod
     def frame(sequence, events, *, kind="outcome"):
@@ -407,6 +394,17 @@ class DisclosedStepActions(unittest.TestCase):
 
 
 class DisclosedFloorRoutes(unittest.TestCase):
+    def test_fixed_entry_changes_only_the_character_anchor(self):
+        manifest = {"characters": [
+            {"id": 1, "anchor": "dungeon/1/up", "equipment": ["weapon"]},
+            {"id": 2, "anchor": "dungeon/1/up", "equipment": ["staff"]},
+        ], "generation_recipes": {"exploration": {"hidden_traps": {"dc": 12}}}}
+        expected = copy.deepcopy(manifest)
+        for character in expected["characters"]:
+            character["anchor"] = "dungeon/1/start"
+        fixed_walkthrough_start(manifest)
+        self.assertEqual(manifest, expected)
+
     def graph(self, *cells):
         from rogue_test_support import DisclosedFloorGraph
         graph = DisclosedFloorGraph()
