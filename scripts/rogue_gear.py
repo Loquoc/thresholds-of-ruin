@@ -28,6 +28,15 @@ def needs_identification(item: Item) -> bool:
     )
 
 
+def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | None:
+    if item.physical_reduction is not None:
+        return item.physical_reduction
+    base = BASE_PROTECTION.get(item.identity or "")
+    if base is not None and account_for_curse and item.known_cursed is not False:
+        return base - 3  # Worst published penalty at birth.
+    return base
+
+
 def choose_armor(turn: Turn) -> tuple[Action, str] | None:
     scrolls = {i.identity: i for i in turn.inventory if ItemUse.READ in i.uses}
     cure = scrolls.get("item.scroll.remove-curse")
@@ -38,17 +47,11 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
         if slot.kind != "body_armor" or item.known_cursed or (slot.removal_blocked and not cure):
             continue
         worn = slot.occupant
-        current = worn.physical_reduction if worn else 0
-        if worn and current is None:
-            current = BASE_PROTECTION.get(worn.identity or "")
-        rating = item.physical_reduction
-        estimated = rating is None or (worn is not None and worn.physical_reduction is None)
+        estimated = item.physical_reduction is None or (worn is not None and worn.physical_reduction is None)
         if estimated and "item.scroll.identify-armor" in scrolls:
             continue
-        if rating is None:
-            rating = BASE_PROTECTION.get(item.identity or "")
-            if rating is not None and cure is None and item.known_cursed is not False:
-                rating -= 3  # Worst published penalty at birth.
+        current = _armor_protection(worn) if worn else 0
+        rating = _armor_protection(item, account_for_curse=cure is None)
         if rating is None or current is None or rating - current <= best_gain:
             continue
         best_gain = rating - current

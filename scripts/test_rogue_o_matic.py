@@ -178,13 +178,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_trial_armor_needs_a_large_known_improvement_or_a_way_to_remove_a_curse(self):
         from tor_client_bot import Unequip
         slot = {"id": "body_armor", "name": "Armor"}
-        for candidate, cure, trial in [("plate-mail", False, True), ("scale-mail", False, False),
-                                       ("scale-mail", True, True), ("unrecognized", True, False)]:
-            with self.subTest(candidate=candidate, cure=cure):
+        cases = [
+            ("plate-mail", False, None, True),
+            ("splint-mail", False, None, False),  # Worst-case protection ties the worn ring mail.
+            ("scale-mail", False, None, False),
+            ("scale-mail", False, False, True),
+            ("scale-mail", True, None, True),
+            ("unrecognized", True, None, False),
+        ]
+        for candidate, cure, known_cursed, trial in cases:
+            with self.subTest(candidate=candidate, cure=cure, known_cursed=known_cursed):
                 suits = [{"id": name, "name": name, "class": "armor", "quantity": 1,
                           "identified": True, "identity": "item.armor." + name} for name in ("ring-mail", candidate)]
                 offers = [{"item": item["id"], "slot": slot, "equipped_slot": 0 if i == 0 else None}
                           for i, item in enumerate(suits)]
+                if known_cursed is not None:
+                    offers[1]["known_cursed"] = known_cursed
                 if cure:
                     suits.append({"id": "cure", "class": "scroll", "name": "remove curse", "quantity": 1,
                                   "identified": True, "identity": "item.scroll.remove-curse"})
