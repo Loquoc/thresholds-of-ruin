@@ -326,7 +326,7 @@ value = { id = "rogue.wand_teleport_to", name = "Wand of Teleport To", interacti
 [[overrides]]
 op = "add"
 path = ["conditions", "rogue.bear_trap"]
-value = { id = "rogue.bear_trap", family = "rogue.bear_trap", lifecycle = "timed", name = "Bear-trapped", modifiers = [], stacking = { kind = "extend" }, source_scoped = false, descriptors = [], capacity = "reject", timing = { kind = "actor_active", on_expiry = { kind = "remove" } }, restrictions = ["ordinary_movement", "movement_abilities"], preparation = "preserve" }
+value = { id = "rogue.bear_trap", family = "rogue.bear_trap", lifecycle = "timed", name = "Bear-trapped", modifiers = [], stacking = { kind = "keep" }, source_scoped = false, descriptors = [], capacity = "reject", timing = { kind = "until_removed" }, restrictions = ["ordinary_movement", "movement_abilities"], preparation = "preserve" }
 
 # Hold and Scare have independent actor-active condition timers. Flee's source
 # location is stored separately and does not identify or track its occupant.

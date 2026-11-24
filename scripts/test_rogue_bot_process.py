@@ -406,7 +406,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
 
     def test_rogue_bot_plays_with_authored_growth(self):
         self.install_bot_extension()
-        budget = 40  # Include the first encounter and its subsequent observation.
+        budget = 70  # Include the first encounter after starting at the up stair.
         output = self.directory / "cohort"
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic_cohort.py"),

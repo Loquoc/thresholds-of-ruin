@@ -353,6 +353,16 @@ class DisclosedStepActions(unittest.TestCase):
                 view["combat"]["own_stats"]["conditions"] = [{**row, **change}]
                 self.assertEqual(disclosed_step_action(view, "east", wait_for_restraint=True), ordinary)
 
+    def test_escape_move_precedes_paid_opening_for_a_persistent_trap(self):
+        from rogue_test_support import disclosed_step_action
+        row = {"condition": {"id": "rogue.bear_trap"}, "phase": "active", "remaining_ticks": None}
+        view = {"visible_cells": [self.gate()], "combat": {"own_stats": {"conditions": [row]}}}
+        self.assertEqual(disclosed_step_action(view, "east", wait_for_restraint=True),
+                         {"type": "move", "direction": "east"})
+        view["combat"]["own_stats"]["conditions"] = []
+        self.assertEqual(disclosed_step_action(view, "east", wait_for_restraint=True),
+                         {"type": "set_door", "door": "observed-gate", "open": True})
+
     def test_restraint_expiry_and_a_new_contact_are_reobserved_not_cached(self):
         from rogue_test_support import disclosed_step_action
         row = {"condition": {"id": "rogue.bear_trap"}, "phase": "active", "remaining_ticks": "200"}

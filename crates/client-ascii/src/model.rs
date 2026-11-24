@@ -430,7 +430,10 @@ impl App {
                 .map(|stats| stats.restorable_losses.attributes.strength)
         };
         let previous_loss = strength_loss(&state.state().observation);
-        let was_bear_trapped = bear_trapped(&state.state().observation);
+        // Escape checks send their own authoritative result. The timed hazard
+        // has no such result, so infer only its older wait/expiry feedback.
+        let was_bear_trapped = active_bear_trap(&state.state().observation)
+            .is_some_and(|condition| condition.remaining_ticks.is_some());
         let struggling = self.last_move && was_bear_trapped;
         let old = Some((state.branch().clone(), state.state().revision));
         state.apply(update)?;
@@ -4659,18 +4662,21 @@ impl HelpPage {
     }
 }
 
-/// Whether the run is over: won or lost with no further play.
-fn bear_trapped(observation: &Observation) -> bool {
+fn active_bear_trap(observation: &Observation) -> Option<&tor_protocol::PersonalCondition> {
     observation
         .combat
-        .as_ref()
-        .and_then(|combat| combat.own_stats.as_ref())
-        .is_some_and(|stats| {
-            stats.conditions.iter().any(|condition| {
-                condition.condition.id == "rogue.bear_trap"
-                    && condition.phase == ConditionPhase::Active
-            })
+        .as_ref()?
+        .own_stats
+        .as_ref()?
+        .conditions
+        .iter()
+        .find(|condition| {
+            condition.condition.id == "rogue.bear_trap" && condition.phase == ConditionPhase::Active
         })
+}
+
+fn bear_trapped(observation: &Observation) -> bool {
+    active_bear_trap(observation).is_some()
 }
 
 fn ended(state: &ClientState) -> bool {

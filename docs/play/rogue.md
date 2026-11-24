@@ -56,6 +56,8 @@ Complete [source setup and authentication](../../README.md#play-from-source).
 Use a fresh save path; an existing save retains its original selected character.
 The server's existing `--character` option chooses a complete preset. There is
 no in-client class creation screen or freeform editing of starting attributes.
+Both presets begin on the up staircase on the first floor. It is also the way
+out once you carry the Amulet of Yendor.
 
 Warrior:
 

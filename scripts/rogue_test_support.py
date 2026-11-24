@@ -257,18 +257,21 @@ def disclosed_step_action(observation, direction, *, wait_for_restraint=False):
     This is not a movement solver: callers still select a disclosed route and
     the server validates it. A paid opening replaces, never accompanies, the
     old move; the caller must reconsider the resulting observation. Rogue
-    walkthroughs may opt into waiting out their authored bear-trap condition;
-    admission readiness alone does not imply that movement is permitted.
+    walkthroughs may opt into handling their authored bear-trap condition:
+    wait for a timed trap or try to break free of a persistent trap before
+    opening a door. Admission readiness alone does not imply free movement.
     """
     offset = next(((dx, dy, 0) for dx, dy, name in DisclosedFloorGraph.directions
                    if name == direction), None)
     if offset is None:
         raise ValueError("Expected a cardinal disclosed step")
-    if wait_for_restraint and any(
-            row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"
-            and row["remaining_ticks"] is not None and u64(row["remaining_ticks"]) > 0
-            for row in observation.get("combat", {}).get("own_stats", {}).get("conditions", [])):
-        return {"type": "wait"}
+    if wait_for_restraint:
+        restraints = [row for row in observation.get("combat", {}).get("own_stats", {}).get("conditions", [])
+                      if row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"]
+        if any(row["remaining_ticks"] is None for row in restraints):
+            return {"type": "move", "direction": direction}
+        if any(u64(row["remaining_ticks"]) > 0 for row in restraints):
+            return {"type": "wait"}
     closed = [cell["door"] for cell in observation["visible_cells"]
               if tuple(cell["position"][axis] for axis in ("x", "y", "z")) == offset
               and not cell["wall"] and cell.get("door") and not cell["door"]["open"]]

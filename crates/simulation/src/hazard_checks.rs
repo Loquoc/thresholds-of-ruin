@@ -4,13 +4,23 @@
 use crate::abilities::{CheckThreshold, PlannedCheck, RuleError};
 use crate::attributes::{Skill, SkillCheck};
 use crate::conditions::TokenReservation;
-use crate::creatures::CreatureState;
+use crate::creatures::{CreatureState, DerivedCreature};
 use crate::{ActorId, Game, GameError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CapturedHazardCheck {
     pub(crate) check: PlannedCheck,
     pub(crate) tokens: Vec<TokenReservation>,
+}
+
+fn hazard_skill_bonus(derived: &DerivedCreature, skill: Skill) -> i64 {
+    SkillCheck {
+        skill,
+        binding: derived.binding(),
+        modifier: 0,
+        threshold: 0,
+    }
+    .bonus(derived.attributes, derived.skills)
 }
 
 pub(crate) fn capture_hazard_skill_check(
@@ -36,13 +46,7 @@ pub(crate) fn capture_hazard_skill_check(
         .hazard_check_edge(rules, actor, &tokens)
         .map_err(|_| GameError::Rule(RuleError::InvalidDefinition))?
         + derived.perception.skill_edge(skill);
-    let bonus = SkillCheck {
-        skill,
-        binding: derived.binding(),
-        modifier: 0,
-        threshold: 0,
-    }
-    .bonus(derived.attributes, derived.skills);
+    let bonus = hazard_skill_bonus(derived, skill);
     Ok(CapturedHazardCheck {
         check: PlannedCheck {
             actor: crate::rules::CheckActor::User,
@@ -66,10 +70,38 @@ impl Game {
         skill: Skill,
         dc: i32,
     ) -> Result<bool, GameError> {
+        self.resolve_hazard_skill_options_in_transaction(actor, skill, None, dc)
+    }
+
+    pub(crate) fn resolve_best_hazard_skill_check_in_transaction(
+        &mut self,
+        actor: ActorId,
+        first: Skill,
+        second: Skill,
+        dc: i32,
+    ) -> Result<bool, GameError> {
+        self.resolve_hazard_skill_options_in_transaction(actor, first, Some(second), dc)
+    }
+
+    fn resolve_hazard_skill_options_in_transaction(
+        &mut self,
+        actor: ActorId,
+        mut skill: Skill,
+        alternative: Option<Skill>,
+        dc: i32,
+    ) -> Result<bool, GameError> {
         self.settle_actor_time(actor)?;
         let creature = self.creature(actor).ok_or(GameError::UnknownActor)?;
         if creature.health().dead() {
             return Ok(false);
+        }
+        if let Some(other) = alternative {
+            // Choose by actual bonus before reserving or spending the one check.
+            // Keep the primary skill on a tie to make the rule deterministic.
+            let derived = creature.derived();
+            if hazard_skill_bonus(derived, other) > hazard_skill_bonus(derived, skill) {
+                skill = other;
+            }
         }
         let captured = capture_hazard_skill_check(&creature, actor, skill, dc, &[])?;
         let mut rng = self.rules_rng;

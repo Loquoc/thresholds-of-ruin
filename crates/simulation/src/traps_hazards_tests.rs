@@ -35,6 +35,11 @@ fn fixture_with_resistance(modifiers: Vec<Modifier>, difficulty: i32) -> (Game, 
             "timing":{"kind":"actor_active","on_expiry":{"kind":"remove"}},"restrictions":["ordinary_movement","movement_abilities"],"preparation":"preserve"
         }),
         serde_json::json!({
+            "id":"fixture_persistent_bear","family":"fixture_persistent_bear","name":"Caught","lifecycle":"timed",
+            "modifiers":[],"stacking":{"kind":"keep"},"source_scoped":false,"descriptors":[],"capacity":"reject",
+            "timing":{"kind":"until_removed"},"restrictions":["ordinary_movement","movement_abilities"],"preparation":"preserve"
+        }),
+        serde_json::json!({
             "id":"fixture_hover","family":"fixture_hover","name":"Hovering","lifecycle":"timed",
             "modifiers":[{"scope":"always","op":{"kind":"locomotion","value":{"kind":"levitating","enabled":true}}}],
             "stacking":{"kind":"extend"},"source_scoped":false,"descriptors":[],"capacity":"reject",
@@ -693,6 +698,138 @@ fn admitted_movement_struggles_free_without_changing_position() {
         .unwrap();
     assert!(matches!(outcome.kind, crate::OutcomeKind::Moved { .. }));
     assert_eq!(game.actors[&actor].location, at(1));
+}
+
+#[test]
+fn persistent_bear_trap_has_paid_attempts_but_no_expiry_or_teleport_roll() {
+    let attempt = |game: &mut Game, actor, action| {
+        game.admit_intention(actor, action, crate::IntentionOrigin::Human)
+            .unwrap();
+        let outcome = game.execute_next_intention().unwrap().outcome.unwrap();
+        assert_eq!(outcome.kind, crate::OutcomeKind::Waited);
+        assert_eq!(game.actors[&actor].location, at(2));
+    };
+    for (dc, escapes, line) in [
+        (
+            100,
+            false,
+            "You struggle, but the bear trap still holds you.",
+        ),
+        (0, true, "You break free of the bear trap."),
+    ] {
+        let (mut game, actor) = fixture(vec![]);
+        place(
+            &mut game,
+            TrapKind::BearTrapEscape {
+                condition: "fixture_persistent_bear".into(),
+                escape_dc: dc,
+            },
+        );
+        game.teleport(actor, at(2)).unwrap();
+        let persistent = condition("fixture_persistent_bear");
+        let rng_before_waiting = game.rules_rng;
+        game.take_script_report();
+        for _ in 0..4 {
+            attempt(&mut game, actor, crate::Action::Wait);
+        }
+        assert_eq!(game.tick, 400);
+        assert_eq!(game.rules_rng, rng_before_waiting);
+        assert!(game.take_script_report().gameplay_narration.is_empty());
+        let mut shared = crate::checkpoint::SharedState::default();
+        let mut game = Game::restore_checkpoint(
+            game.checkpoint(&mut shared),
+            &shared,
+            game.content().clone(),
+        )
+        .unwrap();
+        assert!(
+            game.bear_trap_struggle(actor),
+            "the trap survives saving and the old timeout"
+        );
+        attempt(&mut game, actor, crate::Action::Move(Direction::West));
+        assert_eq!(game.tick, 500);
+        assert_ne!(game.rules_rng, rng_before_waiting);
+        assert_eq!(game.bear_trap_struggle(actor), !escapes);
+        let report = game.take_script_report();
+        assert_eq!(report.gameplay_narration.len(), 1);
+        assert_eq!(
+            report.gameplay_narration[0].segments,
+            [crate::scripting::MessageSegment::Text(line.into())]
+        );
+        if !escapes {
+            let after_failure = game.rules_rng;
+            attempt(&mut game, actor, crate::Action::Move(Direction::West));
+            assert!(game.bear_trap_struggle(actor));
+            assert_ne!(game.rules_rng, after_failure);
+            let before_teleport = game.rules_rng;
+            game.teleport(actor, at(3)).unwrap();
+            assert_eq!(game.rules_rng, before_teleport);
+        }
+        assert!(game.actors[&actor].spatial_condition_anchors.0.is_empty());
+        assert!(!game
+            .creature(actor)
+            .unwrap()
+            .conditions()
+            .has_active(&persistent));
+    }
+}
+
+#[test]
+fn bear_trap_uses_the_higher_escape_bonus_and_only_one_roll() {
+    use crate::attributes::{Attribute, Skill};
+
+    for (attribute, better, weaker) in [
+        (Attribute::Strength, Skill::Athletics, Skill::Thievery),
+        (Attribute::Speed, Skill::Thievery, Skill::Athletics),
+    ] {
+        let (mut game, actor) = fixture(vec![Modifier {
+            cancellable: false,
+            scope: Scope::Always,
+            op: ModifierOp::Add {
+                stat: Stat::Attribute { attribute },
+                value: 8,
+            },
+        }]);
+        place(
+            &mut game,
+            TrapKind::BearTrapEscape {
+                condition: "fixture_persistent_bear".into(),
+                escape_dc: 20,
+            },
+        );
+        game.teleport(actor, at(2)).unwrap();
+        let creature = game.creature(actor).unwrap();
+        let capture = |skill| {
+            crate::hazard_checks::capture_hazard_skill_check(&creature, actor, skill, 20, &[])
+                .unwrap()
+        };
+        let best = capture(better);
+        let worst = capture(weaker);
+        assert!(best.check.bonus > worst.check.bonus);
+        // Find a deterministic, discriminating draw: only the better check
+        // passes. Neither test path mutates the actual RNG until Move commits.
+        let mut stream = game.rules_rng;
+        let (before, after) = (0..100)
+            .find_map(|_| {
+                let before = stream;
+                let mut alternate = before;
+                let escapes = crate::abilities::resolve_escape_check(&best.check, &mut stream);
+                let weaker_escapes =
+                    crate::abilities::resolve_escape_check(&worst.check, &mut alternate);
+                (escapes && !weaker_escapes).then_some((before, stream))
+            })
+            .expect("enough rolls distinguish the better skill");
+        game.rules_rng = before;
+        game.admit_intention(
+            actor,
+            crate::Action::Move(Direction::West),
+            crate::IntentionOrigin::Human,
+        )
+        .unwrap();
+        game.execute_next_intention().unwrap();
+        assert!(!game.bear_trap_struggle(actor));
+        assert_eq!(game.rules_rng, after);
+    }
 }
 
 #[test]

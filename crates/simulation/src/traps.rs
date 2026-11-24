@@ -27,8 +27,8 @@ pub(crate) fn read_contacts<'de, D: serde::Deserializer<'de>>(
     Ok(Shared::new(TrapContacts(values)))
 }
 
-/// A spatially anchored condition has exactly one condition-owned timer. Losing
-/// ground contact alone does not release it; leaving its occupied cell does.
+/// A spatially anchored condition stays attached if the creature loses ground
+/// contact but still occupies its trap cell.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SpatialConditionAnchor {
@@ -79,13 +79,13 @@ impl SpatialConditionAnchors {
                     && actor.combat.as_ref().is_some_and(|combat| {
                         let creature = combat.creature();
                         creature.conditions().has_active(&entry.condition)
-                            && trap_kind_valid(
-                                creature.build().ruleset(),
-                                &TrapKind::BearTrap {
-                                    condition: entry.condition.as_str().to_owned(),
-                                    duration: 1,
-                                },
-                            )
+                            && [false, true].into_iter().any(|persistent| {
+                                bear_condition_valid(
+                                    creature.build().ruleset(),
+                                    &entry.condition,
+                                    persistent,
+                                )
+                            })
                     })
             })
     }
@@ -141,37 +141,59 @@ pub fn trap_kind_valid(rules: &crate::rules::Ruleset, kind: &TrapKind) -> bool {
             TrapKind::Rust { slot, .. } => EquipmentSlot::new(slot)
                 .ok()
                 .is_some_and(|id| rules.equipment_slot(&id).is_some()),
-            TrapKind::SleepingGas { condition, .. } | TrapKind::BearTrap { condition, .. } => {
-                ConditionId::new(condition)
-                    .ok()
-                    .and_then(|id| rules.condition(&id))
-                    .is_some_and(|definition| {
-                        definition.lifecycle == ConditionLifecycle::Timed
-                            && matches!(definition.timing, ConditionTiming::ActorActive { .. })
-                            && if matches!(kind, TrapKind::SleepingGas { .. }) {
-                                definition.preparation == ConditionPreparation::Pause
-                                    && definition
-                                        .restrictions
-                                        .contains(&ConditionRestriction::VoluntaryActions)
-                            } else {
-                                definition.preparation == ConditionPreparation::Preserve
-                                    && !definition.source_scoped
-                                    && definition
-                                        .restrictions
-                                        .contains(&ConditionRestriction::OrdinaryMovement)
-                                    && definition
-                                        .restrictions
-                                        .contains(&ConditionRestriction::MovementAbilities)
-                                    && !definition
-                                        .restrictions
-                                        .contains(&ConditionRestriction::VoluntaryActions)
-                            }
-                    })
+            TrapKind::SleepingGas { condition, .. } => ConditionId::new(condition)
+                .ok()
+                .and_then(|id| rules.condition(&id))
+                .is_some_and(|definition| {
+                    definition.lifecycle == ConditionLifecycle::Timed
+                        && matches!(definition.timing, ConditionTiming::ActorActive { .. })
+                        && definition.preparation == ConditionPreparation::Pause
+                        && definition
+                            .restrictions
+                            .contains(&ConditionRestriction::VoluntaryActions)
+                }),
+            TrapKind::BearTrap { condition, .. } | TrapKind::BearTrapEscape { condition, .. } => {
+                ConditionId::new(condition).ok().is_some_and(|id| {
+                    bear_condition_valid(
+                        rules,
+                        &id,
+                        matches!(kind, TrapKind::BearTrapEscape { .. }),
+                    )
+                })
             }
-
             _ => true,
         }
 }
+fn bear_condition_valid(
+    rules: &crate::rules::Ruleset,
+    id: &crate::content_ids::ConditionId,
+    persistent: bool,
+) -> bool {
+    use crate::rules::{
+        ConditionLifecycle, ConditionPreparation, ConditionRestriction, ConditionTiming,
+    };
+    rules.condition(id).is_some_and(|definition| {
+        definition.lifecycle == ConditionLifecycle::Timed
+            && if persistent {
+                matches!(definition.timing, ConditionTiming::UntilRemoved)
+                    && definition.stacking == crate::rules::Stacking::Keep
+            } else {
+                matches!(definition.timing, ConditionTiming::ActorActive { .. })
+            }
+            && definition.preparation == ConditionPreparation::Preserve
+            && !definition.source_scoped
+            && definition
+                .restrictions
+                .contains(&ConditionRestriction::OrdinaryMovement)
+            && definition
+                .restrictions
+                .contains(&ConditionRestriction::MovementAbilities)
+            && !definition
+                .restrictions
+                .contains(&ConditionRestriction::VoluntaryActions)
+    })
+}
+
 pub(crate) fn trap_content_valid(content: &crate::creatures::Content, kind: &TrapKind) -> bool {
     trap_kind_valid(content.rules(), kind)
         && match kind {
@@ -195,9 +217,81 @@ impl Game {
                     conditions.has_active(&anchor.condition)
                         && conditions
                             .remaining(&anchor.condition, id)
-                            .is_some_and(|remaining| remaining > elapsed)
+                            .is_none_or(|remaining| remaining > elapsed)
                 })
             })
+    }
+
+    fn anchor_bear_trap_condition(
+        &mut self,
+        actor: ActorId,
+        cell: Location,
+        condition: crate::content_ids::ConditionId,
+    ) -> Result<(), GameError> {
+        let mut owner = self.actors.get_mut(&actor).ok_or(GameError::UnknownActor)?;
+        if owner
+            .combat
+            .as_ref()
+            .is_some_and(|combat| combat.creature().conditions().has_active(&condition))
+        {
+            let entries = &mut owner.spatial_condition_anchors.0;
+            match entries.binary_search_by(|entry| entry.condition.cmp(&condition)) {
+                Ok(index) => entries[index].location = cell,
+                Err(index) if entries.len() < 64 => entries.insert(
+                    index,
+                    SpatialConditionAnchor {
+                        condition,
+                        location: cell,
+                    },
+                ),
+                Err(_) => {
+                    return Err(GameError::Rule(crate::abilities::RuleError::NumericBudget));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn resolve_bear_trap_struggle_in_transaction(
+        &mut self,
+        actor: ActorId,
+    ) -> Result<(), GameError> {
+        use crate::attributes::Skill;
+        let state = self.actors.get(&actor).ok_or(GameError::UnknownActor)?;
+        let Some((condition, dc)) = state.spatial_condition_anchors.0.iter().find_map(|anchor| {
+            let TrapKind::BearTrapEscape {
+                condition,
+                escape_dc,
+            } = &self.world.trap(anchor.location)?.kind
+            else {
+                return None;
+            };
+            (condition == anchor.condition.as_str()).then(|| (anchor.condition.clone(), *escape_dc))
+        }) else {
+            return Ok(());
+        };
+        let escaped = self.resolve_best_hazard_skill_check_in_transaction(
+            actor,
+            Skill::Athletics,
+            Skill::Thievery,
+            dc,
+        )?;
+        if escaped {
+            self.apply_effects_in_transaction(
+                actor,
+                &[crate::rules::Effect::RemoveCondition { condition }],
+            )?;
+            self.reconcile_spatial_condition_anchors(actor)?;
+        }
+        let line = if escaped && !self.bear_trap_struggle(actor) {
+            "You break free of the bear trap."
+        } else if escaped {
+            "You break free of one bear trap, but another still holds you."
+        } else {
+            "You struggle, but the bear trap still holds you."
+        };
+        self.narrate_gameplay(actor, line.into());
+        Ok(())
     }
 
     pub(crate) fn loaded_traps_valid(&self) -> bool {
@@ -669,27 +763,19 @@ impl Game {
                         duration,
                     }],
                 )?;
-                let mut owner = self.actors.get_mut(&actor).ok_or(GameError::UnknownActor)?;
-                if owner
-                    .combat
-                    .as_ref()
-                    .is_some_and(|combat| combat.creature().conditions().has_active(&condition))
-                {
-                    let entries = &mut owner.spatial_condition_anchors.0;
-                    match entries.binary_search_by(|entry| entry.condition.cmp(&condition)) {
-                        Ok(index) => entries[index].location = at,
-                        Err(index) if entries.len() < 64 => entries.insert(
-                            index,
-                            SpatialConditionAnchor {
-                                condition,
-                                location: at,
-                            },
-                        ),
-                        Err(_) => {
-                            return Err(GameError::Rule(crate::abilities::RuleError::NumericBudget))
-                        }
-                    }
-                }
+                self.anchor_bear_trap_condition(actor, at, condition)?;
+            }
+            TrapKind::BearTrapEscape { condition, .. } if has_creature => {
+                let condition = crate::content_ids::ConditionId::new(condition)
+                    .map_err(|_| GameError::InvalidLocation)?;
+                self.apply_effects_in_transaction(
+                    actor,
+                    &[Effect::ApplyPersistentCondition {
+                        condition: condition.clone(),
+                        cancels: None,
+                    }],
+                )?;
+                self.anchor_bear_trap_condition(actor, at, condition)?;
             }
             TrapKind::TrapDoor { .. } => {
                 self.world
@@ -747,6 +833,7 @@ impl Game {
             TrapKind::Rust { .. }
             | TrapKind::SleepingGas { .. }
             | TrapKind::BearTrap { .. }
+            | TrapKind::BearTrapEscape { .. }
             | TrapKind::PoisonDart { .. } => {}
             // Its discovery/contact is real, but a mysterious trap does not
             // invent a damaging, summoning or information-revealing mechanic.

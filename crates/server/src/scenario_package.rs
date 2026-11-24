@@ -592,6 +592,10 @@ pub enum TrapKind {
         condition: String,
         duration: u64,
     },
+    BearTrapEscape {
+        condition: String,
+        escape_dc: i32,
+    },
     Teleport {},
     PoisonDart {
         attack_bonus: i32,
@@ -628,6 +632,13 @@ impl TrapKind {
             } => tor_world::TrapKind::BearTrap {
                 condition: condition.clone(),
                 duration: *duration,
+            },
+            Self::BearTrapEscape {
+                condition,
+                escape_dc,
+            } => tor_world::TrapKind::BearTrapEscape {
+                condition: condition.clone(),
+                escape_dc: *escape_dc,
             },
             Self::Teleport {} => tor_world::TrapKind::Teleport {},
             Self::PoisonDart {
@@ -1534,13 +1545,7 @@ impl Package {
                             },
                         )?;
                         if let Some(hazards) = &config.hazards {
-                            check_trap_effect(
-                                &rules,
-                                &TrapKind::BearTrap {
-                                    condition: hazards.bear_condition.clone(),
-                                    duration: hazards.bear_duration,
-                                },
-                            )?;
+                            check_trap_effect(&rules, &hazards.bear_trap_kind()?)?;
                             self.check_trap_ammunition(&hazards.arrow_ammunition)?;
                             check_trap_effect(
                                 &rules,
@@ -6421,7 +6426,11 @@ mod tests {
             .expect("the actual authored rules are a valid baseline");
         let id = tor_simulation::content_ids::ConditionId::new("rogue.bear_trap").unwrap();
         let definition = rules.condition(&id).unwrap();
-        assert_eq!(definition.stacking, tor_simulation::rules::Stacking::Extend);
+        assert!(matches!(
+            definition.timing,
+            tor_simulation::rules::ConditionTiming::UntilRemoved
+        ));
+        assert_eq!(definition.stacking, tor_simulation::rules::Stacking::Keep);
         assert_eq!(
             definition.preparation,
             tor_simulation::rules::ConditionPreparation::Preserve
@@ -6437,7 +6446,7 @@ mod tests {
             .unwrap()
             .stacking = tor_simulation::rules::Stacking::Refresh;
         assert!(matches!(tor_simulation::rules::Ruleset::validate(invalid),
-            Err(tor_simulation::rules::RulesetError::Bound { field }) if field == "protected_condition_shape"));
+            Err(tor_simulation::rules::RulesetError::Bound { field }) if field == "persistent_condition_shape"));
     }
 
     #[test]
