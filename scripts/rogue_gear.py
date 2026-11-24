@@ -1,6 +1,7 @@
 """Rogue equipment decisions using disclosed player information."""
 
 from collections import Counter, defaultdict
+from collections.abc import Collection
 
 from tor_client_bot import Action, Item, ItemUse, Turn, Unequip, UseItem, Zap
 
@@ -28,10 +29,14 @@ def needs_identification(item: Item) -> bool:
     )
 
 
-def can_identify_carried_item(scroll: Item, turn: Turn) -> bool:
+def identification_categories(scroll: Item) -> Collection[str]:
     if ItemUse.READ not in scroll.uses:
-        return False
-    categories = scroll.identifies or IDENTIFY_CATEGORIES.get(scroll.identity, ())
+        return ()
+    return scroll.identifies or IDENTIFY_CATEGORIES.get(scroll.identity, ())
+
+
+def can_identify_carried_item(scroll: Item, turn: Turn) -> bool:
+    categories = identification_categories(scroll)
     return bool(categories) and any(
         item.category in categories and needs_identification(item) for item in turn.inventory
     )
@@ -49,6 +54,7 @@ def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | N
 def choose_armor(turn: Turn) -> tuple[Action, str] | None:
     scrolls = {i.identity: i for i in turn.inventory if ItemUse.READ in i.uses}
     cure = scrolls.get("item.scroll.remove-curse")
+    can_identify_armor = any("armor" in identification_categories(item) for item in turn.inventory)
     best = None
     best_gain = 0
     for choice in turn.equip_choices():
@@ -57,7 +63,7 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
             continue
         worn = slot.occupant
         estimated = item.physical_reduction is None or (worn is not None and worn.physical_reduction is None)
-        if estimated and "item.scroll.identify-armor" in scrolls:
+        if estimated and can_identify_armor and (needs_identification(item) or (worn and needs_identification(worn))):
             continue
         current = _armor_protection(worn) if worn else 0
         rating = _armor_protection(item, account_for_curse=cure is None)

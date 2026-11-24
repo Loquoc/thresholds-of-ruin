@@ -192,6 +192,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 _, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual(reason == "identify_gear", should_read)
 
+    def test_unmeasured_plate_waits_only_for_a_readable_scroll_that_identifies_armor(self):
+        plate = {"id": "plate", "class": "armor", "name": "plate", "quantity": 1, "identified": True,
+                 "identity": "item.armor.plate-mail"}
+        slot = {"id": "body_armor", "name": "Body"}
+        for identity, categories, expected in (
+            ("item.scroll.fixture", ["armor"], "identify_gear"),
+            ("item.scroll.identify-armor", ["potion"], "try_armor"),
+        ):
+            with self.subTest(identity=identity, categories=categories):
+                scroll = {"id": "lore", "class": "scroll", "name": "lore", "quantity": 1,
+                          "identified": True, "identity": identity}
+                turn = player_turn([cell("stairs", down=True)], inventory=[scroll, plate],
+                                   interactions={"slots": [slot], "inventory": [
+                                       {"item": "plate", "slot": slot}, {"item": "lore", "readable": True}]},
+                                   known_item_uses=[{"item": "lore", "identifies": categories}])
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
+
     def test_protects_disclosed_unprotected_armor_and_preserves_scroll_otherwise(self):
         from tor_client_bot import UseItem, ItemUse
         body = {"id": "body_armor", "name": "body"}
