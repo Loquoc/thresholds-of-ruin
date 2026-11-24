@@ -120,11 +120,6 @@ def edible_items(turn: Turn) -> Iterator[Item]:
     return (item for item in turn.inventory if ItemUse.EAT in item.uses)
 
 
-def route_to_food(turn: Turn, memory: FloorMap) -> Action | None:
-    food_cells = {key for key, items in memory.items.items() if any(item.category == "food" for item in items)}
-    return memory.toward(turn, food_cells)
-
-
 def carried_quantity(turn: Turn, identity: str) -> int:
     return sum(item.quantity for item in turn.inventory if item.identity == identity)
 
@@ -1083,6 +1078,13 @@ class Adventurer:
         )
         return known_return + floors_ahead * round_trip
 
+    def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
+        food_cells = {key for key, items in memory.items.items() if any(item.category == "food" for item in items)}
+        if food_cells and self.danger_until:
+            if step := memory.toward(turn, food_cells, avoid=self.danger_until.keys()):
+                return step
+        return memory.toward(turn, food_cells)
+
     def provision(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[Action, str] | None:
         nutrition = turn.nutrition
         if nutrition is None:
@@ -1098,7 +1100,7 @@ class Adventurer:
             provisions += self.food_value[item.identity] * item.quantity
         if nutrition.ticks_until_empty + provisions * nutrition.ticks_per_unit >= required:
             return None
-        if step := route_to_food(turn, memory):
+        if step := self.route_to_food(turn, memory):
             return step, "forage"
         if returning or self.depth >= self.retrieval_depth:
             return None
@@ -1233,7 +1235,7 @@ class Adventurer:
             for ground in ground_items:
                 if ground.reachable and ground.item.category == "food":
                     return Pickup(ground.item), "take"
-            if not hovering and not trapped and (step := route_to_food(turn, memory)):
+            if not hovering and not trapped and (step := self.route_to_food(turn, memory)):
                 return step, "forage"
 
         returning = self.carrying_objective(turn)

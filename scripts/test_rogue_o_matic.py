@@ -2188,6 +2188,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn(track, ground=ground, stats=hungry)
         self.assertEqual(choose(player, turn), (Pickup(turn.ground_items[0].item), "take"))
 
+    def test_foraging_prefers_a_safe_ration_but_can_use_the_only_known_route(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        cells = [cell("near", -1), cell("here"), cell("passage", 1), cell("far", 2)]
+        meal = {"id": "ration", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        near = {**cells[0], "item": meal, "reachable": False}
+        far = {**cells[-1], "item": {**meal, "id": "other"}, "reachable": False}
+        hungry = {"nutrition": {"hunger": "weak"}}
+        player.danger_until["near"] = 1200
+        for ground, expected in (([near, far], Direction.EAST), ([near], Direction.WEST)):
+            with self.subTest(direction=expected):
+                turn = player_turn(cells, ground=ground, stats=hungry)
+                self.assertEqual(choose(player, turn), (Move(expected), "forage"))
+
     def test_takes_an_immediate_objective_before_starting_melee(self):
         foe = {"id": "foe", "position": {"x": 1, "y": 0, "z": 0}}
         melee = {"id": "basic_melee", "cooldown_remaining": "0", "cost": None}
