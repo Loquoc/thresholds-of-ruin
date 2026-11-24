@@ -6307,7 +6307,7 @@ mod tests {
         assert!(package.index.regions.is_empty());
         assert!(package.manifest.generation_groups.is_empty());
         assert!(package.manifest.stair_pairs.is_empty());
-        assert_eq!(package.manifest.characters[0].anchor, "dungeon/1/start");
+        assert_eq!(package.manifest.characters[0].anchor, "dungeon/1/up");
         assert_eq!(package.manifest.procedural_worlds.len(), 1);
         let family = &package.manifest.procedural_worlds["dungeon"];
         assert_eq!(family.grid, [3, 3]);
@@ -8714,8 +8714,10 @@ mod region_lifecycle_tests {
     }
 
     /// Visit order legitimately changes allocation IDs of published detached
-    /// records. Compare their complete contents by stable region identity, then
-    /// load every already-published record frozen to compare the entire game.
+    /// records. Compare complete record contents by stable region identity, then
+    /// compare the games with only those allocation IDs canonicalized. Loading
+    /// their union would promote supplemental trap destinations into roots and
+    /// require new terrain outside the selection being compared.
     fn assert_same_procedural_game(
         actual: &Game,
         actual_records: &mut crate::regions::Regions,
@@ -8723,7 +8725,7 @@ mod region_lifecycle_tests {
         expected_records: &mut crate::regions::Regions,
         context: &str,
     ) {
-        use tor_simulation::{RecordStore, RegionState};
+        use tor_simulation::RecordStore;
         let membership = |game: &Game| {
             game.loaded_regions()
                 .map(|id| (id, game.region_state(id).unwrap()))
@@ -8750,29 +8752,29 @@ mod region_lifecycle_tests {
             detached(expected, expected_records),
             "{context}"
         );
-        let expand = |game: &Game, records: &mut crate::regions::Regions| {
-            let active = game
-                .loaded_regions()
-                .filter(|id| game.region_state(*id) == Some(RegionState::Active))
-                .collect();
-            let loaded = game
-                .loaded_regions()
-                .chain(game.detached_records().map(|(region, _)| region))
-                .collect();
-            let mut game = game.clone();
-            game.transition_regions(
-                &RegionTransition { active, loaded },
-                &mut SavedRecords(records),
-            )
-            .unwrap();
-            assert_eq!(game.detached_records().count(), 0);
-            game
+        let canonical_records = |game: &Game| {
+            let mut shared = tor_simulation::checkpoint::SharedState::default();
+            let snapshot = game.checkpoint(&mut shared);
+            let mut shared = serde_json::to_value(shared).unwrap();
+            if let Some(lifecycles) = shared.get_mut("lifecycles") {
+                for lifecycle in lifecycles.as_array_mut().unwrap() {
+                    let detached = lifecycle["detached"].as_object_mut().unwrap();
+                    for (index, record) in detached.values_mut().enumerate() {
+                        *record = serde_json::json!(index + 1);
+                    }
+                    let next_record = detached.len() + 1;
+                    lifecycle["next_record"] = serde_json::json!(next_record);
+                }
+            }
+            let shared = serde_json::from_value(shared).unwrap();
+            Game::restore_checkpoint(snapshot, &shared, game.content().clone())
+                .unwrap_or_else(|error| panic!("{context}: {error}"))
         };
-        let mut actual = expand(actual, actual_records);
-        let mut expected = expand(expected, expected_records);
-        actual.continue_record_ids(&expected);
-        expected.continue_record_ids(&actual);
-        assert_same_game(&actual, &expected, context);
+        assert_same_game(
+            &canonical_records(actual),
+            &canonical_records(expected),
+            context,
+        );
     }
 
     fn assert_same_game(actual: &Game, expected: &Game, context: &str) {

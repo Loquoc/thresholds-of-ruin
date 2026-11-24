@@ -9,7 +9,7 @@ from discovery_package import doors, fixture, generated_package, observation, pa
 from process_harness import (
     ProcessTestCase, ROOT, SPECTATOR_TOKEN, non_graphical, settle_rogue_action, underfoot,
 )
-from rogue_test_support import DisclosedFloorGraph
+from rogue_test_support import DisclosedFloorGraph, disclosed_frames, ordered_combat_events
 
 
 def _native_ambiguous_command_letter(case, window, native):
@@ -414,6 +414,25 @@ class DiscoveryProcesses(ProcessTestCase):
         self.assertEqual(underfoot(self.snapshot(spectator)["state"])["key"], trapped_at)
         self.say(text, "step west")
         self.assertNotEqual(underfoot(self.snapshot(spectator)["state"])["key"], trapped_at)
+
+    @non_graphical
+    def test_persistent_rogue_bear_trap_discloses_the_spring_on_contact(self):
+        data = fixture()
+        data["regions"][0]["traps"] = [{
+            "id": 1, "at": [2, 2, 0], "dc": 100, "avoidance_dc": 100,
+            "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0},
+        }]
+        self.server(scenario=write_package(self, data, "bear-trap-spring"), seed=42)
+        player, before = self.client()
+        start = len(player.transcript)
+        trapped = settle_rogue_action(self, player, self.act(player, {"type": "move", "direction": "east"}))
+        conditions = observation(trapped)["combat"]["own_stats"]["conditions"]
+        self.assertTrue(any(row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"
+                            for row in conditions))
+        events = ordered_combat_events(disclosed_frames(player, start), after=before)
+        springs = [event for event in events
+                   if event["type"] == "condition" and event["condition"]["id"] == "rogue.bear_trap"]
+        self.assertEqual(len(springs), 1)
 
     def test_native_movement_struggles_free_of_a_bear_trap(self):
         data = fixture()

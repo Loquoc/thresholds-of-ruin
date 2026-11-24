@@ -274,7 +274,7 @@ class OmittedRoomTopologyProcess(ProcessTestCase):
         from discovery_package import search
         from process_harness import settle_rogue_action
         from rogue_earned_route import Controller
-        from rogue_test_support import DisclosedSearchSweep
+        from rogue_test_support import DisclosedSearchSweep, fixed_walkthrough_start
         from process_work_budget import ProcessOutputBudget
         from rogue_earned_route_process import (
             ArchiveVerificationCache, CHUNK_SOFT_BYTES, CHUNK_HARD_BYTES, MINIMUM_FREE_BYTES,
@@ -290,6 +290,7 @@ class OmittedRoomTopologyProcess(ProcessTestCase):
         path = package / "scenario.toml"
         manifest = tomllib.loads(path.read_text(encoding="utf-8"))
         wandering = manifest["floor_activation"]["wandering"].copy()
+        fixed_walkthrough_start(manifest)
         manifest["generation_recipes"]["exploration"]["room_omissions"] = {"count": [3, 3]}
         if mazes:
             # Force the new capability only in this copied acceptance package;

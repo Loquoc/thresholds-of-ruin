@@ -7,6 +7,42 @@ import json
 from scalar_wire import u64
 
 
+def fixed_walkthrough_start(manifest):
+    """Keep a flat, seed-specific acceptance route on its authored survey entry.
+
+    These fixtures prove combat or particular traversal and save behavior, not
+    the production birth location. Starting at the live up stair changes the
+    path and exposes these flat-floor drivers to vertical trapdoor travel.
+    The caller owns the manifest copy; no terrain, traps or rules change here.
+    """
+    for character in manifest["characters"]:
+        if character["anchor"] != "dungeon/1/up":
+            raise ValueError("Expected the production Rogue opening staircase")
+        character["anchor"] = "dungeon/1/start"
+
+
+def fixed_walkthrough_package(test):
+    """Copy the current stock package, pin only its route entry, and certify it."""
+    import shutil
+    import subprocess
+    import tomllib
+
+    from arena_matrix import toml_source
+    from process_harness import ROOT
+
+    package = test.directory / "fixed-walkthrough-rogue"
+    shutil.copytree(ROOT / "scenarios/rogue-exploration", package,
+                    ignore=shutil.ignore_patterns(".compiled"))
+    manifest = package / "scenario.toml"
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    fixed_walkthrough_start(data)
+    manifest.write_text(toml_source(data), encoding="utf-8", newline="\n")
+    result = subprocess.run([test.bin / ("tor-scenario" + test.suffix), "validate", package],
+                            capture_output=True, text=True, encoding="utf-8", timeout=60)
+    test.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    return package
+
+
 def disclosed_frames(player, start):
     """Keep transient resolved events even when the later ready frame replaces them."""
     for line in player.transcript[start:]:
