@@ -825,23 +825,28 @@ class Adventurer:
         choices = [(safety(d.offset), d) for d in turn.walkable_directions]
         if not choices:
             return None
-        best, direction = max(choices, key=lambda choice: choice[0])
-        if best > current:
-            return Move(direction), MemoryReason.RETREAT
-        routes = []
-        for first_step, direction in choices:
-            if first_step < current:
-                continue
+        best, first = max(choices, key=lambda choice: choice[0])
+        if best < current:
+            return None
+        candidates = [direction for score, direction in choices if score == best]
+        if best > current and len(candidates) == 1:
+            return Move(first), MemoryReason.RETREAT
+
+        # Among equally safe first steps, prefer one with a safe onward move.
+        best_onward = None
+        for direction in candidates:
             cell = turn.cell_at(direction.offset)
-            if cell is None:
-                continue
             for second in turn.walkable_from(cell):
                 offset = tuple(a + b for a, b in zip(direction.offset, second.offset))
+                if offset == (0, 0, 0):
+                    continue
                 after = safety(offset)
-                if after > current:
-                    routes.append((after, direction))
-        if routes:
-            return Move(max(routes, key=lambda route: route[0])[1]), MemoryReason.BREAK_CONTACT
+                if after >= best and (best_onward is None or after > best_onward):
+                    first, best_onward = direction, after
+        if best > current:
+            return Move(first), MemoryReason.RETREAT
+        if best_onward is not None and best_onward > current:
+            return Move(first), MemoryReason.BREAK_CONTACT
         return None
 
     def recovery_budget(self, turn: Turn, memory: FloorMap, direction: Direction) -> int | None:

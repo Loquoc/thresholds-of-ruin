@@ -3247,6 +3247,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         escape["wall"] = True
         self.assertEqual(decision(2)[1], "melee")
 
+    def test_when_two_steps_break_contact_choose_the_one_with_a_continuing_escape(self):
+        foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
+        cells = [cell("here"), cell("enemy", 1)]
+        for y in (-1, 1, 2):
+            tile = cell(str(y))
+            tile["position"]["y"] = y
+            cells.append(tile)
+        for y in (-2, -1, 1):
+            x = 0 if y == -2 else 1
+            tile = cell(f"wall-{y}", x)
+            tile.update(wall=True, position={"x": x, "y": y, "z": 0})
+            cells.append(tile)
+        turn = player_turn(cells, actors=[foe], hostiles=["foe"], combat={"hp": 2})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.SOUTH), "retreat"))
+
     def test_retreat_prefers_an_open_route_over_an_equally_safe_dead_end(self):
         foe = {"id": "foe", "name": "Wraith", "position": {"x": 2, "y": 0, "z": 0}}
         room = [cell("here"), cell("east", 1), cell("foe", 2)]

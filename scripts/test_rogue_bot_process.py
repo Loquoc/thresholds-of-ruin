@@ -2347,40 +2347,50 @@ with ExitStack() as clients:
         self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_bot_uses_a_two_step_escape_against_a_learned_damage_threat(self):
+        self.check_escape_from_learned_threat(
+            walls=((2, 1), (3, 2), (1, 1), (3, 3)), foe_at=(2, 3), direction="west", reason="break_contact")
+
+    def test_bot_breaks_contact_toward_the_open_corridor(self):
+        self.check_escape_from_learned_threat(
+            walls=((1, 1), (1, 2), (1, 3), (2, 0), (3, 1), (3, 3)),
+            foe_at=(3, 2), direction="south", reason="retreat")
+
+    def check_escape_from_learned_threat(self, *, walls, foe_at, direction, reason):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
         region, = contents["regions"]
         region.update(anchors={"start": [2, 2, 0]},
-                      walls=[[x, y, z] for x, y in ((2, 1), (3, 2), (1, 1), (3, 3))
+                      walls=[[x, y, z] for x, y in walls
                              for z in range(2)],
                       actors=[{"archetype": "rogue.hobgoblin", "id": 3, "controller": "external",
-                               "at": [2, 3, 0], "turn_ticks": 1000000}])
+                               "at": [*foe_at, 0], "turn_ticks": 1000000}])
         server = self.server(scenario=write_package(self, contents, "rogue-bot-learned-threat-retreat"))
         self.install_bot_extension()
         code = """
-import os
+import os, sys
 from rogue_player import Adventurer
 from tor_client_bot import Direction, Move, Outcome, Session, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(address, token, 1) as game, Session.connect(address, token, 3) as enemy:
     turn = game.wait_for_decision()
-    foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin" and (0, 1, 0) in c.cells)
-    west = turn.cell_at((-1, 0, 0))
+    foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
+    direction = Direction(sys.argv[1])
+    destination = turn.cell_at(direction.offset)
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
     assert turn.health.current * 4 > turn.health.maximum
     player.observed_loss[foe.target] = (turn.health.current + 1) // 2
     step, reason = player.choose(turn)
-    assert (step, reason) == (Move(Direction.WEST), "break_contact"), (step, reason)
+    assert (step, reason) == (Move(direction), sys.argv[2]), (step, reason)
     assert turn.submit(step).status is Outcome.CONFIRMED
     assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
-    assert game.wait_for_decision().cell.key == west.key
+    assert game.wait_for_decision().cell.key == destination.key
 """
         result = subprocess.run(
-            [sys.executable, "-c", code], cwd=self.directory,
+            [sys.executable, "-c", code, direction, reason], cwd=self.directory,
             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
                  "BOT_TEST_ADDRESS": self.address},
             text=True, capture_output=True, timeout=55,
