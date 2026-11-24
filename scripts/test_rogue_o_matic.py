@@ -3064,12 +3064,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_uses_known_teleportation_when_the_remembered_return_route_is_disconnected(self):
         items = [{"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
                   "quantity": 1, "identified": True},
+                 {"id": "unknown", "name": "Faded parchment", "quantity": 1,
+                  "class": "scroll", "identified": False},
                  {"id": "scroll", "name": "Wayfarer", "identity": "item.scroll.teleportation",
                   "quantity": 1, "class": "scroll", "identified": True}]
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=4)
         player.observe(player_turn([cell("lost-stair", up=True)]))
         def picture(tiles):
-            return player_turn(tiles, inventory=items, interactions={"inventory": [{"item": "scroll", "readable": True}]})
+            offers = [{"item": name, "readable": True} for name in ("unknown", "scroll")]
+            return player_turn(tiles, inventory=items, interactions={"inventory": offers})
         turn = picture([cell("here")])
         action, reason = choose(player, turn)
         self.assertEqual((action.item.target, reason), ("scroll", "find_return_route"))

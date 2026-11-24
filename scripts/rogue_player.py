@@ -1113,6 +1113,14 @@ class Adventurer:
             return UseItem(item, ItemUse.READ), reason
         return None
 
+    def route_scroll(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[UseItem, str] | None:
+        """When cut off from remembered upstairs, prefer a known teleport to a trial."""
+        if returning and memory.stairs(Direction.UP):
+            for item in turn.inventory:
+                if item.identity == "item.scroll.teleportation" and ItemUse.READ in item.uses:
+                    return UseItem(item, ItemUse.READ), "find_return_route"
+        return self.scroll_trial(turn)
+
     def stalled(self, turn: Turn, previous: Result | None) -> tuple[Action | None, str]:
         if (previous is None or not turn.can_cancel or len(turn.activities) != 1
                 or turn.outcome_of(previous) is not ActivityPhase.QUEUED):
@@ -1283,16 +1291,11 @@ class Adventurer:
                     return Zap(device, None), MemoryReason.LIGHT_ROOM
         if action := self.explore_frontier(turn, memory):
             return action, MemoryReason.EXPLORE
-        fallback = None
-        if returning and memory.stairs(Direction.UP):
-            for item in turn.inventory:
-                if item.identity == "item.scroll.teleportation" and ItemUse.READ in item.uses:
-                    fallback = UseItem(item, ItemUse.READ), "find_return_route"
-                    break
-        if fallback is None:
-            fallback = self.scroll_trial(turn)
-        if decision := self.search(turn, memory, returning, allow_unseen=fallback is None) or fallback:
+        scroll = self.route_scroll(turn, memory, returning)
+        if decision := self.search(turn, memory, returning, allow_unseen=scroll is None):
             return decision
+        if scroll is not None:
+            return scroll
         if (not returning and not turn.hostiles and memory.stairs(Direction.UP)
                 and not memory.stairs(Direction.DOWN)):
             # A failed Search leaves concealed doors looking like ordinary walls.
