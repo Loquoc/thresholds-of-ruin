@@ -134,6 +134,7 @@ impl Session {
     }
 
     /// Query server-owned projectile choices for the supplied player observation.
+    /// A current query with no legal options returns an empty page; None means stale.
     pub async fn projectile_choices(
         &mut self,
         observation: &ReplyContext,
@@ -168,6 +169,25 @@ impl Session {
             })
             .await?;
         match turn {
+            Turn::Confirmed(ConfirmedReply::Rejected {
+                code: tor_protocol::ErrorCode::InvalidAction,
+                ..
+            }) => {
+                // A discovery query can legitimately find an unwielded launcher
+                // or no compatible ammunition. Those are player-facing hints,
+                // not bot transport errors; let it consider its other abilities.
+                if self
+                    .observation()
+                    .is_none_or(|current| current.reply_context() != *observation)
+                {
+                    return Ok(None);
+                }
+                Ok(Some(ProjectileChoicePage {
+                    query,
+                    choices: Vec::new(),
+                    next_offset: None,
+                }))
+            }
             Turn::Confirmed(ConfirmedReply::Rejected { code, message }) => {
                 Err(format!("{code:?}: {message}").into())
             }
