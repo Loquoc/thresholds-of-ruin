@@ -517,13 +517,8 @@ class Adventurer:
             if decision := self.evade(turn):
                 return decision
 
-        if turn.hostiles:
-            for device in turn.devices:
-                if device.item.identity not in ELEMENTAL_WANDS or not self.can_spend_charge(device):
-                    continue
-                for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
-                    if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
-                        return zap, "elemental_ray"
+        if turn.hostiles and (zap := self.elemental_ray(turn)):
+            return zap, "elemental_ray"
 
         if turn.hostiles and (trial := self.try_unknown_wand(turn)):
             return trial, MemoryReason.TEST_UNKNOWN_DEVICE
@@ -671,6 +666,18 @@ class Adventurer:
             if cell is None or cell.wall or (cell.door and not cell.door.open) or destination in occupied:
                 return False
         return True
+
+    def elemental_ray(self, turn: Turn) -> Zap | None:
+        devices = [device for device in turn.devices
+                   if device.item.identity in ELEMENTAL_WANDS and self.can_spend_charge(device)]
+        if not devices:
+            return None
+        targets = sorted(turn.hostiles, key=self.damage_estimate, reverse=True)
+        for device in devices:
+            for foe in targets:
+                if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+                    return zap
+        return None
 
     def try_unknown_wand(self, turn: Turn) -> Zap | None:
         health = turn.health

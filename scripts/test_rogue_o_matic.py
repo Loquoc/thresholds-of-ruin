@@ -1261,6 +1261,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.admitted(turn, action, reason=reason)
                     self.assertNotEqual(player.choose(turn)[1], "elemental_ray")
 
+    def test_elemental_ray_prioritizes_the_foe_with_greater_observed_damage(self):
+        cells = [cell(str(x), x) for x in range(-6, 7)]
+        foes = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+                for name, x in (("west", -4), ("east", 4))]
+        wand = {"id": "rod", "class": "wand", "name": "rod", "quantity": 1, "identified": True,
+                "identity": "item.wand.wand-cold"}
+        offer = {"item": "rod", "zappable": True, "device_activation": "direction", "charges": 1}
+        turn = player_turn(cells, actors=foes, hostiles=["west", "east"], inventory=[wand],
+                           interactions={"inventory": [offer]})
+        for target, offset in (("west", -4), ("east", 4)):
+            with self.subTest(target=target):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss[target] = 5
+                action, reason = choose(player, turn)
+                self.assertEqual((reason, action.target), ("elemental_ray", turn.cell_at((offset, 0, 0))))
+
     def test_polymorph_is_reserved_for_a_dangerous_uninjured_approach(self):
         wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph",
                 "identified": True, "name": "staff of polymorph", "quantity": 1}
