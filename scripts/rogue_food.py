@@ -39,7 +39,8 @@ class PendingMeal:
         if nutrition is None or nutrition.reserve >= nutrition.maximum:
             # At the cap, the reserve change only gives a lower bound on the meal's value.
             return None
-        if carried_quantity(turn, self.identity) >= self.quantity_before:
+        consumed = self.quantity_before - carried_quantity(turn, self.identity)
+        if consumed != 1:
             return None
         gain = nutrition.reserve - self.reserve_before
         return gain if gain > 0 else None

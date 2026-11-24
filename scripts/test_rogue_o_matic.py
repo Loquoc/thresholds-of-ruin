@@ -2854,12 +2854,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         def picture(count, reserve):
             nutrition = {"kind": "required", "unit_ticks": 100, "elapsed": 0, "maximum": 1000,
                          "hunger": "nourished", "reserve": reserve}
-            return player_turn([cell("here")], inventory=[dict(ration, quantity=count)],
-                               stats={"nutrition": nutrition}, interactions={"inventory": [{"item": "ration", "edible": True}]})
+            pack = [dict(ration, quantity=count)] if count else []
+            offers = [{"item": "ration", "edible": True}] if count else []
+            return player_turn([cell("here")], inventory=pack, stats={"nutrition": nutrition},
+                               interactions={"inventory": offers})
 
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         observations = (
             (100, 2, 150, None),  # The stack did not shrink.
+            (100, 0, 220, None),  # Losing two rations cannot establish the gain from one.
             (100, 1, 95, None),
             (990, 1, 1000, None),  # The reserve cap hides the full gain.
             (100, 1, 160, 60),
