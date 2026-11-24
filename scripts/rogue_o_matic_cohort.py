@@ -205,8 +205,12 @@ def trace_report(path):
             try:
                 row = json.loads(line)
             except ValueError:
-                continue
+                row = None
             if not isinstance(row, dict):
+                # Costs and transitions need consecutive observations. Totals from intact rows survive.
+                last_move = previous_origin = None
+                visits.previous_floor = None
+                visits.previous_reserve = None
                 continue
             if row.get("cell") is not None and row.get("known_cells") is not None:
                 detours = progress.setdefault("supply_detours", {"ticks": 0, "reserve_spent": 0, "resolved_steps": 0})

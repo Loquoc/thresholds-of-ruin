@@ -426,6 +426,29 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual(progress["actions"], 1)
         self.assertEqual(progress["supply_detours"], {"ticks": 120, "reserve_spent": 3, "resolved_steps": 1})
 
+    def test_trace_gap_breaks_movement_costs_and_floor_transitions(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        move = {"floor": 1, "cell": "start", "known_cells": 4, "tick": 100, "nutrition_reserve": 30,
+                "reason": "seek_supplies", "action": {"type": "move"},
+                "result": {"status": "confirmed", "receipt": {"intention": "step"}}}
+        end = {"terminal": "action_budget", "cell": "landing", "known_cells": 5, "tick": 500,
+               "nutrition_reserve": 20, "previous_intention_id": "step", "previous_intention_phase": "resolved"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            for gap in ('{"action":', "null"):
+                for floor in (1, 2):
+                    with self.subTest(gap=gap, floor=floor):
+                        path.write_text("\n".join((json.dumps(move), gap, json.dumps(dict(end, floor=floor)))),
+                                        encoding="utf-8")
+                        terminal, progress = trace_report(path)
+                        self.assertEqual(terminal["floor"], floor)
+                        self.assertEqual(progress["actions"], 1)
+                        self.assertEqual(progress["supply_detours"]["resolved_steps"], 0)
+                        self.assertEqual(progress["stair_transitions"], [])
+
     def test_correlates_search_resolution_with_its_admission_floor(self):
         from pathlib import Path
         import tempfile
