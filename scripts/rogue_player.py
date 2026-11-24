@@ -579,7 +579,9 @@ class Adventurer:
                 continue
             if shot.launcher:
                 return shot, "launch_projectile"
-            if first_throw is None and not can_strike and not shot.equipped_throw and shot.target.distance <= 4:
+            if first_throw is not None or can_strike or shot.equipped_throw:
+                continue
+            if max(map(abs, shot.offset)) <= 4:
                 first_throw = shot
         if first_throw is not None:
             return first_throw, "throw_projectile"

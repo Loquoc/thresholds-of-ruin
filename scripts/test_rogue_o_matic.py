@@ -882,11 +882,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         throw = {"id": "throw", "name": "Throw", "target_kind": "directional_projectile", "reach": {"kind": "projectile"},
                  "cooldown_remaining": "0", "cost": None, "basic_attack": False}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        for distance, tick, expected in ((5, 10, False), (4, 10, True), (4, 10, False), (4, 11, True)):
-            with self.subTest(distance=distance, tick=tick, expected=expected):
-                cells = [cell(str(x), x) for x in range(distance + 1)]
-                foe = {"id": "emu", "name": "emu", "position": cells[-1]["position"]}
-                turn = player_turn(cells, actors=[foe], hostiles=["emu"], inventory=[dart], abilities=[throw], tick=tick)
+        cases = (
+            ((5,), 5, 10, False),
+            ((4, 5), 5, 10, False),
+            ((4, 5), 4, 10, True),
+            ((4,), 4, 10, False),
+            ((4,), 4, 11, True),
+        )
+        for body, distance, tick, expected in cases:
+            with self.subTest(body=body, aim=distance, tick=tick):
+                cells = [cell(str(x), x) for x in range(max(body) + 1)]
+                actors = [{"id": "emu", "name": "emu", "position": cells[x]["position"]} for x in body]
+                turn = player_turn(cells, actors=actors, hostiles=["emu"], inventory=[dart], abilities=[throw], tick=tick)
                 shot = Shot(turn.abilities[0], turn.hostiles[0], (distance, 0, 0), turn.inventory[0], None, 0)
                 turn.ranged_attacks = Mock(return_value=[shot])
                 action, reason = choose(player, turn)
