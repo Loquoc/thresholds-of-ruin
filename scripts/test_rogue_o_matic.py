@@ -527,6 +527,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(player_turn([cell("lower", up=True)], tick=200))
         self.assertEqual(player.depth, 3)
         self.assertEqual(player.ascent_ticks_by_floor, {2: 300})
+        self.assertEqual(player.descent_ticks_by_floor, {2: 200})
+
+        # A faster second crossing updates the return estimate while preserving the first exploration time.
+        lower = player_turn([cell("lower", up=True)], tick=250)
+        player.observe(lower)
+        player.admitted(lower, Move(Direction.UP))
+        revisited = player_turn([cell("down", down=True)], tick=300)
+        player.observe(revisited)
+        player.admitted(revisited, Move(Direction.DOWN))
+        player.observe(player_turn([cell("lower", up=True)], tick=350))
+        self.assertEqual(player.ascent_ticks_by_floor, {2: 150})
+        self.assertEqual(player.descent_ticks_by_floor, {2: 200})
 
     def test_uses_clear_diagonals_to_reach_stairs_without_visible_enemies(self):
         room = [cell("here"), cell("west", -1), cell("north"), cell("stairs", -1, down=True)]

@@ -336,6 +336,17 @@ class Adventurer:
             if lasting_injury:
                 self.draining_creatures.add(foe.name)
 
+    def record_descent_timing(self, attempt: StairAttempt, arrival_tick: int) -> None:
+        """Update the estimated return cost and retain the first outbound visit's duration."""
+        floor = self.depth
+        memory = self.maps[floor]
+        steps_to_upstairs = memory.distance(attempt.origin, memory.stairs(Direction.UP))
+        if steps_to_upstairs is not None:
+            ticks_per_step = arrival_tick - attempt.tick
+            self.ascent_ticks_by_floor[floor] = (steps_to_upstairs + 1) * ticks_per_step
+        if self.entered_floor_at is not None:
+            self.descent_ticks_by_floor.setdefault(floor, arrival_tick - self.entered_floor_at)
+
     def record_stair_arrival(self, turn: Turn, attempt: StairAttempt, landing: str) -> None:
         if self.stair_pursuers:
             if attempt.direction is Direction.UP and len(self.stair_pursuers) == 1:
@@ -345,13 +356,7 @@ class Adventurer:
                 attempt.origin, turn.tick)
         self.cancelled_stair_origin = None
         if attempt.direction is Direction.DOWN:
-            previous = self.maps[self.depth]
-            upstairs = previous.stairs(Direction.UP)
-            distance = previous.distance(attempt.origin, upstairs)
-            if distance is not None:
-                self.ascent_ticks_by_floor[self.depth] = (distance + 1) * (turn.tick - attempt.tick)
-            # Forecast unfamiliar floors from the first outbound visit.
-            self.descent_ticks_by_floor.setdefault(self.depth, turn.tick - self.entered_floor_at)
+            self.record_descent_timing(attempt, turn.tick)
             self.depth += 1
         else:
             self.depth -= 1
