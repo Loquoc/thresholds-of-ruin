@@ -386,6 +386,24 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual(progress["supply_detours"], {"ticks": 100, "reserve_spent": 2, "resolved_steps": 1})
         self.assertEqual(progress["reversals_without_new_terrain"], 1)
 
+    def test_final_position_prices_the_last_supply_step_without_another_action(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        move = {"floor": 2, "cell": "hall", "known_cells": 5, "tick": 100, "nutrition_reserve": 90,
+                "action": {"type": "move"}, "reason": "seek_supplies",
+                "result": {"status": "confirmed", "receipt": {"intention": "step"}}}
+        final = {"terminal": "action_budget", "floor": 2, "cell": "door", "known_cells": 5,
+                 "tick": 220, "nutrition_reserve": 87, "previous_intention_id": "step",
+                 "previous_intention_phase": "resolved"}
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "turns.jsonl"
+            trace.write_text("\n".join(map(json.dumps, (move, final))), encoding="utf-8")
+            _, progress = trace_report(trace)
+        self.assertEqual(progress["actions"], 1)
+        self.assertEqual(progress["supply_detours"], {"ticks": 120, "reserve_spent": 3, "resolved_steps": 1})
+
     def test_correlates_search_resolution_with_its_admission_floor(self):
         from pathlib import Path
         import tempfile

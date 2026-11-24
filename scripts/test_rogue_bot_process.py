@@ -1549,7 +1549,22 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     def test_bot_walks_to_a_recognized_slow_digestion_ring_and_wears_it(self):
         self.check_supply_detour("rogue.ring_slow_digestion", ["item.ring.ring-slow-digestion"], "conserve_food")
 
-    def check_supply_detour(self, archetype, known, use):
+    def test_budget_report_counts_the_last_resolved_supply_step(self):
+        from rogue_o_matic_cohort import trace_report
+
+        rows = self.run_supply_detour("rogue.ring_slow_digestion", ["item.ring.ring-slow-digestion"], budget=1)
+        move, final = rows
+        self.assertEqual(final["terminal"], "action_budget")
+        self.assertEqual(final["previous_intention_phase"], "resolved")
+        path = self.directory / "turns.jsonl"
+        path.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+        _, progress = trace_report(path)
+        self.assertEqual(progress["actions"], 1)
+        self.assertEqual(progress["supply_detours"]["resolved_steps"], 1)
+        self.assertGreater(final["tick"], move["tick"])
+        self.assertEqual(progress["supply_detours"]["ticks"], final["tick"] - move["tick"])
+
+    def run_supply_detour(self, archetype, known, *, budget):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1562,13 +1577,17 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.install_bot_extension()
         run = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
-             "--budget", "6"], cwd=self.directory,
+             "--budget", str(budget)], cwd=self.directory,
             env={**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN},
             text=True, capture_output=True, timeout=55,
         )
         rows = [json.loads(line) for line in run.stdout.splitlines()]
         self.assertEqual(run.returncode, 1, run.stderr)
         self.assertEqual(rows[0]["reason"], "seek_supplies")
+        return rows
+
+    def check_supply_detour(self, archetype, known, use):
+        rows = self.run_supply_detour(archetype, known, budget=6)
         take = next(i for i, row in enumerate(rows) if row.get("reason") == "take")
         self.assertEqual(rows[take]["result"]["status"], "confirmed")
         self.assertEqual(rows[take + 1]["reason"], use)
