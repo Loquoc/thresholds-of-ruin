@@ -2355,7 +2355,12 @@ with ExitStack() as clients:
             walls=((1, 1), (1, 2), (1, 3), (2, 0), (3, 1), (3, 3)),
             foe_at=(3, 2), direction="south", reason="retreat")
 
-    def check_escape_from_learned_threat(self, *, walls, foe_at, direction, reason):
+    def test_bot_avoids_a_disclosed_trap_when_both_steps_break_contact(self):
+        self.check_escape_from_learned_threat(
+            walls=((1, 1), (1, 2), (1, 3), (2, 0), (3, 1), (3, 3)), foe_at=(3, 2),
+            direction="north", reason="retreat", trapped=True)
+
+    def check_escape_from_learned_threat(self, *, walls, foe_at, direction, reason, trapped=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -2366,6 +2371,9 @@ with ExitStack() as clients:
                              for z in range(2)],
                       actors=[{"archetype": "rogue.hobgoblin", "id": 3, "controller": "external",
                                "at": [*foe_at, 0], "turn_ticks": 1000000}])
+        if trapped:
+            region["traps"] = [{"id": 1, "at": [2, 3, 0], "dc": 0, "avoidance_dc": 100,
+                                "kind": {"kind": "bear_trap", "condition": "rogue.bear_trap", "duration": 300}}]
         server = self.server(scenario=write_package(self, contents, "rogue-bot-learned-threat-retreat"))
         self.install_bot_extension()
         code = """
@@ -2376,6 +2384,12 @@ from tor_client_bot import Direction, Move, Outcome, Session, Wait
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(address, token, 1) as game, Session.connect(address, token, 3) as enemy:
     turn = game.wait_for_decision()
+    if sys.argv[3] == "trapped":
+        search = Adventurer.ready_search(turn)
+        assert search and turn.submit(search).status is Outcome.CONFIRMED
+        assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
+        assert turn.cell_at((0, 1, 0)).trap is not None
     foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
     direction = Direction(sys.argv[1])
     destination = turn.cell_at(direction.offset)
@@ -2386,11 +2400,12 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
     step, reason = player.choose(turn)
     assert (step, reason) == (Move(direction), sys.argv[2]), (step, reason)
     assert turn.submit(step).status is Outcome.CONFIRMED
-    assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    if sys.argv[3] != "trapped":  # The search already advanced the external foe.
+        assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
     assert game.wait_for_decision().cell.key == destination.key
 """
         result = subprocess.run(
-            [sys.executable, "-c", code, direction, reason], cwd=self.directory,
+            [sys.executable, "-c", code, direction, reason, "trapped" if trapped else "clear"], cwd=self.directory,
             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
                  "BOT_TEST_ADDRESS": self.address},
             text=True, capture_output=True, timeout=55,

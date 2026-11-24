@@ -829,6 +829,12 @@ class Adventurer:
         if best < current:
             return None
         candidates = [direction for score, direction in choices if score == best]
+        if best > current and len(candidates) > 1:
+            # Each candidate already improves safety. Prefer one that avoids a disclosed trap.
+            clear = [direction for direction in candidates if turn.cell_at(direction.offset).trap is None]
+            if clear:
+                candidates = clear
+                first = clear[0]
         if best > current and len(candidates) == 1:
             return Move(first), MemoryReason.RETREAT
 

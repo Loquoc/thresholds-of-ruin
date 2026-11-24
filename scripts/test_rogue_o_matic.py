@@ -3259,9 +3259,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             tile = cell(f"wall-{y}", x)
             tile.update(wall=True, position={"x": x, "y": y, "z": 0})
             cells.append(tile)
-        turn = player_turn(cells, actors=[foe], hostiles=["foe"], combat={"hp": 2})
-        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
-                         (Move(Direction.SOUTH), "retreat"))
+        for trapped, direction in ((False, Direction.SOUTH), (True, Direction.NORTH)):
+            if trapped:
+                next(tile for tile in cells if tile["key"] == "1")["trap"] = {
+                    "id": "trap", "family": None, "reachable": True}
+            turn = player_turn(cells, actors=[foe], hostiles=["foe"], combat={"hp": 2})
+            with self.subTest(trapped=trapped):
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                                 (Move(direction), "retreat"))
 
     def test_retreat_prefers_an_open_route_over_an_equally_safe_dead_end(self):
         foe = {"id": "foe", "name": "Wraith", "position": {"x": 2, "y": 0, "z": 0}}
