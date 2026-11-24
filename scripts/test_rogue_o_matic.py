@@ -3652,6 +3652,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         self.assertEqual(choose(player, turn), (Move(Direction.SOUTH_EAST), "retreat_to_stairs"))
 
+    def test_stair_approach_can_gain_clearance_with_an_off_axis_step(self):
+        cells = [cell(str(x), x, up=x == 3) for x in range(4)]
+        for x in range(3):
+            tile = cell(f"south-{x}", x)
+            tile["position"]["y"] = 1
+            cells.append(tile)
+        foe = {"id": "foe", "name": "wraith", "position": {"x": 0, "y": -2, "z": 0}}
+        turn = player_turn(cells, actors=[foe], hostiles=["foe"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        self.assertEqual(choose(player, turn), (Move(Direction.SOUTH_EAST), "retreat_to_stairs"))
+
     def test_stair_retreat_routes_to_a_clear_exit_beyond_a_trapped_exit(self):
         cells = [cell("clear", -2, down=True), cell("west", -1), cell("here"), cell("pit", 1, down=True)]
         cells[-1]["trap"] = {"id": "pit", "family": None, "reachable": True}
