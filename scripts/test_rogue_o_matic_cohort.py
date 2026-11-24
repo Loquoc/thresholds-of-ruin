@@ -480,6 +480,24 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual((floor["searches_admitted"], floor["searches_resolved"],
                           floor["searches_failed"]), (3, 1, 1))
 
+    def test_trace_reader_preserves_complete_rows_around_invalid_utf8(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        first = b'{"floor":1,"action":{"type":"wait"}}\n'
+        last = b'{"terminal":"action_budget","floor":1,"cell":"end","known_cells":3}'
+        broken = b'{"reason":"\xe2\x82'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            for tail, expected_terminal in ((broken, None), (broken + b'"}\n' + last, "action_budget")):
+                with self.subTest(expected_terminal=expected_terminal):
+                    path.write_bytes(first + tail)
+                    terminal, progress = trace_report(path)
+                    self.assertEqual(terminal and terminal["terminal"], expected_terminal)
+                    self.assertEqual(progress["actions"], 1)
+                    self.assertEqual(progress["max_depth"], 1)
+
     def test_partial_trace_preserves_depth_and_actions_when_the_last_row_is_incomplete(self):
         from pathlib import Path
         import tempfile

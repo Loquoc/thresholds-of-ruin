@@ -197,13 +197,14 @@ def trace_report(path):
     terminal = None
     last_move = None
     previous_origin = None
-    with path.open(encoding="utf-8") as log:
+    # Decode each JSON line independently so a truncated character cannot hide earlier rows.
+    with path.open("rb") as log:
         for line in log:
             if not line.strip():
                 continue
             terminal = None
             try:
-                row = json.loads(line)
+                row = json.loads(line.decode("utf-8"))
             except ValueError:
                 row = None
             if not isinstance(row, dict):
