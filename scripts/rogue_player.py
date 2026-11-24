@@ -592,7 +592,7 @@ class Adventurer:
                 for cell in turn.cells_of(foe)
             )
             # Break tactical ties by threat, favoring direct evidence when foes share a species estimate.
-            return (MELEE_INJURY_PRIORITY.get(foe.injury, 3), not opens_exit, foe.distance,
+            return (MELEE_INJURY_PRIORITY.get(foe.injury, 3), not opens_exit, turn.distance_to(foe),
                     -self.damage_estimate(foe), -self.observed_loss[foe.target])
 
         for foe in sorted(turn.hostiles, key=attack_order):
