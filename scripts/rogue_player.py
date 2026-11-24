@@ -96,6 +96,10 @@ CONTROL_DEVICES = (
 )
 
 
+def useful_loot(item: Item) -> bool:
+    return item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
+
+
 def choose_projectile(shots: Iterable[Shot], *, can_strike: bool) -> Shot | None:
     """Prefer launched shots, then short range, preserving offer order on ties."""
     best_shot = None
@@ -160,7 +164,6 @@ class SearchRank(NamedTuple):
 
 @dataclass
 class LootGoals:
-    pickup: Item | None = None
     wanted: set[str] = field(default_factory=set)
     nearby: set[str] = field(default_factory=set)
     supplies: set[str] = field(default_factory=set)
@@ -1162,6 +1165,21 @@ class Adventurer:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_STAIR
         return None, "readiness_timeout"
 
+    def choose_pickup(self, turn: Turn, ground_items: tuple[GroundItem, ...]) -> Item | None:
+        safe_pickup = not turn.hostiles or bool(
+            turn.health and turn.health.current * 5 >= turn.health.maximum * 4
+            and all(turn.distance_to(foe) > 1 for foe in turn.hostiles)
+        )
+        first_useful = None
+        for ground in ground_items:
+            if not ground.reachable:
+                continue
+            if ground.item.identity == self.objective:
+                return ground.item
+            if safe_pickup and first_useful is None and useful_loot(ground.item):
+                first_useful = ground.item
+        return first_useful
+
     def loot_goals(self, turn: Turn, ground_items: tuple[GroundItem, ...], returning: bool) -> LootGoals:
         goals = LootGoals()
         carried: Counter[str | None] = Counter()
@@ -1173,25 +1191,17 @@ class Adventurer:
             choice.slot.kind == "body_armor" and choice.item.physical_reduction is None
             for choice in turn.equip_choices()
         )
-        safe_pickup = not turn.hostiles or bool(
-            turn.health and turn.health.current * 5 >= turn.health.maximum * 4
-            and all(turn.distance_to(foe) > 1 for foe in turn.hostiles)
-        )
         goals.recover_arrows = (not returning and not turn.hostiles and not turn.has_condition("rogue.levitation")
                                 and carried["item.weapon.shortbow"] > 0)
-        for ground in sorted(ground_items, key=lambda row: row.item.identity != self.objective):
-            item = ground.item
-            useful = item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
+        for ground in ground_items:
             if ground.reachable:
-                if item.identity == self.objective or (safe_pickup and useful):
-                    goals.pickup = item
-                    break
                 continue
+            item = ground.item
             wanted = item.identity == self.objective or item.category == "food"
             if item.identity in {"item.potion.healing", "item.potion.extra-healing"}:
                 wanted = carried[item.identity] < 2
             elif not returning and not turn.hostiles and ground.cell and ground.cell.key not in self.supplies_guarded_until:
-                if useful and not turn.cell.stairs_down:
+                if useful_loot(item) and not turn.cell.stairs_down:
                     goals.nearby.add(ground.cell.key)
                 seek_armor = item.category == "armor" and not spare_armor_to_identify and (
                     item.identity is None or not carried[item.identity]
@@ -1274,9 +1284,8 @@ class Adventurer:
                 return step, "forage"
 
         returning = self.carrying_objective(turn)
-        loot = self.loot_goals(turn, ground_items, returning)
-        if loot.pickup is not None:
-            return Pickup(loot.pickup), "take"
+        if item := self.choose_pickup(turn, ground_items):
+            return Pickup(item), "take"
         if not returning and not hovering and not turn.hostiles and not trapped:
             objective_cells = {key for key, items in memory.items.items()
                                if any(item.identity == self.objective for item in items)}
@@ -1294,6 +1303,7 @@ class Adventurer:
         if not returning and not any(g.item.identity == self.objective for g in ground_items):
             if search := self.search_dead_end(turn, memory):
                 return search, "search"
+        loot = self.loot_goals(turn, ground_items, returning)
         if decision := self.route_to_loot(turn, memory, loot):
             return decision
 

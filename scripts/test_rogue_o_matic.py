@@ -398,6 +398,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offers[2]["equipped_slot"] = 0
         self.assertEqual(choose(player, picture())[1], "enchant_weapon")
 
+    def test_reachable_objective_takes_priority_before_planning_loot_detours(self):
+        from unittest.mock import patch
+
+        here = cell("here")
+        items = [{"id": "coin", "name": "gold", "class": "coin", "identified": False, "quantity": 1},
+                 {"id": "prize", "name": AMULET, "class": "amulet", "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                  "identified": True, "quantity": 1}]
+        for order in (items, items[::-1]):
+            turn = player_turn([here], ground=[{**here, "item": item, "reachable": True} for item in order])
+            player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+            with patch.object(player, "loot_goals", side_effect=AssertionError("unexpected detour planning")):
+                action, reason = choose(player, turn)
+            self.assertEqual((action.item.target, reason), ("prize", "take"))
+
     def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
         here, near = cell("exit", down=True), cell("ring", 1)
         slot = {"id": "ring", "name": "Finger"}
