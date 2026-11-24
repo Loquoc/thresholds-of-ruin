@@ -2501,6 +2501,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                        stats={"nutrition": dict(nutrition, reserve=reserve)})
                     self.assertEqual(choose(player, turn)[0], Move(expected))
 
+    def test_carried_meals_count_toward_the_scouting_budget(self):
+        cells = [cell("stairs", down=True), cell("frontier", 1)]
+        nutrition = {"kind": "required", "reserve": 100, "maximum": 1300,
+                     "unit_ticks": 100, "elapsed": 0, "hunger": "nourished"}
+        ration = {"id": "meal", "name": "ration", "class": "food", "identity": "item.food.ration",
+                  "identified": True, "quantity": 2}
+        for gain, reason in ((49, "scout_for_food"), (50, "descend"), (None, "descend")):
+            with self.subTest(gain=gain):
+                player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+                player.ascent_ticks_by_floor[2] = 20000
+                if gain is not None:
+                    player.food_value[ration["identity"]] = gain
+                turn = player_turn(cells, stats={"nutrition": nutrition}, inventory=[ration],
+                                   interactions={"inventory": [{"item": "meal", "edible": True}]})
+                self.assertEqual(choose(player, turn)[1], reason)
+
     def test_injured_food_scout_keeps_moving_until_the_scouting_budget_expires(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]

@@ -1085,6 +1085,15 @@ class Adventurer:
                 return step
         return memory.toward(turn, food_cells)
 
+    def carried_food_reserve(self, meals: list[Item]) -> int | None:
+        """Estimate reserve gained from all carried meals, in nutrition units."""
+        reserve = 0
+        for meal in meals:
+            if meal.identity is None or meal.identity not in self.food_value:
+                return None
+            reserve += self.food_value[meal.identity] * meal.quantity
+        return reserve
+
     def provision(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[Action, str] | None:
         nutrition = turn.nutrition
         if nutrition is None:
@@ -1093,12 +1102,11 @@ class Adventurer:
         if nutrition.ticks_until_empty >= required:
             return None
         meals = list(edible_items(turn))
-        provisions = 0
-        for item in meals:
-            if item.identity is None or item.identity not in self.food_value:
-                return None
-            provisions += self.food_value[item.identity] * item.quantity
-        if nutrition.ticks_until_empty + provisions * nutrition.ticks_per_unit >= required:
+        carried_reserve = self.carried_food_reserve(meals)
+        if carried_reserve is None:
+            return None
+        available_ticks = nutrition.ticks_until_empty + carried_reserve * nutrition.ticks_per_unit
+        if available_ticks >= required:
             return None
         if step := self.route_to_food(turn, memory):
             return step, "forage"
