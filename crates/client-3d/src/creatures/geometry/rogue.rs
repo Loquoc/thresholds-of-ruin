@@ -1274,7 +1274,12 @@ pub(super) fn beast(kit: &mut Kit, lift: Entity, look: &Look) {
             _ => xeroc_head(p, &l),
         }
     });
-    if matches!(
+    if style == Style::Griffin {
+        let hinge = Vec3::new(0.0, 0.028, 0.108);
+        kit.joint(J::Jaw, head, hinge, "lower beak", |p| {
+            griffin_beak().emit_lower(&mut p.matte, Vec3::new(0.20, 0.17, 0.13), hinge);
+        });
+    } else if matches!(
         style,
         Style::Dragon | Style::Jabberwock | Style::Xeroc | Style::Aquator
     ) {
@@ -2062,6 +2067,16 @@ fn scaled_neck(p: &mut Parts, l: &Look, head: Vec3) {
     }
 }
 
+fn griffin_beak() -> super::raptor_parts::HookedBeak {
+    super::raptor_parts::HookedBeak {
+        root: Vec3::new(0.0, 0.045, 0.14),
+        length: 0.175,
+        half_width: 0.068,
+        depth: 0.085,
+        hook: 0.065,
+    }
+}
+
 fn griffin_head(p: &mut Parts, l: &Look) {
     let mut skull = Sculpt::default();
     skull
@@ -2105,18 +2120,7 @@ fn griffin_head(p: &mut Parts, l: &Look) {
             }
         },
     );
-    super::raptor_parts::HookedBeak {
-        root: Vec3::new(0.0, 0.045, 0.14),
-        length: 0.175,
-        half_width: 0.068,
-        depth: 0.085,
-        hook: 0.065,
-    }
-    .emit(
-        &mut p.matte,
-        Vec3::new(0.14, 0.12, 0.10),
-        Vec3::new(0.20, 0.17, 0.13),
-    );
+    griffin_beak().emit_upper(&mut p.matte, Vec3::new(0.14, 0.12, 0.10));
     animal_eyes(p, frames, 0.028, Vec3::new(0.85, 0.55, 0.12), cream, None);
     // Raised, swept groups follow the skull arc rather than one flat crown plane.
     for k in 0..5 {

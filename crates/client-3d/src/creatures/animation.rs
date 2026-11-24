@@ -752,6 +752,7 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
         rogue::troll_scratch(&mut p, rig, a.time + a.seed * 3.7, calm * uninterrupted);
     }
     if a.dead.is_some() || a.fallen > 0.0 {
+        rogue::release_winged_display(&mut p, rig, a);
         death_pose(&mut p, rig, ease(a.death_fall()), a.seed);
         if let Some(phase) = a.dead {
             death::perform(&mut p, rig, a, phase);

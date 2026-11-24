@@ -5896,6 +5896,216 @@ fn dragon_and_griffin_keep_distal_wings_on_their_own_sides_when_mantling() {
 }
 
 #[test]
+fn griffin_roar_opens_its_lower_beak_and_releases_it_when_interrupted() {
+    let roar = Move::for_ability("rogue.fear", None);
+    let (mut app, root) = animate_look(Look::of(CreatureModel::Griffin, 42), 12, |_| Vec3::ZERO);
+    let world = app.world();
+    let rig = world.get::<Rig>(root).unwrap();
+    let head = rig.joint(J::Head).unwrap();
+    let jaw = rig
+        .joint(J::Jaw)
+        .expect("Griffin needs an articulated lower beak");
+    assert_eq!(world.get::<ChildOf>(jaw).unwrap().parent(), head);
+    let meshes = world.resource::<Assets<Mesh>>();
+    let mandible = points_under(world, meshes, jaw);
+    let tip = mandible
+        .into_iter()
+        .max_by(|a, b| a.z.total_cmp(&b.z))
+        .unwrap();
+    let sample = |app: &App| {
+        let at = app.world().get::<Transform>(jaw).unwrap();
+        (at.translation, at.transform_point(tip))
+    };
+    let (hinge, closed) = sample(&app);
+    assert!(
+        closed.z > 0.255 && closed.y.abs() < 0.024,
+        "closed lower tip {closed:?}"
+    );
+    app.world_mut().get_mut::<Anim>(root).unwrap().act(roar);
+    for _ in 0..(roar.duration() * roar.impact() / 0.016).ceil() as usize {
+        app.update();
+    }
+    let (stayed, open) = sample(&app);
+    assert!(
+        stayed.distance(hinge) < 1e-5,
+        "the hinge stays in the cheek"
+    );
+    assert!(
+        open.y < closed.y - 0.068 && open.z > 0.21,
+        "gape opens down from the pivot: {open:?}"
+    );
+    app.world_mut()
+        .get_mut::<Anim>(root)
+        .unwrap()
+        .preview_death(DeathMotion::Collapse);
+    app.update();
+    assert!(
+        open.distance(sample(&app).1) < 0.014,
+        "the beak must not snap shut at death"
+    );
+    for _ in 0..110 {
+        app.update();
+    }
+    let (_, settled) = sample(&app);
+    assert!(
+        settled.y > open.y + 0.050 && settled.y < closed.y - 0.005,
+        "the dead beak rests slightly ajar"
+    );
+}
+
+#[test]
+fn winged_displays_do_not_release_ahead_of_delayed_contact() {
+    for (model, ability) in [
+        (CreatureModel::Griffin, "rogue.fear"),
+        (CreatureModel::Dragon, "rogue.breath_weapon"),
+    ] {
+        let cue = Move::for_ability(ability, None);
+        let (mut app, root) = animate_look(Look::of(model, 42), 12, |_| Vec3::ZERO);
+        let (mut living, control) = animate_look(Look::of(model, 42), 12, |_| Vec3::ZERO);
+        for (app, root) in [(&mut app, root), (&mut living, control)] {
+            app.world_mut().get_mut::<Anim>(root).unwrap().act(cue);
+        }
+        for _ in 0..(cue.duration() * cue.impact() / 0.016).ceil() as usize {
+            app.update();
+            living.update();
+        }
+        let read = |app: &App, root: Entity| {
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            [J::WingL, J::WingTipL, J::Jaw].map(|j| {
+                world
+                    .get::<Transform>(rig.joint(j).unwrap())
+                    .unwrap()
+                    .rotation
+            })
+        };
+        let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+        assert!(anim.die(true, 0.4));
+        anim.hit(0.4);
+        for frame in 1..=9 {
+            app.update();
+            living.update();
+            let gap = read(&app, root)
+                .into_iter()
+                .zip(read(&living, control))
+                .map(|(a, b)| a.angle_between(b))
+                .fold(0.0_f32, f32::max);
+            assert!(
+                gap < 0.075,
+                "{model:?} pitch/wing gap {gap:.3} at {frame} frames before impact"
+            );
+        }
+        for _ in 9..25 {
+            app.update();
+            living.update();
+        }
+        let contact = read(&app, root);
+        let expected = read(&living, control);
+        assert!(contact
+            .into_iter()
+            .zip(expected)
+            .all(|(a, b)| a.angle_between(b) < 0.095));
+        for _ in 0..17 {
+            app.update();
+            living.update();
+        }
+        let anim = app.world().get::<Anim>(root).unwrap();
+        assert!(
+            anim.dead.unwrap() < 0.0,
+            "corridor-facing fall must still wait"
+        );
+        let wing = read(&app, root)[0];
+        assert!(
+            wing.angle_between(contact[0]) > 0.4,
+            "release should finish before the grounded fall"
+        );
+    }
+}
+
+#[test]
+fn winged_beasts_release_breath_and_roar_into_their_falls() {
+    for (model, ability) in [
+        (CreatureModel::Dragon, "rogue.breath_weapon"),
+        (CreatureModel::Griffin, "rogue.fear"),
+    ] {
+        let motion = Move::for_ability(ability, None);
+        let sample = |app: &App, root: Entity| {
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            let asset = world.resource::<Assets<Mesh>>();
+            let joint = |j| rig.joint(j).unwrap();
+            let local = |j| *world.get::<Transform>(joint(j)).unwrap();
+            let tips = [(J::WingL, J::WingTipL), (J::WingR, J::WingTipR)].map(|(wing, tip)| {
+                let frame = local(wing).compute_affine() * local(tip).compute_affine();
+                let outer = points_under(world, asset, joint(tip))
+                    .into_iter()
+                    .min_by(|a, b| a.z.total_cmp(&b.z))
+                    .expect("authored wing geometry");
+                frame.transform_point3(outer)
+            });
+            // The Griffin's beak is part of its head mesh: read the curved
+            // neck that carries its roar, not a nonexistent jaw hinge.
+            let expression = match model {
+                CreatureModel::Dragon => J::Jaw,
+                _ => J::Neck,
+            };
+            (tips, local(expression).rotation)
+        };
+        for death in [
+            DeathMotion::Collapse,
+            DeathMotion::Stagger,
+            DeathMotion::Dramatic,
+        ] {
+            let (mut app, root) = animate_look(Look::of(model, 42), 12, |_| Vec3::ZERO);
+            let (mut control, body) = animate_look(Look::of(model, 42), 12, |_| Vec3::ZERO);
+            app.world_mut().get_mut::<Anim>(root).unwrap().act(motion);
+            // Play the wind-up rather than jumping from idle to impact in
+            // one frame, which would retain nearly all of the idle fidget.
+            let frames = (motion.impact() * motion.duration() / 0.016).ceil() as usize;
+            for _ in 0..frames {
+                app.update();
+                control.update();
+            }
+            let before = sample(&app, root);
+            app.world_mut()
+                .get_mut::<Anim>(root)
+                .unwrap()
+                .preview_death(death);
+            control
+                .world_mut()
+                .get_mut::<Anim>(body)
+                .unwrap()
+                .preview_death(death);
+            app.update();
+            control.update();
+            let after = sample(&app, root);
+            let gap = before
+                .0
+                .into_iter()
+                .zip(after.0)
+                .map(|(a, b)| a.distance(b))
+                .fold(0.0_f32, f32::max);
+            assert!(gap < 0.062, "{model:?} {death:?}: wingtip snapped {gap:.3}");
+            let expression = before.1.angle_between(after.1);
+            assert!(
+                expression < 0.075,
+                "{model:?} {death:?}: head expression snapped {expression:.3}"
+            );
+            for _ in 0..48 {
+                app.update();
+                control.update();
+            }
+            let (released, expression) = sample(&app, root);
+            let (plain, ordinary_expression) = sample(&control, body);
+            for (tip, reference) in released.into_iter().zip(plain) {
+                assert!(tip.distance(reference) < 1e-5);
+            }
+            assert!(expression.abs_diff_eq(ordinary_expression, 1e-5));
+        }
+    }
+}
+
+#[test]
 fn medusa_front_serpents_turn_toward_their_gaze_target() {
     use bevy::render::mesh::VertexAttributeValues;
 

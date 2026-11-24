@@ -1,4 +1,4 @@
-//! Closed hooked mandibles shared by raptor recipes. Dimensions are anatomical.
+//! Closed hooked mandibles shared by static and articulated raptor beaks.
 use super::*;
 
 pub(super) struct HookedBeak {
@@ -10,8 +10,8 @@ pub(super) struct HookedBeak {
 }
 
 impl HookedBeak {
-    fn mandibles(&self) -> [Vec<[Vec3; 3]>; 2] {
-        let upper = [
+    fn upper(&self) -> Vec<[Vec3; 3]> {
+        let rings = [
             (0.00, 1.00, 0.82, 0.00),
             (0.30, 0.96, 1.00, 0.00),
             (0.60, 0.70, 0.77, 0.08),
@@ -32,7 +32,11 @@ impl HookedBeak {
             ]
             .map(|p| center + p)
         });
-        let lower = [
+        closed_sections(&rings)
+    }
+
+    fn lower(&self) -> Vec<[Vec3; 3]> {
+        let rings = [
             (0.00, 0.85, 0.40, 0.00),
             (0.32, 0.80, 0.42, 0.03),
             (0.58, 0.49, 0.27, 0.16),
@@ -53,15 +57,26 @@ impl HookedBeak {
             ]
             .map(|p| center + p)
         });
-        [closed_sections(&upper), closed_sections(&lower)]
+        closed_sections(&rings)
+    }
+
+    pub(super) fn emit_upper(&self, b: &mut Builder, color: Vec3) {
+        for face in self.upper() {
+            b.tri(face, color);
+        }
+    }
+
+    /// The static recipe passes zero; a rig passes its mandible's head-space
+    /// hinge so the neutral shape stays put when put on a separate joint.
+    pub(super) fn emit_lower(&self, b: &mut Builder, color: Vec3, hinge: Vec3) {
+        for face in self.lower() {
+            b.tri(face.map(|point| point - hinge), color);
+        }
     }
 
     pub(super) fn emit(&self, b: &mut Builder, upper: Vec3, lower: Vec3) {
-        for (faces, color) in self.mandibles().into_iter().zip([upper, lower]) {
-            for face in faces {
-                b.tri(face, color);
-            }
-        }
+        self.emit_upper(b, upper);
+        self.emit_lower(b, lower, Vec3::ZERO);
     }
 }
 
@@ -116,7 +131,7 @@ mod tests {
     #[test]
     fn raptor_beak_mandibles_are_closed_outward_volumes() {
         for beak in recipes() {
-            for faces in beak.mandibles() {
+            for faces in [beak.upper(), beak.lower()] {
                 let mut edges = BTreeMap::new();
                 let mut volume = 0.0;
                 for p in faces {
@@ -147,7 +162,7 @@ mod tests {
     #[test]
     fn raptor_beak_has_a_broad_ridge_descending_hook_and_short_lower_jaw() {
         for beak in recipes() {
-            let [upper, lower] = beak.mandibles();
+            let [upper, lower] = [beak.upper(), beak.lower()];
             let tip = upper
                 .iter()
                 .flatten()

@@ -1533,6 +1533,8 @@ struct WalkContacts {
 #[derive(Clone, Copy)]
 struct DeathEntry {
     started_at: f32,
+    /// Time from the cue to the likely hit, excluding corridor-facing pre-roll.
+    impact_delay: f32,
     speed: f32,
     action: Option<(Move, f32)>,
 }
@@ -1635,7 +1637,11 @@ impl Anim {
         use std::hash::{BuildHasher, RandomState};
         let roll = (RandomState::new().hash_one(0_u8) % 100) as u8;
         self.start_death(DeathMotion::choose(roll), face_corridor);
-        self.dead = self.dead.map(|wait| wait - after.max(0.0));
+        let delay = after.max(0.0);
+        if let Some(entry) = &mut self.death_entry {
+            entry.impact_delay = delay;
+        }
+        self.dead = self.dead.map(|wait| wait - delay);
         true
     }
 
@@ -1647,6 +1653,7 @@ impl Anim {
     fn start_death(&mut self, motion: DeathMotion, face_corridor: bool) {
         self.death_entry = Some(DeathEntry {
             started_at: self.time,
+            impact_delay: 0.0,
             speed: self.speed,
             action: self.action,
         });

@@ -283,9 +283,11 @@ pub(super) fn beast_pose(
     let rest_jaw = match style {
         Style::Xeroc => 0.06,
         Style::Aquator => 0.03,
+        Style::Griffin => 0.025,
         _ => 0.08,
     };
-    p.r(J::Jaw, bow(rest_jaw + 0.03 * breath));
+    let jaw_breath = if style == Style::Griffin { 0.015 } else { 0.03 };
+    p.r(J::Jaw, bow(rest_jaw + jaw_breath * breath));
     if winged {
         let shuffle = 0.04 * breath + 0.06 * walk;
         mantle(p, shuffle);
@@ -318,7 +320,12 @@ pub(super) fn beast_pose(
         Move::Fear => {
             // A roar, wings raised.
             p.r(J::Neck, bow(-0.45 * act));
-            p.r(J::Jaw, bow(0.85 * act));
+            let gape = if style == Style::Griffin {
+                0.64 * envelope(t, 0.18, m.impact(), m.impact() + 0.12, 0.89)
+            } else {
+                0.85 * act
+            };
+            p.r(J::Jaw, bow(gape));
             p.o(J::Lift, Vec3::new(0.0, 0.05 * act, -0.06 * act));
             if winged {
                 mantle(p, 1.2 * act);
@@ -371,6 +378,53 @@ pub(super) fn beast_pose(
                 mantle(p, 0.4 * act);
             }
         }
+    }
+}
+
+/// Let an interrupted display fold into the fall without replacing the
+/// quadruped's foot support or replaying the action.
+pub(super) fn release_winged_display(p: &mut Pose, rig: &Rig, a: &Anim) {
+    if !matches!(rig.style, Style::Dragon | Style::Griffin) {
+        return;
+    }
+    let (Some(entry), Some(death_phase)) = (a.death_entry, a.dead) else {
+        return;
+    };
+    let Some((motion, phase)) = entry.action else {
+        return;
+    };
+    if !matches!(
+        (rig.style, motion),
+        (Style::Dragon, Move::Breath(_)) | (Style::Griffin, Move::Fear)
+    ) {
+        return;
+    }
+    // A disclosed death can arrive before its projectile. Continue the
+    // display along its authored clock until impact, then release from the
+    // pose it reached, not a frozen snapshot from the receipt of the cue.
+    let elapsed = (a.time - entry.started_at).max(0.0);
+    let phase = phase + elapsed.min(entry.impact_delay) / motion.duration();
+    let release =
+        (elapsed - entry.impact_delay).max(death_phase.max(0.0) * a.death_motion.duration());
+    let fall = ease(release / 0.24);
+    if fall >= 1.0 || phase >= 1.0 {
+        return;
+    }
+    let mut neutral = Pose::new();
+    let mut display = Pose::new();
+    beast_pose(&mut neutral, rig, 0.0, None, 0.0, 0.0, 0.0);
+    beast_pose(&mut display, rig, 0.0, Some(motion), phase, 0.0, 0.0);
+    for joint in [
+        J::Neck,
+        J::Head,
+        J::Jaw,
+        J::WingL,
+        J::WingR,
+        J::WingTipL,
+        J::WingTipR,
+    ] {
+        let delta = neutral.rot[joint as usize].inverse() * display.rot[joint as usize];
+        p.r(joint, Quat::IDENTITY.slerp(delta, 1.0 - fall));
     }
 }
 
@@ -471,7 +525,12 @@ pub(super) fn death(p: &mut Pose, rig: &Rig, d: f32, side: f32) {
             if rig.style == Style::Aquator {
                 aquator_fall_contacts(p, rig, side, d);
             }
-            p.r(J::Jaw, bow(0.4 * d));
+            let slack = if rig.style == Style::Griffin {
+                0.16
+            } else {
+                0.4
+            };
+            p.r(J::Jaw, bow(slack * d));
             if matches!(rig.style, Style::Griffin | Style::Dragon) {
                 // The upper wing falls open across the flank.
                 let (upper, tip) = if side > 0.0 {
