@@ -3644,6 +3644,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (Move(direction), "retreat"))
 
+    def test_equal_escape_routes_prefer_the_untrapped_second_step(self):
+        foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
+        for trap_y, expected in ((-2, Direction.SOUTH), (2, Direction.NORTH)):
+            with self.subTest(trap_y=trap_y):
+                cells = [cell("here"), cell("enemy", 1)]
+                for y in (-2, -1, 1, 2):
+                    tile = cell(str(y))
+                    tile["position"]["y"] = y
+                    if y == trap_y:
+                        tile["trap"] = {"id": "pit", "family": None, "reachable": True}
+                    cells.append(tile)
+                turn = player_turn(cells, actors=[foe], hostiles=["foe"], combat={"hp": 2})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                                 (Move(expected), "retreat"))
+
     def test_stair_retreat_counts_diagonal_moves_when_choosing_an_exit(self):
         cells = [cell("west-exit", -3, up=True), cell("west-hall", -2), cell("west", -1)]
         for x in range(3):
