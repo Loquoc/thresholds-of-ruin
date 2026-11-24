@@ -317,6 +317,15 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual(summarize(rows)["deaths_by_cause"],
                          {"starvation": 1, "undisclosed": 1, "rogue.wand_lightning": 1})
 
+    def test_missing_nutrition_measurements_leave_the_cause_of_death_undisclosed(self):
+        partial_readings = [
+            None, {"kind": "required", "reserve": -3}, {"kind": "required", "starve_at": -3},
+            {"kind": "required", "reserve": None, "starve_at": -3},
+        ]
+        rows = [{"terminal": "death", "last_nutrition": reading} for reading in partial_readings]
+        rows.append({"terminal": "death", "last_nutrition": {"kind": "required", "reserve": 0, "starve_at": 0}})
+        self.assertEqual(summarize(rows)["deaths_by_cause"], {"undisclosed": 4, "starvation": 1})
+
     def test_closest_return_floor_excludes_outbound_travel(self):
         from pathlib import Path
         import tempfile

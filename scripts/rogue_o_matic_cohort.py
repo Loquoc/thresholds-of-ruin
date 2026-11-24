@@ -55,9 +55,12 @@ def death_cause(report):
         if event.get("cause") == "injury":
             return "injury"
         break
-    nutrition = report.get("last_nutrition", {})
-    if nutrition.get("kind") == "required" and nutrition["reserve"] <= nutrition["starve_at"]:
-        return "starvation"
+    nutrition = report.get("last_nutrition")
+    if isinstance(nutrition, dict) and nutrition.get("kind") == "required":
+        reserve = nutrition.get("reserve")
+        threshold = nutrition.get("starve_at")
+        if type(reserve) is int and type(threshold) is int and reserve <= threshold:
+            return "starvation"
     return "undisclosed"
 
 
