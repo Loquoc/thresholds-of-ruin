@@ -25,7 +25,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
          *, record_decisions: bool = False) -> dict:
     """Observe the outcome after the last budgeted submission, including victory."""
     count = 0
-    deepest = 1
+    deepest = player.depth
     acquired = False
     detail: dict[str, object] = {}
     equipment = EquipmentHistory()

@@ -1598,8 +1598,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 session.wait_for_decision = Mock()
                 session.wait_for_decision.return_value = player_turn(
                     [], combat={"terminal": True, "dead": dead, "victory": False})
-                report = play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 0, self.fail)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+                report = play(session, player, 0, self.fail)
                 self.assertEqual(report["terminal"], expected)
+                self.assertEqual(report["max_depth"], 3)
 
     def test_runner_defers_failed_projectile_until_time_advances(self):
         from contextlib import redirect_stdout

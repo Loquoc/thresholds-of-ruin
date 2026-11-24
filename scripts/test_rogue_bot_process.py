@@ -2708,7 +2708,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         self.install_bot_extension()
         code = """
 import os
-from rogue_player import Adventurer
+from rogue_player import Adventurer, play
 from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
@@ -2723,8 +2723,10 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
     retreat = Move(Direction.UP)
     assert turn.submit(retreat).status is Outcome.CONFIRMED
     player.admitted(turn, retreat)
+    report = play(game, player, 0, print)
+    assert report["terminal"] == "action_budget" and report["actions"] == 0, report
+    assert report["max_depth"] == 24, report["max_depth"]
     turn = game.wait_for_decision()
-    player.observe(turn)
     assert player.depth == 23 and turn.cell.stairs_down
     assert turn.health.current * 5 < turn.health.maximum * 4
     threat = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
