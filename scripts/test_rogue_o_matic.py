@@ -852,6 +852,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (turn.attack(target), "melee"))
 
+    def test_uses_a_loaded_launcher_even_if_a_carried_throw_is_offered_first(self):
+        from unittest.mock import Mock
+        from tor_client_bot import Shot
+
+        cells = [cell(str(x), x) for x in range(4)]
+        foe = {"id": "emu", "name": "emu", "position": cells[-1]["position"]}
+        abilities = [{"id": name, "name": name, "target_kind": "directional_projectile",
+                      "reach": {"kind": "projectile"}, "cooldown_remaining": "0", "cost": None,
+                      "basic_attack": False} for name in ("throw", "launch")]
+        inventory = [{"id": name, "name": name, "class": "weapon", "quantity": 1, "identified": False}
+                     for name in ("dart", "arrow", "bow")]
+        turn = player_turn(cells, actors=[foe], hostiles=["emu"], abilities=abilities, inventory=inventory)
+        dart, arrow, bow = turn.inventory
+        target, = turn.hostiles
+        throw = Shot(turn.abilities[0], target, (3, 0, 0), dart, None, 0)
+        launch = Shot(turn.abilities[1], target, (3, 0, 0), arrow, bow, 0)
+        for offers in ((throw, launch), (launch, throw)):
+            with self.subTest(first=offers[0].ability.identity):
+                turn.ranged_attacks = Mock(return_value=iter(offers))
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                                 (launch, "launch_projectile"))
+
     def test_throw_range_ends_at_four_and_an_admitted_throw_waits_for_time_to_advance(self):
         from unittest.mock import Mock
         from tor_client_bot import Shot
