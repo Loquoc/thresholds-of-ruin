@@ -106,6 +106,22 @@ def horizontal_push_direction(turn: Turn, foe: Creature) -> tuple[int, int] | No
     return (dx, dy) if dz == 0 else None
 
 
+def has_push_space(turn: Turn, foe: Creature) -> bool:
+    """Can the foe's whole body land one cell beyond its current position?"""
+    direction = horizontal_push_direction(turn, foe)
+    if direction is None:
+        return False
+    dx, dy = direction
+    landing = {(x + dx, y + dy, z) for x, y, z in foe.cells}
+    for position in landing:
+        cell = turn.cell_at(position)
+        if cell is None or cell.wall or (cell.door and not cell.door.open):
+            return False
+    if not landing.isdisjoint(turn.body):
+        return False
+    return all(landing.isdisjoint(creature.cells) for creature in turn.creatures if creature.target != foe.target)
+
+
 def choose_projectile(shots: Iterable[Shot], *, can_strike: bool) -> Shot | None:
     """Prefer launched shots, then short range, preserving offer order on ties."""
     best_shot = None

@@ -105,6 +105,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    actors=actors, hostiles=["orc"])
                 self.assertEqual(Adventurer.has_push_space(turn, turn.hostiles[0]), clear)
 
+    def test_push_requires_an_open_door_under_every_landing_cell(self):
+        actors = [{"id": "orc", "name": "orc", "position": cell("orc", 1, y)["position"]} for y in (0, 1)]
+        for opened in (False, True):
+            with self.subTest(opened=opened):
+                door = {**cell("gate", 2, 1), "door": {"id": "gate", "open": opened, "reachable": False}}
+                turn = player_turn([cell("here"), cell("near", 1), cell("side", 1, 1), cell("open", 2), door],
+                                   actors=actors, hostiles=["orc"])
+                self.assertEqual(Adventurer.has_push_space(turn, turn.hostiles[0]), opened)
+
     def test_push_requires_one_horizontal_direction_from_all_face_contacts(self):
         def actor(name, x, y, z):
             return {"id": name, "name": name, "position": {"x": x, "y": y, "z": z}}

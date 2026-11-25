@@ -45,7 +45,7 @@ from tor_client_bot import (
 )
 
 from rogue_combat import (
-    choose_projectile, horizontal_push_direction, includes_self_damage, recovery_deficit,
+    choose_projectile, has_push_space, includes_self_damage, recovery_deficit,
     sole_applied_attacker, witnessed_unseen_attack,
 )
 from rogue_loot import (
@@ -696,23 +696,7 @@ class Adventurer:
             return step, "evade_unseen_attack"
         return None
 
-    @staticmethod
-    def has_push_space(turn: Turn, foe: Creature) -> bool:
-        """Check that one horizontal push can move every visible target cell."""
-        direction = horizontal_push_direction(turn, foe)
-        if direction is None:
-            return False
-        dx, dy = direction
-        occupied = set(turn.body)
-        for creature in turn.creatures:
-            if creature.target != foe.target:
-                occupied.update(creature.cells)
-        for x, y, z in foe.cells:
-            destination = (x + dx, y + dy, z)
-            cell = turn.cell_at(destination)
-            if cell is None or cell.wall or (cell.door and not cell.door.open) or destination in occupied:
-                return False
-        return True
+    has_push_space = staticmethod(has_push_space)
 
     def aim_combat_wand(self, turn: Turn, foes: Iterable[Creature], identities: set[str],
                         *, reflected_ray_range: int | None = None) -> Zap | None:
