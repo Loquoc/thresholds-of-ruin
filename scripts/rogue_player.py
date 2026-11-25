@@ -1318,6 +1318,8 @@ class Adventurer:
 
     def loot_goals(self, turn: Turn, ground_items: tuple[GroundItem, ...], returning: bool) -> LootGoals:
         goals = LootGoals()
+        if turn.has_condition("rogue.levitation"):
+            return goals
         carried: Counter[str | None] = Counter()
         stock: Counter[str] = Counter()
         usable_gear: set[str] = set()
@@ -1335,8 +1337,7 @@ class Adventurer:
             choice.slot.kind == "body_armor" and not choice.item.known_cursed and choice.item.physical_reduction is None
             for choice in turn.equip_choices()
         )
-        goals.recover_arrows = (not returning and not turn.hostiles and not turn.has_condition("rogue.levitation")
-                                and carried["item.weapon.shortbow"] > 0)
+        goals.recover_arrows = not returning and not turn.hostiles and carried["item.weapon.shortbow"] > 0
         for ground in ground_items:
             if ground.reachable or ground.cell is None:
                 continue

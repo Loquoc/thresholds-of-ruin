@@ -1117,6 +1117,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(player.search(turn, player.maps[1], returning=False),
                                  (Move(safe_direction), "search"))
 
+    def test_ground_loot_and_arrow_recovery_resume_when_levitation_ends(self):
+        stairs, near = cell("stairs", down=True), cell("food", 1)
+        bow = {"id": "bow", "identity": "item.weapon.shortbow", "name": "bow",
+               "class": "weapon", "quantity": 1, "identified": True}
+        food = {"id": "ration", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        floating = {"condition": {"id": "rogue.levitation", "name": "Levitating"},
+                    "phase": "active", "remaining_ticks": "100"}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for conditions, grounded in (([floating], False), ([], True)):
+            with self.subTest(grounded=grounded):
+                turn = player_turn([stairs, near], inventory=[bow], ground=[{**near, "item": food, "reachable": False}],
+                                   stats={"conditions": conditions})
+                goals = player.loot_goals(turn, turn.ground_items, returning=False)
+                self.assertEqual(goals.wanted, {"food"} if grounded else set())
+                self.assertEqual(goals.recover_arrows, grounded)
+                expected = (Move(Direction.EAST), "seek_item") if grounded else (Wait(), "wait_for_ground_contact")
+                self.assertEqual(choose(player, turn), expected)
+
     def test_waits_on_the_stair_for_levitation_to_end(self):
         condition = {"condition": {"id": "rogue.levitation", "name": "Levitating"},
                      "phase": "active", "remaining_ticks": "1958"}
