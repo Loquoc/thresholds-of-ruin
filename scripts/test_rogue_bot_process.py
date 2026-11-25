@@ -2131,14 +2131,16 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         if protect:
             character["known_identities"].append("item.scroll.protect-armor")
             character["loadout"].append({"archetype": "rogue.protect_armor", "quantity": 1})
+        # The cursed bow case must justify a detour before the replacement is within reach.
+        item_site = [4, 2, 0] if starting_cursed else [1, 2, 0]
         contents["regions"][0].update(actors=[], items=[
-            {"id": 10, "at": [1, 2, 0], "archetype": found, "quantity": 1}
+            {"id": 10, "at": item_site, "archetype": found, "quantity": 1}
         ])
         self.server(scenario=write_package(self, contents, "player-armor"))
         self.install_bot_extension()
         env = {**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN}
         run = subprocess.run([sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect",
-                              self.address, "--budget", "15"], cwd=self.directory, env=env,
+                              self.address, "--budget", "15", *(["--record-decisions"] if starting_cursed else [])], cwd=self.directory, env=env,
                              text=True, capture_output=True, timeout=55)
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         rows = [json.loads(line) for line in run.stdout.splitlines()]
@@ -2148,6 +2150,12 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         if enchant_weapon:
             self.assertLess(reasons.index("equip_melee"), reasons.index("enchant_weapon"))
         if starting_cursed:
+            approach = rows[reasons.index("seek_supplies")]
+            offers = json.loads(approach["recording"])["state"]["observation"]["interactions"]
+            weapon = next(item for item in offers["inventory"] if item.get("equipped_slot") == 0)
+            self.assertTrue(weapon.get("known_cursed") or weapon["item"] in offers.get("curse_blocked", ()))
+            self.assertLess(reasons.index("seek_supplies"), reasons.index("take"))
+            self.assertLess(reasons.index("take"), reasons.index("remove_weapon_curse"))
             self.assertLess(reasons.index("remove_weapon_curse"), reasons.index("equip_melee"))
         if not identify:
             self.assertIn("try_armor", reasons)
