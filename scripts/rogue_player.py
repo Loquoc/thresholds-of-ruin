@@ -96,6 +96,9 @@ CONTROL_DEVICES = (
 )
 
 
+HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
+
+
 def useful_loot(item: Item) -> bool:
     return item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
 
@@ -1237,6 +1240,21 @@ class Adventurer:
                 first_useful = ground.item
         return first_useful
 
+    def worth_long_detour(self, item: Item, carried: Counter[str | None], *, returning: bool,
+                          under_threat: bool) -> bool:
+        """Items worth routing to beyond the short supply-detour radius."""
+        identity = item.identity
+        if identity in HEALING_POTIONS:
+            return carried[identity] < 2
+        if identity == "item.weapon.arrow" and returning and carried["item.weapon.shortbow"]:
+            return not under_threat and carried[identity] < 8
+        if identity == self.objective or item.category == "food":
+            return True
+        if returning:
+            return False
+        return ((identity == "item.weapon.dart" and carried[identity] < 12)
+                or (identity == "item.weapon.spear" and carried[identity] == 0))
+
     def loot_goals(self, turn: Turn, ground_items: tuple[GroundItem, ...], returning: bool) -> LootGoals:
         goals = LootGoals()
         carried: Counter[str | None] = Counter()
@@ -1259,27 +1277,20 @@ class Adventurer:
         goals.recover_arrows = (not returning and not turn.hostiles and not turn.has_condition("rogue.levitation")
                                 and carried["item.weapon.shortbow"] > 0)
         for ground in ground_items:
-            if ground.reachable:
+            if ground.reachable or ground.cell is None:
                 continue
             item = ground.item
-            wanted = item.identity == self.objective or item.category == "food"
-            if item.identity in {"item.potion.healing", "item.potion.extra-healing"}:
-                wanted = carried[item.identity] < 2
-            elif not returning and not turn.hostiles and ground.cell and ground.cell.key not in self.supplies_guarded_until:
-                if useful_loot(item) and not turn.cell.stairs_down:
-                    goals.nearby.add(ground.cell.key)
-                seek_armor = item.category == "armor" and not spare_armor_to_identify and item.identity not in usable_gear
-                seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
-                if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
-                    goals.supplies.add(ground.cell.key)
-            # Outbound arrows use the same recovery radius after leaving sight.
-            if returning and item.identity == "item.weapon.arrow" and carried["item.weapon.shortbow"]:
-                wanted = not turn.hostiles and carried[item.identity] < 8
-            if not returning:
-                wanted |= item.identity == "item.weapon.dart" and carried[item.identity] < 12
-                wanted |= item.identity == "item.weapon.spear" and not carried[item.identity]
-            if wanted and ground.cell:
-                goals.wanted.add(ground.cell.key)
+            key = ground.cell.key
+            if self.worth_long_detour(item, carried, returning=returning, under_threat=bool(turn.hostiles)):
+                goals.wanted.add(key)
+            if returning or turn.hostiles or key in self.supplies_guarded_until or item.identity in HEALING_POTIONS:
+                continue
+            if useful_loot(item) and not turn.cell.stairs_down:
+                goals.nearby.add(key)
+            seek_armor = item.category == "armor" and not spare_armor_to_identify and item.identity not in usable_gear
+            seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
+            if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
+                goals.supplies.add(key)
         return goals
 
     def route_to_loot(self, turn: Turn, memory: FloorMap, goals: LootGoals) -> tuple[Action, str] | None:

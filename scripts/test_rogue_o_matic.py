@@ -996,6 +996,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    ground=[{**nearby, "item": item, "reachable": False}])
                 self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "descend"))
 
+    def test_distant_healing_potion_is_worth_a_detour_until_two_are_packed(self):
+        cells = [cell("stairs", down=True)] + [cell(str(x), x) for x in range(1, 5)]
+        flask = {"id": "flask", "name": "healing", "class": "potion", "quantity": 1,
+                 "identified": True, "identity": "item.potion.healing"}
+        for packed, expected in ((1, (Move(Direction.EAST), "seek_item")), (2, (Move(Direction.DOWN), "descend"))):
+            with self.subTest(packed=packed):
+                turn = player_turn(cells, inventory=[{**flask, "id": "pack", "quantity": packed}],
+                                   ground=[{**cells[-1], "item": flask, "reachable": False}])
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), expected)
+
     def test_recovers_reachable_arrows_when_carrying_the_bow(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         def weapon(name):
