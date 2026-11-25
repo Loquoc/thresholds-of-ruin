@@ -349,7 +349,9 @@ def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth
         report, progress = trace_report(trace)
         if report is None or result.returncode != player_exit_code(report["terminal"]):
             return {"terminal": "client_error", "exit_code": result.returncode, **progress}
+        reported_depth = report.get("max_depth")
         report = {**progress, **report}
+        report["max_depth"] = max(progress["max_depth"], reported_depth if type(reported_depth) is int else 0)
         if report["terminal"] != "victory":
             return report
         try:

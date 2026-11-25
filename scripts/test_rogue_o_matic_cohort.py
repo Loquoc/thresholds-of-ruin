@@ -64,6 +64,28 @@ class CohortSummaryTests(unittest.TestCase):
                                      ("client_error", code, 4, 1))
                     verify.assert_not_called()
 
+    def test_accepted_client_exit_preserves_the_deepest_supported_floor(self):
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import Mock
+        from rogue_o_matic_cohort import play_on_server
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = root / "client.py"
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            for claimed, expected in ((2, 4), (7, 7), (None, 4)):
+                with self.subTest(claimed=claimed):
+                    rows = [{"floor": 4, "action": {"type": "wait"}},
+                            {"terminal": "action_budget", "max_depth": claimed}]
+                    client.write_text("".join(f"print({json.dumps(row)!r})\n" for row in rows)
+                                      + "raise SystemExit(1)\n", encoding="utf-8")
+                    report = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl",
+                                            26, "amulet", client, False)
+                    self.assertEqual(report["max_depth"], expected)
+                    self.assertEqual(set(report["floors"]), {"4"})
+
     def test_startup_failure_counts_each_scheduled_seed_in_the_cli_report(self):
         from pathlib import Path
         import subprocess
