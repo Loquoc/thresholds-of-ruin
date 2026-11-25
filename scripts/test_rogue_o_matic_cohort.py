@@ -64,7 +64,7 @@ class CohortSummaryTests(unittest.TestCase):
                                      ("client_error", code, 4, 1))
                     verify.assert_not_called()
 
-    def test_accepted_client_exit_preserves_the_deepest_supported_floor(self):
+    def test_accepted_client_exit_preserves_depth_and_acquisition_evidence(self):
         from pathlib import Path
         import tempfile
         from unittest.mock import Mock
@@ -75,15 +75,17 @@ class CohortSummaryTests(unittest.TestCase):
             client = root / "client.py"
             server = Mock()
             server.until.return_value = '{"address":"localhost:1"}'
-            for claimed, expected in ((2, 4), (7, 7), (None, 4)):
-                with self.subTest(claimed=claimed):
-                    rows = [{"floor": 4, "action": {"type": "wait"}},
-                            {"terminal": "action_budget", "max_depth": claimed}]
+            cases = [(2, 4, True, False), (7, 7, False, True), (None, 4, False, "false")]
+            for claimed, expected, in_trace, in_summary in cases:
+                with self.subTest(claimed=claimed, in_trace=in_trace, in_summary=in_summary):
+                    rows = [{"floor": 4, "action": {"type": "wait"}, "amulet_acquired": in_trace},
+                            {"terminal": "action_budget", "max_depth": claimed, "amulet_acquired": in_summary}]
                     client.write_text("".join(f"print({json.dumps(row)!r})\n" for row in rows)
                                       + "raise SystemExit(1)\n", encoding="utf-8")
                     report = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl",
                                             26, "amulet", client, False)
                     self.assertEqual(report["max_depth"], expected)
+                    self.assertIs(report["amulet_acquired"], in_trace or in_summary is True)
                     self.assertEqual(set(report["floors"]), {"4"})
 
     def test_startup_failure_counts_each_scheduled_seed_in_the_cli_report(self):
@@ -469,6 +471,10 @@ assert get_type_hints(play)["player"] is Adventurer
             {"from": 3, "to": 2, "before_reserve": 20, "after_reserve": 18},
         ])
         self.assertEqual(progress["floors"]["2"]["first_reserve"], 18)
+
+    def test_acquisition_count_requires_a_boolean_observation(self):
+        rows = [{"terminal": "action_budget", "amulet_acquired": value} for value in (True, False, "false", None)]
+        self.assertEqual(summarize(rows)["amulets_acquired"], 1)
 
     def test_unverified_claim_does_not_count_as_a_victory(self):
         self.assertEqual(summarize([{"terminal": "victory"}])["victories"], 0)

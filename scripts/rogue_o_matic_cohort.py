@@ -107,7 +107,7 @@ def summarize(rows):
         "runs": len(rows),
         "victories": sum(row["terminal"] == "victory" and row.get("victory_verified") is True
                          for row in rows),
-        "amulets_acquired": sum(bool(row.get("amulet_acquired")) for row in rows),
+        "amulets_acquired": sum(row.get("amulet_acquired") is True for row in rows),
         "max_depth": max(reached, default=0),
         "runs_by_max_depth": distribution,
         "deaths_by_cause": dict(sorted(Counter(
@@ -350,7 +350,7 @@ def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth
         if report is None or result.returncode != player_exit_code(report["terminal"]):
             return {"terminal": "client_error", "exit_code": result.returncode, **progress}
         reported_depth = report.get("max_depth")
-        report = {**progress, **report}
+        report = {**progress, **report, "amulet_acquired": progress["amulet_acquired"]}
         report["max_depth"] = max(progress["max_depth"], reported_depth if type(reported_depth) is int else 0)
         if report["terminal"] != "victory":
             return report
