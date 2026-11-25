@@ -4193,6 +4193,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(player_turn([cell("here"), cell("trap", 1)]))
         self.assertFalse(memory.cells["trap"].trapped)
 
+    def test_amulet_carrier_prefers_a_past_fight_to_a_known_pit_on_the_way_home(self):
+        amulet = {"id": "artifact", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
+                  "quantity": 1, "identified": True}
+        pit = {"id": "pit", "family": "pit", "reachable": True}
+        tiles = [cell("here"), cell("passage", 1), cell("exit", 2, up=True)]
+        for x in range(3):
+            detour = cell(f"detour-{x}", x)
+            detour["position"]["y"] = 1
+            if x == 1:
+                detour["trap"] = pit
+            tiles.append(detour)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.danger_until["passage"] = 500
+        turn = player_turn(tiles, inventory=[amulet])
+        self.assertEqual(choose(player, turn), (Move(Direction.EAST), "seek_stairs"))
+
     def test_accepts_a_disclosed_trap_on_the_only_known_return_route(self):
         amulet = {"id": "artifact", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
                   "quantity": "1", "identified": True}

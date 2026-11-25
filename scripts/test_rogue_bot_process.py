@@ -1367,6 +1367,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         region, = contents["regions"]
         region.update(actors=[], items=[{"id": 10, "archetype": "rogue.amulet_of_yendor", "at": [5, 2, 0]}])
         if trapped_detours:
+            contents["manifest"]["stair_pairs"] = {"exit": {"upper": "2/down", "lower": "1/start"}}
+            contents["regions"].append({"id": 2, "name": "Upper", "size": [3, 3, 2], "chamber": True,
+                                        "anchors": {"down": [1, 1, 0]}})
             region["traps"] = [
                 {"id": y + 1, "at": [2, y, 0], "dc": 0, "avoidance_dc": 100,
                  "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0}}
@@ -1406,6 +1409,22 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             break
     assert player.carrying_objective(turn)
     assert (guarded in visited) == {trapped_detours}, visited
+    if traps:
+        player.danger_until[guarded] = turn.tick + RECENT_DANGER_TICKS
+        for _ in range(8):
+            action, reason = player.choose(turn)
+            if reason == "ascend":
+                assert turn.cell.stairs_up
+                break
+            assert isinstance(action, Move) and reason == "seek_stairs", (action, reason)
+            assert turn.cell_at(action.direction.offset).key not in traps, action
+            result = turn.submit(action)
+            assert result.status is Outcome.CONFIRMED, result
+            player.admitted(turn, action, result, reason=reason)
+            turn = game.wait_for_decision()
+            player.observe(turn)
+        else:
+            raise AssertionError("Carrier did not reach the upstairs")
 """)
 
     def test_bot_cli_retrieves_a_custom_canonical_objective(self):

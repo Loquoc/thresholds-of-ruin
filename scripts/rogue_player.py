@@ -857,7 +857,11 @@ class Adventurer:
             if turn.has_condition("rogue.levitation"):
                 return Wait(), "wait_for_ground_contact"
             return Move(direction), "ascend" if returning else "descend"
-        if step := route_around_danger(turn, memory, stairs, self.danger_until.keys()):
+        danger = self.danger_until.keys()
+        if returning and not turn.hostiles and danger and memory.known_traps:
+            if step := route_around_danger(turn, memory, stairs, danger, avoid_traps=True):
+                return step, MemoryReason.SEEK_STAIRS
+        if step := route_around_danger(turn, memory, stairs, danger):
             return step, MemoryReason.SEEK_STAIRS
         if returning and not turn.hostiles:
             return self.search_return_connection(turn, memory, stairs)
