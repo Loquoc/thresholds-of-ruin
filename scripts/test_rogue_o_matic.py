@@ -440,6 +440,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.last_unseen_attack = "here", 100
                 self.assertEqual(choose(player, turn), (Move(expected), "evade_unseen_attack"))
 
+    def test_unseen_attack_prefers_a_corridor_over_an_equally_distant_blind_alley(self):
+        miss = {"type": "unseen_ability", "target": "player", "outcome": "miss"}
+        for alley_x in (-1, 1):
+            for corridor_open in (True, False):
+                with self.subTest(alley_x=alley_x, corridor_open=corridor_open):
+                    tiles = [cell("here"), cell("alley", alley_x), cell("back-wall", 2 * alley_x, wall=True),
+                             cell("north-wall", alley_x, -1, wall=True), cell("south-wall", alley_x, 1, wall=True)]
+                    if corridor_open:
+                        tiles.extend([cell("corridor", -alley_x), cell("onward", -2 * alley_x)])
+                    turn = player_turn(tiles, tick=100, combat={"events": [miss]})
+                    destination_x = -alley_x if corridor_open else alley_x
+                    direction = Direction.EAST if destination_x == 1 else Direction.WEST
+                    self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                                     (Move(direction), "evade_unseen_attack"))
+
     def test_unseen_attack_evasion_keeps_distance_from_the_last_attack_site(self):
         for x, expected in ((2, Direction.WEST), (-2, Direction.EAST)):
             with self.subTest(attack_x=x):

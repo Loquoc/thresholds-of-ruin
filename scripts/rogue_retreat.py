@@ -29,7 +29,8 @@ def evade_unseen_attacker(turn: Turn, attack_origin: str, memory: FloorMap | Non
             distance = mapped_distances.get(cell.key, 0)
         else:
             distance = max(abs(a - b) for a, b in zip(cell.offset, origin.offset))
-        rank = cell.trap is None, distance
+        blind_alley = memory is not None and memory.is_dead_end(cell.key)
+        rank = cell.trap is None, distance, not blind_alley
         if best_rank is None or rank > best_rank:
             best_rank = rank
             step = Move(direction)
