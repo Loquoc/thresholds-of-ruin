@@ -6,9 +6,13 @@ from tor_client_bot import Action, Cell, Creature, Direction, FloorMap, Move, Op
 
 
 def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str]) -> Action | None:
-    """Prefer a route outside recent danger, allowing a dangerous route when it is the only option."""
+    """Prefer a safe route, then allow danger at the goal before crossing danger en route."""
     if danger and any(goal not in danger for goal in goals):
         if step := memory.toward(turn, goals, avoid=danger):
+            return step
+    if goals & danger:
+        en_route_danger = danger - goals
+        if en_route_danger and (step := memory.toward(turn, goals, avoid=en_route_danger)):
             return step
     return memory.toward(turn, goals)
 

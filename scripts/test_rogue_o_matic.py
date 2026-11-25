@@ -664,6 +664,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.danger_until["near"] = 900
                 self.assertEqual(player.choose(turn), (Move(expected), "seek_item"))
 
+    def test_route_to_guarded_food_avoids_a_second_dangerous_square(self):
+        target = cell("ration", 2)
+        cells = [cell("here", down=True), cell("shortcut", 1), target,
+                 cell("detour", 0, 1), cell("wall", 1, 1, wall=True), cell("last", 2, 1)]
+        cells.extend(cell(f"hall-{x}", x, 2) for x in range(3))
+        food = {"id": "food", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        turn = player_turn(cells, ground=[{**target, "item": food, "reachable": False}])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.danger_until.update(ration=900, shortcut=900)
+        self.assertEqual(choose(player, turn), (Move(Direction.SOUTH), "seek_item"))
+
     def test_food_detour_does_not_require_equipment_choices(self):
         stairs, nearby = cell("stairs", down=True), cell("ration", 1)
         ration = {"id": "food", "name": "ration", "class": "food", "quantity": 1, "identified": False}
