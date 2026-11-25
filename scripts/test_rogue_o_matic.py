@@ -37,6 +37,10 @@ def scroll_trial_turn(cells, *scrolls, **observation):
     return player_turn(cells, inventory=items, interactions={"inventory": offers}, **observation)
 
 
+def search_activity(phase="queued"):
+    return {"type": "admitted", "actor": 1, "branch": "game", "intention": "search", "phase": phase}
+
+
 def read_activity(phase="queued"):
     return {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": phase}
 
@@ -1196,8 +1200,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,
                    "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
         turn = player_turn([cell("start"), cell("original-wall", 1, wall=True)], abilities=[ability])
-        activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": "search", "phase": "queued"}
-        receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
+        receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
         later = player_turn([cell("other"), cell("new-wall", 1, wall=True)])
         for phase in ("cancelled", "failed", "resolved"):
             with self.subTest(phase=phase):
@@ -1206,9 +1209,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.admitted(turn, UseAbility(turn.abilities[0]), receipt)
                 player.observe(turn)
                 self.assertFalse(player.wall_searches)
-                final = Turn({**json.loads(later.recording()), "finished_intentions": [dict(activity, phase=phase)]})
+                final = Turn({**json.loads(later.recording()), "finished_intentions": [search_activity(phase)]})
                 player.observe(final)
                 player.observe(final)
+                self.assertEqual(player.search_attempts_at("start"), int(phase == "resolved"))
                 self.assertEqual(dict(player.wall_searches), {"original-wall": 1} if phase == "resolved" else {})
                 self.assertEqual(player.searches["start"], 1)
 
@@ -1219,8 +1223,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,
                    "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
         turn = player_turn(cells, abilities=[ability])
-        activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": "search", "phase": "queued"}
-        receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
+        receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
         for phase in ("cancelled", "failed", "resolved"):
             with self.subTest(phase=phase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
@@ -1228,7 +1231,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.searches["here"] = 2
                 search = UseAbility(turn.abilities[0])
                 player.admitted(turn, search, receipt)
-                final = Turn({**json.loads(turn.recording()), "finished_intentions": [dict(activity, phase=phase)]})
+                final = Turn({**json.loads(turn.recording()), "finished_intentions": [search_activity(phase)]})
                 player.observe(final)
                 decision = player.search_return_connection(final, player.maps[player.depth], {"stairs"})
                 self.assertEqual(decision, None if phase == "resolved" else (search, "search"))
@@ -3303,8 +3306,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         walls = [cell("north", y=-1, wall=True), cell("east", 1, wall=True), cell("south", y=1, wall=True)]
         ability = {"id": "rogue.search", "name": "Search", "cost": None, "cooldown_remaining": 0,
                    "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
-        activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": "search", "phase": "queued"}
-        receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
+        receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
         for up in (True, False):
             with self.subTest(up=up):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
@@ -3312,7 +3314,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(turn)
                 player.admitted(turn, UseAbility(turn.abilities[0]), receipt)
                 player.observe(Turn({**json.loads(turn.recording()), "finished_intentions": [
-                    dict(activity, phase="resolved")]}))
+                    search_activity("resolved")]}))
                 self.assertEqual(player.searches["stairs"], 1)
                 self.assertEqual(player.completed_end_searches["stairs"], 0)
 
