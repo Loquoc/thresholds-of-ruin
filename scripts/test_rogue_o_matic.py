@@ -2812,11 +2812,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         foe = {"id": "foe", "name": "troll", "position": cell("east", 1)["position"]}
         potions = [{"id": name, "name": name, "identity": "item.potion." + name,
                     "class": "potion", "identified": True, "quantity": 1} for name in ("healing", "extra-healing")]
-        for inventory in (potions, potions[::-1]):
+        scroll = {"id": "escape", "name": "escape", "identity": "item.scroll.teleportation",
+                  "class": "scroll", "identified": True, "quantity": 1}
+        offers = [{"item": p["id"], "drinkable": True} for p in potions] + [{"item": "escape", "readable": True}]
+        for inventory in ([scroll, *potions], [*reversed(potions), scroll]):
             with self.subTest(first=inventory[0]["id"]):
                 turn = player_turn([cell("here"), cell("east", 1)], actors=[foe], hostiles=["foe"],
                                    inventory=inventory, combat={"hp": 6, "max_hp": 10},
-                                   interactions={"inventory": [{"item": p["id"], "drinkable": True} for p in inventory]})
+                                   interactions={"inventory": offers})
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.observed_loss["foe"] = 6
                 action, reason = choose(player, turn)

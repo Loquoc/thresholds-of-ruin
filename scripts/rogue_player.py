@@ -551,15 +551,9 @@ class Adventurer:
             return device.item.target not in self.tried_unmeasured_devices
         return device.charges > 0
 
-    def combat(self, turn: Turn) -> tuple[Action, str] | None:
-        health = turn.health
-        injured = health is not None and health.current * 2 < health.maximum
-        adjacent = [foe for foe in turn.hostiles if turn.in_contact(foe)]
-        surrounded = len(adjacent) >= 2
-        exposure = sum(self.damage_estimate(foe) for foe in adjacent)
-        lethal = health is not None and exposure >= health.current
-        two_hit_threat = health is not None and exposure * 2 >= health.current
-        if injured or lethal or (surrounded and health and health.current * 4 < health.maximum * 3):
+    def survival_consumable(self, turn: Turn, *, needs_healing: bool, lethal: bool) -> tuple[UseItem, str] | None:
+        """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
+        if needs_healing:
             if potion := choose_healing_potion(turn, lethal=lethal):
                 return UseItem(potion, ItemUse.DRINK), "heal"
 
@@ -569,6 +563,19 @@ class Adventurer:
         elif turn.hostiles and turn.hunger in URGENT_HUNGER:
             if meal := choose_meal(turn, self.food_value):
                 return UseItem(meal, ItemUse.EAT), "eat"
+        return None
+
+    def combat(self, turn: Turn) -> tuple[Action, str] | None:
+        health = turn.health
+        injured = health is not None and health.current * 2 < health.maximum
+        adjacent = [foe for foe in turn.hostiles if turn.in_contact(foe)]
+        surrounded = len(adjacent) >= 2
+        exposure = sum(self.damage_estimate(foe) for foe in adjacent)
+        lethal = health is not None and exposure >= health.current
+        two_hit_threat = health is not None and exposure * 2 >= health.current
+        needs_healing = injured or lethal or (surrounded and health is not None and health.current * 4 < health.maximum * 3)
+        if decision := self.survival_consumable(turn, needs_healing=needs_healing, lethal=lethal):
+            return decision
 
         if adjacent and (two_hit_threat or injured or surrounded):
             if zap := self.aim_combat_wand(turn, adjacent, {"item.wand.wand-teleport-away"}):
