@@ -1182,7 +1182,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         search = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                   "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
         room = [cell("here")]
-        for key, x, y, z in (("diagonal", 1, 1, 0), ("middle", -3, 2, 0),
+        for key, x, y, z in (("diagonal", 1, 1, 0), ("diagonal", -1, 1, 0), ("middle", -3, 3, 0),
                              ("far", 4, 0, 0), ("above", 1, 1, 1)):
             room.append({**cell(key), "wall": True, "position": {"x": x, "y": y, "z": z}})
         turn = player_turn(room, abilities=[search])

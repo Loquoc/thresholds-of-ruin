@@ -55,6 +55,10 @@ from rogue_retreat import (
     best_onward_escape, converging_pursuers, evade_unseen_attacker,
     route_around_danger, route_to_recovery_shelter, take_corridor,
 )
+from rogue_search import (
+    DEAD_END_SEARCHES, ORDINARY_WALL_SEARCHES, PendingSearch, SearchRank, is_searchable_dead_end,
+    nearby_search_walls, squares_across_stair_walls,
+)
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     estimate_round_trip_ticks,
@@ -70,8 +74,6 @@ MELEE_INJURY_PRIORITY = {
     Injury.BADLY_WOUNDED: 2,
     Injury.WOUNDED: 1,
 }
-ORDINARY_WALL_SEARCHES = 3
-DEAD_END_SEARCHES = 6
 RECENT_DANGER_TICKS = 1200
 ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
 ELEMENTAL_RAY_RANGE = 6
@@ -165,42 +167,6 @@ class MeleeRank(NamedTuple):
     negative_distance: int
     estimated_damage: int
     damage_from_this_foe: int
-
-
-def is_searchable_dead_end(site: Cell | RememberedCell, memory: FloorMap) -> bool:
-    return not (site.stairs_up or site.stairs_down) and memory.is_dead_end(site.key)
-
-
-def squares_across_stair_walls(memory: FloorMap, origin: str, upstairs: set[str]) -> set[RememberedCell]:
-    """Find floor squares one wall away from a disconnected upstairs passage."""
-    candidates: set[RememberedCell] = set()
-    remaining_stairs = upstairs.copy()
-    while remaining_stairs:
-        passage = {cell.key for cell, _ in memory.reachable(remaining_stairs.pop())}
-        remaining_stairs.difference_update(passage)
-        if origin in passage:
-            continue
-        walls = {cell.key for key in passage for cell in memory.adjacent(key) if cell.wall}
-        for wall in walls:
-            candidates.update(cell for cell in memory.adjacent(wall) if not cell.wall and cell.key not in passage)
-    return candidates
-
-
-class SearchRank(NamedTuple):
-    """Higher fields win, in declaration order. Tied sites share a routing query."""
-
-    near_return_stairs: bool
-    has_searchable_walls: bool
-    value_after_travel: int
-    negative_distance: int
-
-
-@dataclass(frozen=True)
-class PendingSearch:
-    receipt: Result
-    walls: frozenset[str]
-    origin: str
-    at_dead_end: bool
 
 
 @dataclass
@@ -490,8 +456,7 @@ class Adventurer:
 
     def remember_search(self, turn: Turn, origin: Cell, receipt: Result | None) -> None:
         self.searches[origin.key] += 1
-        walls = frozenset(cell.key for cell in turn.visible_cells
-                          if cell.wall and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 3)
+        walls = nearby_search_walls(turn)
         if receipt is None or receipt.activity is None:
             self.wall_searches.update(walls)
             return

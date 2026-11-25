@@ -28,6 +28,7 @@ POLICY_FILES = (
     "rogue_gear.py",
     "rogue_food.py",
     "rogue_retreat.py",
+    "rogue_search.py",
     "rogue_loot.py",
     "rogue_training.py",
     "rogue_trials.py",
