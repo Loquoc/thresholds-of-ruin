@@ -1289,6 +1289,24 @@ class Adventurer:
                 return detour or step
         return step
 
+    def explore(self, turn: Turn, memory: FloorMap, *, returning: bool) -> tuple[Action | None, str]:
+        """Find a route when remembered stairs and supplies offer no next step."""
+        if light := self.light_dark_room(turn):
+            return light, MemoryReason.LIGHT_ROOM
+        if action := self.explore_frontier(turn, memory):
+            return action, MemoryReason.EXPLORE
+        scroll = self.route_scroll(turn, memory, returning)
+        if decision := self.search(turn, memory, returning, allow_unseen=scroll is None):
+            return decision
+        if scroll is not None:
+            return scroll
+        if (not returning and not turn.hostiles and memory.stairs(Direction.UP)
+                and not memory.stairs(Direction.DOWN)):
+            # A failed Search leaves concealed doors looking like ordinary walls.
+            if decision := self.search(turn, memory, returning, allow_unseen=False, wall_limit=6):
+                return decision
+        return None, "no_disclosed_route"
+
     def choose(self, turn: Turn) -> tuple[Action | None, str]:
         if turn.needs_identification and (prompt := turn.identification):
             return prompt.select(identification_target(turn, prompt.items)), "identify"
@@ -1346,21 +1364,7 @@ class Adventurer:
         if decision := self.follow_stairs(turn, memory, returning=returning):
             return decision
 
-        if light := self.light_dark_room(turn):
-            return light, MemoryReason.LIGHT_ROOM
-        if action := self.explore_frontier(turn, memory):
-            return action, MemoryReason.EXPLORE
-        scroll = self.route_scroll(turn, memory, returning)
-        if decision := self.search(turn, memory, returning, allow_unseen=scroll is None):
-            return decision
-        if scroll is not None:
-            return scroll
-        if (not returning and not turn.hostiles and memory.stairs(Direction.UP)
-                and not memory.stairs(Direction.DOWN)):
-            # A failed Search leaves concealed doors looking like ordinary walls.
-            if decision := self.search(turn, memory, returning, allow_unseen=False, wall_limit=6):
-                return decision
-        return None, "no_disclosed_route"
+        return self.explore(turn, memory, returning=returning)
 
 
 def __getattr__(name: str):

@@ -1115,6 +1115,31 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             player.admitted(turn, action)
         self.assertEqual(player.choose(turn), (None, "no_disclosed_route"))
 
+    def test_sealed_landing_tries_a_scroll_between_the_first_and_second_wall_sweeps(self):
+        cells = [cell("landing", up=True)]
+        cells.extend(cell(f"wall-{x}-{y}", x, y, wall=True) for x, y in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        search = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                  "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        scroll = {"id": "roll", "name": "runed scroll", "class": "scroll", "quantity": 1, "identified": False}
+        turn = player_turn(cells, abilities=[search], inventory=[scroll],
+                           interactions={"inventory": [{"item": "roll", "readable": True}]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        player.observe(turn)
+        for _ in range(3):
+            action, reason = player.choose(turn)
+            self.assertEqual(reason, "search")
+            player.admitted(turn, action)
+        action, reason = player.choose(turn)
+        self.assertEqual((action.item.target, reason), ("roll", "test_unknown_magic"))
+        player.admitted(turn, action, reason=reason)
+        after_read = player_turn(cells, abilities=[search], tick=100)
+        player.observe(after_read)
+        for _ in range(3):
+            action, reason = player.choose(after_read)
+            self.assertEqual(reason, "search")
+            player.admitted(after_read, action)
+        self.assertEqual(player.choose(after_read), (None, "no_disclosed_route"))
+
     def test_navigation_report_counts_only_the_current_floor(self):
         from rogue_runner import trace_navigation
 
