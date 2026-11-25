@@ -3737,6 +3737,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(turn, Move(Direction.WEST), reason="seek_stairs")
         self.assertEqual(player.choose(turn), (Move(Direction.WEST), "seek_stairs"))
 
+    def test_opening_a_door_on_the_stair_route_finishes_the_food_scout(self):
+        from tor_client_bot import OpenDoor
+
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        player.ascent_ticks_by_floor[2] = 50000
+        door = {"id": "gate", "open": False, "reachable": True}
+        cells = [cell("stairs", -2, down=True), {**cell("gate", -1), "door": door}, cell("hall"), cell("frontier", 1)]
+        nutrition = {"kind": "required", "reserve": 500, "maximum": 2000, "unit_ticks": 100,
+                     "hunger": "nourished", "elapsed": 0}
+        turn = player_turn(cells, stats={"nutrition": nutrition})
+        player.observe(turn)
+        player.maps[3].visited.update(("gate", "stairs"))
+        action, reason = player.choose(turn)
+        self.assertEqual((action, reason), (OpenDoor(turn.cell_at((-1, 0, 0)).door), "seek_stairs"))
+        player.admitted(turn, action, reason=reason)
+        door["open"] = True
+        later = player_turn(cells, tick=100, stats={"nutrition": {**nutrition, "reserve": 499}})
+        self.assertEqual(choose(player, later), (Move(Direction.WEST), "seek_stairs"))
+
     def test_recovers_along_a_visited_food_route_when_rest_is_also_affordable(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         cells = [cell("here"), cell("stairs", -1, down=True), cell("passage", 1), cell("frontier", 2)]

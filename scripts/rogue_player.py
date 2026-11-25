@@ -394,6 +394,8 @@ class Adventurer:
 
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
+        if reason == MemoryReason.SEEK_STAIRS:
+            self.finish_food_scout()
         if reason == MemoryReason.CANCEL_STALLED_SCROLL:
             self.scroll_trials.interrupted(turn)
         if reason == MemoryReason.CANCEL_STALLED_STAIR and self.pending_stair:
@@ -463,8 +465,6 @@ class Adventurer:
     def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
         if turn.cell is None:
             return
-        if reason == MemoryReason.SEEK_STAIRS:
-            self.finish_food_scout()
         self.last_exploration_origin = turn.cell.key if reason == MemoryReason.EXPLORE else None
         self.corridor_stand = None
         if reason == MemoryReason.TAKE_CORRIDOR and (entrance := turn.cell_at(action.direction.offset)):
