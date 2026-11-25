@@ -4286,6 +4286,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(commands, ["overview", "balances",
                                     "purchase 3 advancement expertise rogue.spear", "confirm"])
 
+    def test_evasion_has_no_destination_when_the_last_pursuer_is_gone(self):
+        turn = player_turn([cell("here"), cell("passage", -1)])
+        self.assertIsNone(Adventurer.evade(turn))
+
     def test_starts_a_two_step_escape_when_every_first_step_is_still_in_reach(self):
         foe = {"id": "foe", "name": "vampire", "position": {"x": 0, "y": 1, "z": 0}}
         southwest = cell("southwest", -1)

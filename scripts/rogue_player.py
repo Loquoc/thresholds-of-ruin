@@ -921,6 +921,9 @@ class Adventurer:
 
     @staticmethod
     def evade(turn: Turn) -> tuple[Move, str] | None:
+        if not turn.hostiles:
+            return None
+
         @cache
         def safety(offset: tuple[int, int, int]) -> tuple[int, int]:
             contacts = sum(turn.in_contact(foe, from_offset=offset) for foe in turn.hostiles)
@@ -939,12 +942,13 @@ class Adventurer:
             # Each candidate already improves safety. Prefer one that avoids a disclosed trap.
             clear = [direction for direction in candidates if turn.cell_at(direction.offset).trap is None]
             candidates = clear or candidates
-        first = candidates[0]
-        if best > current and len(candidates) == 1:
-            return Move(first), MemoryReason.RETREAT
+        immediate_retreat = best > current
+        if immediate_retreat and len(candidates) == 1:
+            return Move(candidates[0]), MemoryReason.RETREAT
 
         # Among equally safe first steps, prefer one with a safe onward move.
         best_onward = None
+        onward_direction = None
         for direction in candidates:
             cell = turn.cell_at(direction.offset)
             for second in turn.walkable_from(cell):
@@ -957,11 +961,12 @@ class Adventurer:
                 # Compare trap exposure only when both routes offer the same protection from foes.
                 rank = after, cell.trap is None, turn.cell_at(offset).trap is None
                 if best_onward is None or rank > best_onward:
-                    first, best_onward = direction, rank
-        if best > current:
-            return Move(first), MemoryReason.RETREAT
-        if best_onward is not None:
-            return Move(first), MemoryReason.BREAK_CONTACT
+                    onward_direction, best_onward = direction, rank
+        if onward_direction is not None:
+            reason = MemoryReason.RETREAT if immediate_retreat else MemoryReason.BREAK_CONTACT
+            return Move(onward_direction), reason
+        if immediate_retreat:
+            return Move(candidates[0]), MemoryReason.RETREAT
         return None
 
     def recovery_budget(self, turn: Turn, memory: FloorMap, direction: Direction) -> int | None:
