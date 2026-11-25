@@ -2565,10 +2565,16 @@ with ExitStack() as stack:
             character["body"] = {"cells": [[0, 0, 0], [0, 0, 1], [1, 0, 0]], "eye": [0, 0, 1], "mass": 80}
             package = character["creature"]["body_package"]
             manifest["creatures"]["body_packages"][package]["body"] = character["body"]
-            width += 1
+            blocker = manifest["archetypes"]["rogue.hobgoblin"]
+            blocker["body"]["cells"].append([1, 0, 0])
+            package = blocker["creature"]["body_package"]
+            manifest["creatures"]["body_packages"][package]["body"] = blocker["body"]
+            width += 2
         region.update(size=[width, 1, 2], anchors={"start": [1, 0, 0], "guarded": [blocker_x, 0, 0]},
                       actors=[{"archetype": "rogue.hobgoblin", "id": i, "at": [x, 0, 0],
                                "controller": "external", "turn_ticks": 1000000} for i, x in [(3, 0), (4, blocker_x)]])
+        if extended:
+            region["actors"][0]["archetype"] = "rogue.orc"
         contents["regions"].append({"id": 2, "name": "Landing", "size": [3, 3, 2],
                                     "chamber": True, "anchors": {"landing": [1, 1, 0]}})
         if returning:
@@ -2615,6 +2621,8 @@ with ExitStack() as clients:
     assert (exit_cell.stairs_up if returning else exit_cell.stairs_down)
     assert reason == "melee" and exit_cell in turn.cells_of(action.target)
     assert action.ability.identity == os.environ["EXPECTED_MELEE"], (action, turn.abilities)
+    if blocker_dx > 1:
+        assert (blocker_dx + 1, 0, 0) in action.target.cells, action.target
     attack = turn.submit(action)
     assert attack.status is Outcome.CONFIRMED
     for foe in (west, east):
@@ -2625,7 +2633,8 @@ with ExitStack() as clients:
     assert any(hit.ability == action.ability.identity for hit in incoming), incoming
     if action.ability.identity == "dislocating_strike":
         assert after.cell_at((blocker_dx, 0, 0)).stairs_down
-        assert any((blocker_dx + 1, 0, 0) in foe.cells for foe in after.hostiles), after.hostiles
+        pushed = next(foe for foe in after.hostiles if foe.target == action.target.target)
+        assert set(pushed.cells) == {(x + 1, y, z) for x, y, z in action.target.cells}, pushed
     if action.ability.identity == "dislocating_strike" and blocker_dx == 1:
         player.observe(after)
         step, reason = player.choose(after)

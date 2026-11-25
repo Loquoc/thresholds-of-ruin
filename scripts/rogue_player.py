@@ -702,10 +702,7 @@ class Adventurer:
 
     @staticmethod
     def has_push_space(turn: Turn, foe: Creature) -> bool:
-        """Look for a clear landing directly behind a single column of body cells."""
-        columns = {(x, y) for x, y, _ in foe.cells}
-        if len(columns) != 1:
-            return False
+        """Check that one horizontal push can move every visible target cell."""
         contacts = {(x - sx, y - sy, z - sz)
                     for sx, sy, sz in turn.body for x, y, z in foe.cells
                     if abs(x - sx) + abs(y - sy) + abs(z - sz) == 1}
@@ -714,7 +711,10 @@ class Adventurer:
         dx, dy, dz = contacts.pop()
         if dz:
             return False
-        occupied = {offset for creature in turn.creatures for offset in creature.cells}
+        occupied = set(turn.body)
+        for creature in turn.creatures:
+            if creature.target != foe.target:
+                occupied.update(creature.cells)
         for x, y, z in foe.cells:
             destination = (x + dx, y + dy, z)
             cell = turn.cell_at(destination)

@@ -97,6 +97,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual((reason, action.target.target), ("melee", "orc"))
                 self.assertEqual(action.ability.identity, "basic_melee" if occupied else "dislocating_strike")
 
+    def test_push_checks_the_translated_body_of_a_long_opponent(self):
+        actors = [{"id": "orc", "name": "orc", "position": cell("orc", x)["position"]} for x in (1, 2)]
+        for landing, clear in (([], False), ([cell("wall", 3, wall=True)], False), ([cell("open", 3)], True)):
+            with self.subTest(landing=landing):
+                turn = player_turn([cell("here"), cell("near", 1), cell("far", 2), *landing],
+                                   actors=actors, hostiles=["orc"])
+                self.assertEqual(Adventurer.has_push_space(turn, turn.hostiles[0]), clear)
+
     def test_drinks_known_haste_before_a_group_closes_and_avoids_a_second_dose(self):
         potion = {"id": "dose", "name": "potion of haste", "identity": "item.potion.haste",
                   "quantity": 2, "identified": True, "class": "potion"}
