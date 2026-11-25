@@ -3418,6 +3418,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.danger_until["cleared"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
 
+    def test_leaves_an_exposed_square_before_opening_a_door_to_recovery_shelter(self):
+        from tor_client_bot import OpenDoor
+
+        tiles = [cell(str(x), x) for x in range(-3, 3)]
+        gate = next(tile for tile in tiles if tile["key"] == "1")
+        gate["door"] = {"id": "gate", "open": False, "reachable": True}
+        turn = player_turn(tiles, combat={"hp": 6}, stats={"health_recovery": {
+            "period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        player.danger_until["0"] = 1200
+        player.maps[1].visited.add("2")
+        self.assertEqual(player.choose(turn), (OpenDoor(turn.cell_at((1, 0, 0)).door), "reposition_to_recover"))
+        player.maps[1].visited.add("-3")
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "reposition_to_recover"))
+
     def test_recovery_prefers_a_clear_route_to_shelter_over_a_shorter_dangerous_route(self):
         turn = player_turn([cell(str(x), x) for x in range(-3, 3)], combat={"hp": 6},
                            stats={"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,

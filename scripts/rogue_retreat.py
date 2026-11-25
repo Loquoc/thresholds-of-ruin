@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Set
 
-from tor_client_bot import Action, Creature, Direction, FloorMap, Move, Turn
+from tor_client_bot import Action, Creature, Direction, FloorMap, Move, OpenDoor, Turn
 
 
 def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str]) -> Action | None:
@@ -11,6 +11,18 @@ def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: S
         if step := memory.toward(turn, goals, avoid=danger):
             return step
     return memory.toward(turn, goals)
+
+
+def route_to_recovery_shelter(turn: Turn, memory: FloorMap, danger: Set[str]) -> Action | None:
+    """Leave the exposed square immediately if a clear path leads to familiar shelter."""
+    shelters = memory.visited - danger
+    step = route_around_danger(turn, memory, shelters, danger)
+    if isinstance(step, OpenDoor):
+        doors = {cell.key for cell in turn.visible_cells if cell.door and cell.door.reachable and not cell.door.open}
+        traps = {cell.key for cell in memory.cells.values() if cell.trapped}
+        if detour := memory.toward(turn, shelters, avoid=danger | doors | traps):
+            return detour
+    return step
 
 
 def evade_unseen_attacker(turn: Turn, attack_origin: str, memory: FloorMap | None = None) -> Move | None:

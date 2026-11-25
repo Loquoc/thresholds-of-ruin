@@ -51,7 +51,8 @@ from rogue_loot import (
 from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
 from rogue_retreat import (
-    approach_visible_exit, best_onward_escape, converging_pursuers, evade_unseen_attacker, route_around_danger, take_corridor,
+    approach_visible_exit, best_onward_escape, converging_pursuers, evade_unseen_attacker,
+    route_around_danger, route_to_recovery_shelter, take_corridor,
 )
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
@@ -937,7 +938,7 @@ class Adventurer:
         if not self.trapped(turn):
             danger = self.danger_until.keys()
             if turn.cell.key in danger:
-                if action := route_around_danger(turn, memory, memory.visited - danger, danger):
+                if action := route_to_recovery_shelter(turn, memory, danger):
                     return action, "reposition_to_recover"
             # Recover along the food route while scouting away from the stairs.
             food_route = None
