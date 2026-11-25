@@ -2406,6 +2406,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     item = next(item for item in turn.inventory if item.target == expected)
                     self.assertEqual(choose(player, turn), (UseItem(item, ItemUse.EAT), "eat"))
 
+    def test_hungry_player_ranks_reachable_ground_food_by_usable_nutrition(self):
+        here = cell("here")
+        foods = [{"id": name, "name": name, "identity": name, "identified": True, "class": "food", "quantity": 1}
+                 for name in ("unknown", "snack", "ration", "feast")]
+        ground = [{**here, "item": item, "reachable": item["id"] != "feast"} for item in foods]
+        for reserve, expected in ((5, "ration"), (95, "snack")):
+            for order in (ground, ground[::-1]):
+                with self.subTest(reserve=reserve, first=order[0]["item"]["id"]):
+                    player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                    player.food_value.update(snack=10, ration=40, feast=80)
+                    turn = player_turn([here], ground=order, stats={"nutrition": {
+                        "kind": "required", "hunger": "weak", "reserve": reserve,
+                        "maximum": 100, "unit_ticks": 100, "elapsed": 0}})
+                    action, reason = choose(player, turn)
+                    self.assertEqual((reason, action.item.target), ("take", expected))
+
     def test_wounded_pursuit_uses_a_remembered_exit_before_running_another_lap(self):
         foe = {"id": "pursuer", "name": "centaur", "position": {"x": 1, "y": 0, "z": 0}}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=10, recovering_from_pursuit=True)

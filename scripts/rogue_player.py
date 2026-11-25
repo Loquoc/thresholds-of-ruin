@@ -1119,9 +1119,9 @@ class Adventurer:
             return None
         if meal := choose_meal(turn, self.food_value):
             return UseItem(meal, ItemUse.EAT), "eat"
-        for ground in ground_items:
-            if ground.reachable and ground.item.category == "food":
-                return Pickup(ground.item), "take"
+        reachable_food = (ground.item for ground in ground_items if ground.reachable and ground.item.category == "food")
+        if meal := choose_meal(turn, self.food_value, candidates=reachable_food):
+            return Pickup(meal), "take"
         if can_forage and (step := self.route_to_food(turn, memory)):
             return step, "forage"
         return None
