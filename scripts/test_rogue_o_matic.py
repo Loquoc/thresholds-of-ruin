@@ -37,8 +37,14 @@ def scroll_trial_turn(cells, *scrolls, **observation):
     return player_turn(cells, inventory=items, interactions={"inventory": offers}, **observation)
 
 
-def search_activity(phase="queued"):
-    return {"type": "admitted", "actor": 1, "branch": "game", "intention": "search", "phase": phase}
+def search_activity(phase="queued", *, intention="search"):
+    return {"type": "admitted", "actor": 1, "branch": "game", "intention": intention, "phase": phase}
+
+
+def search_turn(cells):
+    ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,
+               "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
+    return player_turn(cells, abilities=[ability])
 
 
 def read_activity(phase="queued"):
@@ -1197,9 +1203,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_wall_coverage_counts_only_resolved_search_receipts_and_uses_the_original_picture(self):
         from tor_client_bot import Result
 
-        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,
-                   "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
-        turn = player_turn([cell("start"), cell("original-wall", 1, wall=True)], abilities=[ability])
+        turn = search_turn([cell("start"), cell("original-wall", 1, wall=True)])
         receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
         later = player_turn([cell("other"), cell("new-wall", 1, wall=True)])
         for phase in ("cancelled", "failed", "resolved"):
@@ -1207,7 +1211,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.observe(turn)
                 player.admitted(turn, UseAbility(turn.abilities[0]), receipt)
-                player.observe(turn)
+                stale = search_activity("resolved", intention="earlier-search")
+                player.observe(Turn({**json.loads(later.recording()), "finished_intentions": [stale]}))
                 self.assertFalse(player.wall_searches)
                 final = Turn({**json.loads(later.recording()), "finished_intentions": [search_activity(phase)]})
                 player.observe(final)
@@ -1220,9 +1225,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         from tor_client_bot import Result
 
         cells = [cell("hall", -1), cell("here"), cell("wall", 1, wall=True), cell("stairs", 2, up=True)]
-        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,
-                   "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
-        turn = player_turn(cells, abilities=[ability])
+        turn = search_turn(cells)
         receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
         for phase in ("cancelled", "failed", "resolved"):
             with self.subTest(phase=phase):
