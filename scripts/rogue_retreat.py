@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Set
 
-from tor_client_bot import Action, Creature, Direction, FloorMap, Move, OpenDoor, Turn
+from tor_client_bot import Action, Cell, Creature, Direction, FloorMap, Move, OpenDoor, Turn
 
 
 def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str]) -> Action | None:
@@ -146,7 +146,7 @@ def _stair_distance(offset: tuple[int, int, int], goal: tuple[int, int, int]) ->
 
 
 def _preferred_visible_stairs(turn: Turn, memory: FloorMap, exits: set[str],
-                             avoid: set[str]) -> list[tuple[int, int, int]]:
+                             avoid: set[str]) -> list[Cell]:
     """Rank reachable visible stairs by traps, mapped walking distance, then geometry."""
     visible = {cell.key: cell for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0}
     if not visible or turn.cell is None:
@@ -155,7 +155,7 @@ def _preferred_visible_stairs(turn: Turn, memory: FloorMap, exits: set[str],
     for site, steps in memory.reachable(turn.cell.key, avoid=avoid):
         if cell := visible.pop(site.key, None):
             rank = cell.trap is not None, steps, _stair_distance((0, 0, 0), cell.offset)
-            exits_by_rank.setdefault(rank, []).append(cell.offset)
+            exits_by_rank.setdefault(rank, []).append(cell)
             if not visible:
                 break
     return exits_by_rank[min(exits_by_rank)] if exits_by_rank else []
@@ -164,9 +164,9 @@ def _preferred_visible_stairs(turn: Turn, memory: FloorMap, exits: set[str],
 def approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: set[str]) -> Move | None:
     """Approach the best visible stairs while keeping clear of pursuers."""
     destinations = _preferred_visible_stairs(turn, memory, exits, avoid)
-    if not destinations:
+    if turn.cell is None or not destinations:
         return None
-    current_distance = _stair_distance((0, 0, 0), destinations[0])
+    current_distance = _stair_distance((0, 0, 0), destinations[0].offset)
 
     approaches = []
     for direction in turn.walkable_directions:
@@ -176,15 +176,19 @@ def approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: 
             continue
         if candidate.key not in exits and memory.is_dead_end(candidate.key):
             continue
-        remaining = min(_stair_distance(offset, goal) for goal in destinations)
+        remaining = min(_stair_distance(offset, goal.offset) for goal in destinations)
         if remaining < current_distance:
             clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
             # With equal clearance, avoid a known trap before favoring a shorter approach.
             steps, axis_distance = remaining
             # Preserve the direction-name tie break for otherwise equivalent moves.
             rank = clearance, candidate.trap is None, -steps, -axis_distance, direction.value
-            approaches.append((rank, direction))
-    if not approaches:
-        return None
-    _, direction = max(approaches)
-    return Move(direction)
+            approaches.append((rank, direction, candidate.key))
+
+    goals = {cell.key for cell in destinations}
+    # Enter an approach only if it reaches the stairs without doubling back past the pursuer.
+    blocked = avoid | {turn.cell.key}
+    for _, direction, start in sorted(approaches, reverse=True):
+        if any(site.key in goals for site, _ in memory.reachable(start, avoid=blocked)):
+            return Move(direction)
+    return None

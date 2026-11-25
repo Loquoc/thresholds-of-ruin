@@ -4272,6 +4272,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         self.assertEqual(choose(player, turn), (Move(Direction.SOUTH), "retreat_to_stairs"))
 
+    def test_stair_retreat_skips_a_two_step_alley_that_requires_backtracking(self):
+        cells = [cell("here"), cell("alley", 1), cell("alley-end", 2),
+                 cell("barrier", 3, wall=True), cell("detour", 0, 1),
+                 cell("last-step", 4, 1), cell("stairs", 4, up=True)]
+        cells.extend(cell(f"wall-{x}-{y}", x, y, wall=True) for x in (1, 2) for y in (-1, 1))
+        cells.extend(cell(f"hall-{x}", x, 2) for x in range(5))
+        foe = {"id": "foe", "name": "wraith", "position": cell("enemy", y=-3)["position"]}
+        turn = player_turn(cells, actors=[foe], hostiles=["foe"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        self.assertEqual(choose(player, turn), (Move(Direction.SOUTH), "retreat_to_stairs"))
+
     def test_stair_at_end_of_blind_alley_is_a_valid_retreat(self):
         cells = [cell("here"), cell("east-stair", 1, up=True), cell("west-stair", -1, up=True)]
         cells.extend(cell(f"wall-{x}-{y}", x, y, wall=True) for x, y in ((2, 0), (1, 1), (1, -1)))
