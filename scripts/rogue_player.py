@@ -325,9 +325,7 @@ class Adventurer:
             self.pending_stair = None
             self.stair_pursuers = ()
         scout = self.food_scouts.get(self.depth)
-        if scout is not None and (
-            turn.tick >= scout.deadline or sum(item.quantity for item in edible_items(turn)) > scout.starting_meals
-        ):
+        if scout is not None and scout.finished(turn):
             self.finish_food_scout()
         if self.depth not in self.maps:
             self.maps[self.depth] = FloorMap()

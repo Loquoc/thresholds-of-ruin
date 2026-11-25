@@ -3455,6 +3455,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.maps[3].visited.add("stairs")
                 self.assertEqual(player.choose(turn), expected)
 
+    def test_food_scout_counts_edible_portions_in_a_stack(self):
+        scout = FoodScout(deadline=100, starting_meals=2)
+        for quantity, edible, finished in ((2, True, False), (3, False, False), (3, True, True)):
+            with self.subTest(quantity=quantity, edible=edible):
+                ration = {"id": "ration", "name": "ration", "class": "food",
+                          "quantity": quantity, "identified": False}
+                turn = player_turn([cell("here")], inventory=[ration], tick=99,
+                                   interactions={"inventory": [{"item": "ration", "edible": edible}]})
+                self.assertEqual(scout.finished(turn), finished)
+
     def test_food_scout_stays_finished_after_eating_the_ration_it_found(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.ascent_ticks_by_floor[2] = 50000

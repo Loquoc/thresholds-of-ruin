@@ -73,6 +73,12 @@ class FoodScout:
     deadline: int
     starting_meals: int
 
+    def finished(self, turn: Turn) -> bool:
+        if turn.tick >= self.deadline:
+            return True
+        carried_meals = sum(item.quantity for item in edible_items(turn))
+        return carried_meals > self.starting_meals
+
 
 def estimate_carried_food(meals: Iterable[Item], food_value: Mapping[str, int]) -> FoodEstimate:
     known_reserve = 0
