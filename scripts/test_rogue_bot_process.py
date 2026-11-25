@@ -3004,6 +3004,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         raise AssertionError(("No actionable unseen attack", turn.tick, turn.recent_combat.records()))
     assert all(c.name != "phantom" for c in turn.creatures)
     start = turn.cell.key
+    assert policy.danger_until.get(start, 0) > turn.tick, policy.danger_until
     step, reason = policy.choose(turn)
     sight = os.environ["BOT_TEST_SIGHT"]
     if sight == "ring":

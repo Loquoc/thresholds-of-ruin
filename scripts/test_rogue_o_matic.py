@@ -569,6 +569,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     self.assertEqual(player.opponents.nearby_drainer(sighting, sighting.hostiles[0]),
                                      strength > 0 and target == "hunter")
 
+    def test_unseen_miss_marks_the_tile_dangerous_without_health_loss(self):
+        from rogue_player import RECENT_DANGER_TICKS
+
+        cells = [cell("here"), cell("west", -1)]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(player_turn(cells, combat={"hp": 10}))
+        miss = {"type": "unseen_ability", "target": "player", "outcome": "miss"}
+        player.observe(player_turn(cells, tick=100, combat={"hp": 10, "events": [miss]}))
+        self.assertEqual(player.last_unseen_attack, ("here", 100))
+        self.assertEqual(player.danger_until.get("here"), 100 + RECENT_DANGER_TICKS)
+        player.observe(player_turn(cells, tick=100 + RECENT_DANGER_TICKS, combat={"hp": 10}))
+        self.assertNotIn("here", player.danger_until)
+
     def test_reflected_damage_does_not_identify_an_unseen_effect_as_an_attack(self):
         cells = [cell("here"), cell("west", -1)]
         reflected = {"type": "ability", "caster": "player", "target": "player", "outcome": "applied",

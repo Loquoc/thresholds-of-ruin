@@ -237,13 +237,15 @@ class Adventurer:
         incoming = report.incoming
         self.opponents.record_injury(turn.hostiles, incoming, attributable_loss, lasting_injury=lasting_injury)
         injury_from_incoming = attributable_loss > 0 or lasting_injury
-        if here and (turn.hostiles or (injury_from_incoming and incoming)):
-            self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
+        if here:
+            unseen_attack = witnessed_unseen_attack(incoming, turn.hostiles, injured=injury_from_incoming)
+            if unseen_attack:
+                self.last_unseen_attack = here.key, turn.tick
+            if turn.hostiles or unseen_attack or (injury_from_incoming and incoming):
+                self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:
             self.scroll_trials.tried_in_encounter = False
             self.last_retreat_origin = None
-        if here and witnessed_unseen_attack(incoming, turn.hostiles, injured=injury_from_incoming):
-            self.last_unseen_attack = here.key, turn.tick
 
     def observe_stair(self, turn: Turn) -> None:
         """Retire a failed attempt immediately. Confirm arrival on a ready or terminal picture."""
