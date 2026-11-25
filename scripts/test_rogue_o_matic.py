@@ -3343,6 +3343,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             else:
                 self.assertEqual((action, reason), (OpenDoor(turn.cell_at((1, 0, 0)).door), "retreat_to_stairs"))
 
+    def test_retreat_breaks_contact_with_the_harder_hitter_on_either_flank(self):
+        room = [tile(x, y) for x in (-1, 0, 1) for y in (0, 1)]
+        foes = [{"id": name, "name": name, "position": tile(x, 1)["position"]}
+                for name, x in (("west", -1), ("east", 1))]
+        turn = player_turn(room, actors=foes, hostiles=["west", "east"])
+        for dangerous, weaker in (("west", "east"), ("east", "west")):
+            with self.subTest(dangerous=dangerous):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.opponents.damage_by_target.update({dangerous: 8, weaker: 1})
+                action, reason = choose(player, turn)
+                self.assertEqual(reason, "retreat")
+                remaining = [foe.target for foe in turn.hostiles
+                             if turn.in_contact(foe, from_offset=action.direction.offset)]
+                self.assertEqual(remaining, [weaker])
+
     def test_public_policy_steps_out_of_one_of_two_melee_contacts(self):
         room = [tile(x, y) for x, y in [(0, 0), (1, 0), (0, -1), (0, 1), (1, 1)]]
         foes = [{"id": name, "name": name, "position": {"x": x, "y": y, "z": 0}}

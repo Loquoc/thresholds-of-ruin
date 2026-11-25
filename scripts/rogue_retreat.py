@@ -97,7 +97,7 @@ class RetreatStep(NamedTuple):
     improves_immediately: bool
 
 
-def choose_retreat_step(turn: Turn) -> RetreatStep | None:
+def choose_retreat_step(turn: Turn, damage_estimate: Callable[[Creature], int] | None = None) -> RetreatStep | None:
     """Reduce melee contacts first, then increase distance to the nearest pursuer."""
     if not turn.hostiles or not turn.walkable_directions:
         return None
@@ -121,6 +121,17 @@ def choose_retreat_step(turn: Turn) -> RetreatStep | None:
 
     clear = [direction for direction in candidates if turn.cell_at(direction.offset).trap is None]
     candidates = clear or candidates
+    if damage_estimate is not None and best[0] < 0 and len(candidates) > 1:
+        # Compare measured damage only when every remaining contact has an estimate.
+        costs = {}
+        for direction in candidates:
+            hits = [damage_estimate(foe) for foe in turn.hostiles
+                    if turn.in_contact(foe, from_offset=direction.offset)]
+            if all(hits):
+                costs[direction] = sum(hits)
+        if len(costs) == len(candidates):
+            lowest = min(costs.values())
+            candidates = [direction for direction in candidates if costs[direction] == lowest]
     direction = candidates[0]
     if len(candidates) > 1:
         direction = best_onward_escape(turn, candidates, safety) or direction
