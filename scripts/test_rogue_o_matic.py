@@ -130,6 +130,27 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         choose(player, picture(True))
         self.assertEqual(choose(player, dark)[1], "light_room")
 
+    def test_room_light_tries_another_wand_when_the_first_still_has_unknown_charges(self):
+        from tor_client_bot import Zap
+
+        wands = [{"id": target, "name": "staff of light", "identity": "item.wand.wand-light",
+                  "identified": True, "quantity": 1, "class": "wand"} for target in ("first", "second")]
+        offers = [{"item": wand["id"], "zappable": True, "device_activation": "self_target"} for wand in wands]
+        def picture(lit):
+            return player_turn([{**cell("here"), "lit": lit}, cell("east", 1)], inventory=wands,
+                               interactions={"inventory": offers})
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        dark = picture(False)
+        for expected in dark.devices:
+            action, reason = choose(player, dark)
+            self.assertEqual((action, reason), (Zap(expected, None), "light_room"))
+            player.admitted(dark, action, reason=reason)
+            player.observe(picture(True))
+        self.assertEqual(choose(player, dark)[1], "explore")
+        offers[0]["charges"] = 1
+        self.assertEqual(choose(player, picture(False))[1], "light_room")
+
     def test_potion_trials_remember_appearance_across_distinct_items(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         for target, name, appearance, should_sample in (

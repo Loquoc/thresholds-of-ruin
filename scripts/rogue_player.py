@@ -1338,6 +1338,17 @@ class Adventurer:
             return action, "seek_supplies"
         return None
 
+    def light_dark_room(self, turn: Turn) -> Zap | None:
+        if turn.cell is None or turn.cell.lit is not False or turn.hostiles:
+            return None
+        if self.depth in self.attempted_room_light or turn.has_condition("rogue.blindness"):
+            return None
+        for device in turn.devices:
+            if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
+                    and self.can_spend_charge(device)):
+                return Zap(device, None)
+        return None
+
     def explore_frontier(self, turn: Turn, memory: FloorMap) -> Action | None:
         avoid = self.danger_until.keys()
         step = memory.toward_unexplored(turn, avoid=avoid)
@@ -1404,12 +1415,8 @@ class Adventurer:
         if decision := self.follow_stairs(turn, memory, returning=returning):
             return decision
 
-        if (turn.cell.lit is False and not turn.hostiles and self.depth not in self.attempted_room_light
-                and not turn.has_condition("rogue.blindness")):
-            for device in turn.devices:
-                if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
-                        and device.charges != 0):
-                    return Zap(device, None), MemoryReason.LIGHT_ROOM
+        if light := self.light_dark_room(turn):
+            return light, MemoryReason.LIGHT_ROOM
         if action := self.explore_frontier(turn, memory):
             return action, MemoryReason.EXPLORE
         scroll = self.route_scroll(turn, memory, returning)
