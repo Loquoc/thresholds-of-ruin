@@ -308,6 +308,12 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual(death_cause(dict(report, self_target="snake")), "starvation")
         self.assertEqual(death_cause(dict(report, self_target="hero")), "strike")
 
+    def test_depth_distribution_counts_each_run_and_preserves_missing_observations(self):
+        rows = [{"terminal": "death", "max_depth": floor} for floor in (2, 12, 2)]
+        rows.extend([{"terminal": "client_error"}, {"terminal": "wall_timeout", "max_depth": 0}])
+        self.assertEqual(summarize(rows)["runs_by_max_depth"], {"2": 2, "12": 1, "unobserved": 2})
+        self.assertEqual(summarize([])["runs_by_max_depth"], {})
+
     def test_only_the_players_interruptions_can_bridge_an_attack_and_death(self):
         from rogue_o_matic_cohort import death_cause
 

@@ -133,12 +133,18 @@ def campaign_inputs(server, scenario, actor, policy):
 
 
 def summarize(rows):
+    reached = Counter(row["max_depth"] for row in rows if row.get("max_depth", 0) > 0)
+    distribution = {str(floor): reached[floor] for floor in sorted(reached)}
+    unobserved = len(rows) - reached.total()
+    if unobserved:
+        distribution["unobserved"] = unobserved
     return {
         "runs": len(rows),
         "victories": sum(row["terminal"] == "victory" and row.get("victory_verified") is True
                          for row in rows),
         "amulets_acquired": sum(bool(row.get("amulet_acquired")) for row in rows),
-        "max_depth": max((row.get("max_depth", 0) for row in rows), default=0),
+        "max_depth": max(reached, default=0),
+        "runs_by_max_depth": distribution,
         "deaths_by_cause": dict(sorted(Counter(
             death_cause(row) for row in rows if row["terminal"] == "death").items())),
         "results": rows,

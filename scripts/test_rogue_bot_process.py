@@ -528,6 +528,7 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         summary = json.loads(result.stdout)
         report, = summary["results"]
         self.assertGreater(report["tick"], 2920, report)
+        self.assertEqual(summary["runs_by_max_depth"], {str(report["max_depth"]): 1})
         trace = (output / "seed-47" / "turns.jsonl").read_text(encoding="utf-8")
         turns = [json.loads(line) for line in trace.splitlines()]
         self.assertEqual([i for i, row in enumerate(turns) if "terminal" in row], [len(turns) - 1])
