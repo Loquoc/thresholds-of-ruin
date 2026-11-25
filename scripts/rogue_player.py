@@ -1333,10 +1333,14 @@ class Adventurer:
         def wanted_rings() -> set[str]:
             return ring_upgrades(turn).keys() - usable_gear
 
-        spare_armor_to_identify = any(
-            choice.slot.kind == "body_armor" and not choice.item.known_cursed and choice.item.physical_reduction is None
-            for choice in turn.equip_choices()
-        )
+        @cache
+        def has_spare_armor_to_identify() -> bool:
+            return any(
+                choice.slot.kind == "body_armor" and not choice.item.known_cursed
+                and choice.item.physical_reduction is None
+                for choice in turn.equip_choices()
+            )
+
         goals.recover_arrows = not returning and not turn.hostiles and carried["item.weapon.shortbow"] > 0
         for ground in ground_items:
             if ground.reachable or ground.cell is None:
@@ -1349,7 +1353,8 @@ class Adventurer:
                 continue
             if useful_loot(item) and not turn.cell.stairs_down:
                 goals.nearby.add(key)
-            seek_armor = item.category == "armor" and not spare_armor_to_identify and item.identity not in usable_gear
+            seek_armor = (item.category == "armor" and item.identity not in usable_gear
+                          and not has_spare_armor_to_identify())
             seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
             if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
                 goals.supplies.add(key)

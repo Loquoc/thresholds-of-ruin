@@ -542,6 +542,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Move(Direction.EAST), "seek_supplies"))
 
+    def test_food_detour_does_not_require_equipment_choices(self):
+        stairs, nearby = cell("stairs", down=True), cell("ration", 1)
+        ration = {"id": "food", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        turn = player_turn([stairs, nearby], ground=[{**nearby, "item": ration, "reachable": False}])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        with patch.object(turn, "equip_choices", side_effect=AssertionError("unexpected equipment scan")):
+            goals = player.loot_goals(turn, turn.ground_items, returning=False)
+        self.assertEqual(goals.wanted, {"ration"})
+
     def test_only_a_usable_unmeasured_spare_can_defer_an_armor_detour(self):
         stairs, near = cell("stairs", down=True), cell("plate", 1)
         slot = {"id": "body_armor", "name": "Armor"}
