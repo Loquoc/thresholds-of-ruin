@@ -357,6 +357,8 @@ impl SurfaceRecipe {
 }
 
 /// GPU uniform block for `model.wgsl`.
+// `ShaderType` (encase) emits an unused compile-time size-check function.
+#[allow(dead_code)]
 #[derive(ShaderType, Reflect, Debug, Clone, Copy)]
 pub struct SurfaceParams {
     /// `x`: `SurfaceKind`, `y`: detail enabled (0/1), `z`: use baked 3D noise (0/1).
