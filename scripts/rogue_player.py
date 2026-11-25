@@ -1017,11 +1017,15 @@ class Adventurer:
         return next((UseAbility(ability) for ability in turn.abilities
                      if ability.identity == "rogue.search" and ability.ready), None)
 
+    def remaining_dead_end_searches(self, site: Cell | RememberedCell, memory: FloorMap) -> int | None:
+        """Return the unused completed-search allowance, or None for an ordinary search site."""
+        if not is_searchable_dead_end(site, memory):
+            return None
+        return max(0, DEAD_END_SEARCHES - self.completed_end_searches[site.key])
+
     def search_dead_end(self, turn: Turn, memory: FloorMap) -> UseAbility | None:
         here = turn.cell
-        if (here is None or turn.hostiles
-                or self.completed_end_searches[here.key] >= DEAD_END_SEARCHES
-                or not is_searchable_dead_end(here, memory)):
+        if here is None or turn.hostiles or not self.remaining_dead_end_searches(here, memory):
             return None
         return self.ready_search(turn)
 
@@ -1069,10 +1073,10 @@ class Adventurer:
                 for cell in memory.adjacent(wall):
                     if cell.wall or cell.key in passages:
                         continue
-                    if is_searchable_dead_end(cell, memory):
-                        if self.completed_end_searches[cell.key] < DEAD_END_SEARCHES:
-                            sites.add(cell.key)
-                    elif self.searches[cell.key] < 3:
+                    remaining = self.remaining_dead_end_searches(cell, memory)
+                    if remaining is None:
+                        remaining = 3 - self.searches[cell.key]
+                    if remaining > 0:
                         sites.add(cell.key)
         return sites
 
@@ -1108,10 +1112,9 @@ class Adventurer:
         attempts = self.searches[site.key]
         neighbors = memory.adjacent(site.key)
         walls = [c for c in neighbors if c.wall]
-        dead_end = is_searchable_dead_end(site, memory)
-        if dead_end:
-            remaining = DEAD_END_SEARCHES - self.completed_end_searches[site.key]
-            if remaining <= 0 or turn.hostiles:
+        remaining = self.remaining_dead_end_searches(site, memory)
+        if remaining is not None:
+            if remaining == 0 or turn.hostiles:
                 return None
             untested = walls
             value = remaining * len(walls)

@@ -3880,6 +3880,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.completed_end_searches["end"] = completed
                 self.assertEqual(player.search_return_connection(turn, memory, {"stairs"}), expected)
 
+    def test_stair_in_a_sealed_corridor_uses_the_ordinary_return_search_limit(self):
+        cells = [cell("hall"), cell("landing", 1, down=True), cell("barrier", 2, wall=True), cell("exit", 3, up=True),
+                 cell("north-wall", 1, -1, wall=True), cell("south-wall", 1, 1, wall=True)]
+        turn = player_turn(cells)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        memory = player.maps[player.depth]
+        for attempts, expected in ((2, {"landing"}), (3, set())):
+            with self.subTest(attempts=attempts):
+                player.searches["landing"] = attempts
+                self.assertEqual(player.return_connection_sites(memory, "hall", {"exit"}), expected)
+
     def test_return_search_traverses_a_shared_stair_passage_once(self):
         from unittest.mock import patch
 
