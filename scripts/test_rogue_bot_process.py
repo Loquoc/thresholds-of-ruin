@@ -1167,6 +1167,47 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_injured_bot_returns_to_shelter_when_a_head_height_door_blocks_the_other_route(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        add_injury_potion(manifest, damage=6)
+        character, = manifest["characters"]
+        character["loadout"] = [{"archetype": "injury", "quantity": 1}]
+        region, = contents["regions"]
+        region.update(size=[7, 1, 2], anchors={"start": [2, 0, 0]}, actors=[],
+                      doors=[{"id": 1, "at": [4, 0, 1], "height": 1, "open": False}])
+        self.check_policy_scenario(contents, "head-height-recovery-door", """
+import os
+from rogue_player import Adventurer, RECENT_DANGER_TICKS
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem, Wait
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    shelter = turn.cell.key
+    assert turn.submit(Move(Direction.EAST)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    dose, = turn.inventory
+    assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    east = turn.cell_at(Direction.EAST.offset)
+    gate = turn.cell_at((1, 0, 1)).door
+    assert east.door is None and gate and not gate.open and not gate.reachable
+    assert turn.step(Direction.EAST) is None
+    player.danger_until[turn.cell.key] = turn.tick + RECENT_DANGER_TICKS
+    player.maps[player.depth].visited.add(east.key)
+    action, reason = player.choose(turn)
+    assert (action, reason) == (Move(Direction.WEST), "reposition_to_recover"), (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    player.observe(after)
+    assert after.cell.key == shelter and player.choose(after) == (Wait(), "recover")
+""")
+
     def test_bot_moves_to_a_previously_visited_cell_before_recovering(self):
         from discovery_package import write_package
         from utility_potions_package import fixture
