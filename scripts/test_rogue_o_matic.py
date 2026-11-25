@@ -2835,6 +2835,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             player.admitted(turn, action, reason=reason)
         self.assertEqual(player.attempted_slow, {"front", "rear"})
 
+    def test_melee_exposure_counts_only_opponents_in_reach_of_the_candidate_square(self):
+        from rogue_combat import OpponentHistory
+
+        cells = [cell("here"), cell("west", -1), cell("east", 1), cell("exit", -2)]
+        foes = [{"id": tile["key"], "name": "orc", "position": tile["position"]} for tile in cells[1:3]]
+        turn = player_turn(cells, actors=foes, hostiles=["west", "east"])
+        history = OpponentHistory()
+        history.damage_by_name["orc"] = 2
+        history.damage_by_target["west"] = 5
+        self.assertEqual(history.melee_exposure(turn).damage, 7)
+        at_exit = history.melee_exposure(turn, (-2, 0, 0))
+        self.assertEqual([foe.target for foe in at_exit.foes], ["west"])
+        self.assertEqual(at_exit.damage, 5)
+
     def test_control_targets_include_close_drainers_and_rank_only_nearby_threats(self):
         cells = [cell(str(x), x) for x in range(5)]
         foes = [{"id": name, "name": name, "position": cells[x]["position"]}

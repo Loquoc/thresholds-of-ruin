@@ -43,7 +43,7 @@ from tor_client_bot import (
 
 from rogue_combat import (
     choose_projectile, has_push_space, includes_self_damage, recovery_deficit,
-    OpponentHistory, witnessed_unseen_attack,
+    MeleeExposure, OpponentHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
     HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot, useful_loot,
@@ -125,17 +125,6 @@ def choose_healing_potion(turn: Turn, *, two_hit_threat: bool) -> Item | None:
 
 def below_half_health(health: Health | None) -> bool:
     return health is not None and health.current * 2 < health.maximum
-
-
-@dataclass
-class MeleeExposure:
-    """Visible foes in reach of a square and their combined estimated damage."""
-
-    foes: list[Creature]
-    damage: int
-
-    def threatens(self, health: Health | None, *, rounds: int) -> bool:
-        return health is not None and self.damage * rounds >= health.current
 
 
 class MeleeRank(NamedTuple):
@@ -413,14 +402,6 @@ class Adventurer:
                     return Move(Direction.NORTH), "escape_bear_trap"
         return Wait(), "wait_for_restraint"
 
-    def melee_exposure(self, turn: Turn, offset: tuple[int, int, int] = (0, 0, 0)) -> MeleeExposure:
-        foes = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=offset)]
-        return MeleeExposure(foes, sum(self.opponents.damage_estimate(foe) for foe in foes))
-
-    def nearby_drainer(self, turn: Turn, foe: Creature) -> bool:
-        # Allow one closing step before a creature can strike in contact.
-        return foe.name in self.opponents.draining_names and turn.distance_to(foe) <= 2
-
     def survival_consumable(self, turn: Turn, exposure: MeleeExposure) -> tuple[UseItem, str] | None:
         """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
         health = turn.health
@@ -440,7 +421,7 @@ class Adventurer:
         return None
 
     def combat(self, turn: Turn) -> tuple[Action, str] | None:
-        exposure = self.melee_exposure(turn)
+        exposure = self.opponents.melee_exposure(turn)
         if decision := self.survival_consumable(turn, exposure):
             return decision
 
@@ -473,7 +454,7 @@ class Adventurer:
             return decision
 
         needs_distance = (injured or self.recovering_from_pursuit or surrounded or two_hit_threat
-                          or any(self.nearby_drainer(turn, foe) for foe in turn.hostiles))
+                          or any(self.opponents.nearby_drainer(turn, foe) for foe in turn.hostiles))
         if needs_distance and not self.trapped(turn) and not turn.holds:
             if decision := self.evade(turn):
                 return decision
@@ -709,7 +690,7 @@ class Adventurer:
             return None
         dangerous = any(
             foe.name.casefold() in {"griffin", "dragon", "jabberwock", "wraith"}
-            or self.nearby_drainer(turn, foe)
+            or self.opponents.nearby_drainer(turn, foe)
             for foe in turn.hostiles
         )
         if not (dangerous or self.recovering_from_pursuit):
@@ -730,7 +711,7 @@ class Adventurer:
             return None
         # Opening a door spends the turn in the current cell.
         destination = step.direction.offset if isinstance(step, Move) else (0, 0, 0)
-        if self.melee_exposure(turn, destination).threatens(turn.health, rounds=2):
+        if self.opponents.melee_exposure(turn, destination).threatens(turn.health, rounds=2):
             escape = self.evade(turn)
             if escape and not any(turn.in_contact(foe, from_offset=escape[0].direction.offset)
                                   for foe in turn.hostiles):
@@ -744,7 +725,7 @@ class Adventurer:
             cell = turn.cell_at(direction.offset)
             if cell is None or cell.key not in exits or cell.trap:
                 continue
-            exposure = self.melee_exposure(turn, cell.offset)
+            exposure = self.opponents.melee_exposure(turn, cell.offset)
             guards = len(exposure.foes)
             if guards and (not turn.health or guards > contacts or exposure.threatens(turn.health, rounds=2)):
                 continue

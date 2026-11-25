@@ -57,6 +57,17 @@ def sole_applied_attacker(incoming: tuple[IncomingAbility, ...]) -> str | None:
 
 
 @dataclass
+class MeleeExposure:
+    """Visible foes in reach of a square and their combined estimated damage."""
+
+    foes: list[Creature]
+    damage: int
+
+    def threatens(self, health: Health | None, *, rounds: int) -> bool:
+        return health is not None and self.damage * rounds >= health.current
+
+
+@dataclass
 class OpponentHistory:
     """Highest health loss attributed to each attacker and observed draining effects."""
 
@@ -83,6 +94,14 @@ class OpponentHistory:
 
     def damage_estimate(self, foe: Creature) -> int:
         return max(self.damage_by_target[foe.target], self.damage_by_name[foe.name])
+
+    def melee_exposure(self, turn: Turn, offset: tuple[int, int, int] = (0, 0, 0)) -> MeleeExposure:
+        foes = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=offset)]
+        return MeleeExposure(foes, sum(self.damage_estimate(foe) for foe in foes))
+
+    def nearby_drainer(self, turn: Turn, foe: Creature) -> bool:
+        # Allow one closing step before a creature can strike in contact.
+        return foe.name in self.draining_names and turn.distance_to(foe) <= 2
 
 
 def preceding_attack(events_before_death, actor):
