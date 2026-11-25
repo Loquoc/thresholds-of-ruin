@@ -109,6 +109,11 @@ class FloorMap:
             self.items[key] = tuple(stacks.values())
 
     @property
+    def known_traps(self) -> frozenset[str]:
+        """Snapshot of floor cells whose last observation showed a trap."""
+        return frozenset(self._traps)
+
+    @property
     def frontier(self) -> set[str]:
         """Unvisited floor cells bordering terrain the player has yet to observe."""
         return {

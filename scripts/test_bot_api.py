@@ -51,6 +51,24 @@ class BotApiTests(unittest.TestCase):
                 view = {"motion": motion} if motion else {}
                 self.assertEqual(Turn({"state": {"observation": view}, "readiness": {}}).falling, expected)
 
+    def test_map_retains_unseen_traps_and_updates_reobserved_cells(self):
+        memory = FloorMap()
+        def observe(key, *, trapped):
+            cell = {"key": key, "position": {"x": 0, "y": 0, "z": 0}, "wall": False,
+                    "stairs_up": False, "stairs_down": False}
+            if trapped:
+                cell["trap"] = {"id": "pit", "family": None, "reachable": True}
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": [cell], "ground_items": [], "interactions": {},
+            }}}))
+
+        observe("passage", trapped=True)
+        observe("stairs", trapped=True)
+        earlier = memory.known_traps
+        observe("passage", trapped=False)
+        self.assertEqual(earlier, {"passage", "stairs"})
+        self.assertEqual(memory.known_traps, {"stairs"})
+
     def test_map_remembers_stairs_by_direction_until_the_cell_is_seen_again(self):
         def observe(*stairs):
             cells = [{"key": key, "position": {"x": i, "y": 0, "z": 0}, "wall": False,
