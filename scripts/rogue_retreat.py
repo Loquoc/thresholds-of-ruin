@@ -177,18 +177,17 @@ def approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: 
         if candidate.key not in exits and memory.is_dead_end(candidate.key):
             continue
         remaining = min(_stair_distance(offset, goal.offset) for goal in destinations)
-        if remaining < current_distance:
-            clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
-            # With equal clearance, avoid a known trap before favoring a shorter approach.
-            steps, axis_distance = remaining
-            # Preserve the direction-name tie break for otherwise equivalent moves.
-            rank = clearance, candidate.trap is None, -steps, -axis_distance, direction.value
-            approaches.append((rank, direction, candidate.key))
+        if remaining >= current_distance:
+            continue
+        clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
+        steps, axis_distance = remaining
+        rank = clearance, candidate.trap is None, -steps, -axis_distance, direction.value
+        approaches.append((rank, direction, candidate.key))
 
     goals = {cell.key for cell in destinations}
     # Enter an approach only if it reaches the stairs without doubling back past the pursuer.
     blocked = avoid | {turn.cell.key}
     for _, direction, start in sorted(approaches, reverse=True):
-        if any(site.key in goals for site, _ in memory.reachable(start, avoid=blocked)):
+        if memory.distance(start, goals, avoid=blocked) is not None:
             return Move(direction)
     return None

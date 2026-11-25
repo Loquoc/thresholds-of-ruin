@@ -80,6 +80,8 @@ class BotApiTests(unittest.TestCase):
         route = memory.reachable("0", avoid={"0", "2"})
         self.assertEqual([(cell.key, steps) for cell, steps in route], [("0", 0), ("1", 1)])
         self.assertEqual(memory.distance("0", {"3"}), 3)
+        self.assertIsNone(memory.distance("0", {"3"}, avoid={"2"}))
+        self.assertEqual(memory.distance("0", {"0", "3"}, avoid={"2"}), 0)
 
     def test_item_search_finds_matches_anywhere_in_a_remembered_pile(self):
         from tor_client_bot.navigation import RememberedItem

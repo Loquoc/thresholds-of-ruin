@@ -141,9 +141,9 @@ class FloorMap:
                     seen.add(neighbor)
                     queue.append((neighbor, distance + 1))
 
-    def distance(self, start: str, goals: set[str]) -> int | None:
-        """Fewest known horizontal steps to a goal, ignoring transient occupants."""
-        return next((distance for cell, distance in self.reachable(start) if cell.key in goals), None)
+    def distance(self, start: str, goals: set[str], *, avoid: Set[str] = frozenset()) -> int | None:
+        """Fewest known horizontal steps to a goal without entering an excluded cell."""
+        return next((distance for cell, distance in self.reachable(start, avoid=avoid) if cell.key in goals), None)
 
     def toward_unexplored(self, turn: Turn, *, avoid: Set[str] = frozenset()) -> Move | OpenDoor | None:
         """Head for a frontier, then any unvisited floor. Excluded cells stay off the route."""
