@@ -137,14 +137,15 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
     goals = LootGoals()
     if turn.has_condition("rogue.levitation"):
         return goals
-    carried = CarriedLoot(turn)
-
     seek_arrows = not turn.hostiles and can_wield_shortbow(turn)
     goals.recover_arrows = seek_arrows and not returning
+
+    distant_items = [ground for ground in ground_items if not ground.reachable and ground.cell is not None]
+    if not distant_items:
+        return goals
+    carried = CarriedLoot(turn)
     needs_return_arrows = seek_arrows and returning and carried.by_identity["item.weapon.arrow"] < 8
-    for ground in ground_items:
-        if ground.reachable or ground.cell is None:
-            continue
+    for ground in distant_items:
         item = ground.item
         key = ground.cell.key
         if worth_long_detour(objective, item, carried.by_identity, returning=returning,

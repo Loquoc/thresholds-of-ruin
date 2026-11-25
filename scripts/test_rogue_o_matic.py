@@ -1949,6 +1949,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             {**shelf, "item": healing, "reachable": False}, {**other_shelf, "item": extra, "reachable": False}])
         self.assertEqual(player.loot_goals(turn, turn.ground_items, returning=False).wanted, {"other-shelf"})
 
+    def test_empty_floor_preserves_arrow_recovery_without_counting_inventory_for_ground_loot(self):
+        from unittest.mock import patch
+
+        bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow", "class": "weapon",
+               "quantity": 1, "identified": True}
+        turn = player_turn([cell("here")], inventory=[bow])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        with patch("rogue_loot.CarriedLoot", side_effect=AssertionError("no ground stack needs a stock count")):
+            goals = player.loot_goals(turn, turn.ground_items, returning=False)
+        self.assertTrue(goals.recover_arrows)
+        self.assertFalse(goals.wanted or goals.nearby or goals.supplies)
+
     def test_return_arrow_detour_requires_a_bow_low_stock_and_no_visible_foe(self):
         here, stash = cell("exit", up=True), cell("stash", 1)
         bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow",
