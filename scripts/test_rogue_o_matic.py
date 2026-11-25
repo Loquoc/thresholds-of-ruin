@@ -1542,6 +1542,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(turn)
                 self.assertEqual(player.retreat_to_stairs(turn, pressed=True), (Move(escape), "retreat_to_stairs"))
 
+    def test_stair_exposure_uses_combined_damage_at_the_destination(self):
+        cells = [cell("west", -1, down=True), cell("here"), cell("east", 1)]
+        foes = []
+        for x in (-1, 0, 1):
+            tile = cell(f"north-{x}", x)
+            tile["position"]["y"] = -1
+            cells.append(tile)
+            foes.append({"id": str(x), "name": "orc", "position": tile["position"]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss.update({"-1": 1, "0": 2, "1": 5})
+        for hp, expected in ((6, None), (7, Move(Direction.WEST))):
+            with self.subTest(hp=hp):
+                turn = player_turn(cells, actors=foes, hostiles=["-1", "0", "1"], combat={"hp": hp, "max_hp": 10})
+                self.assertEqual(player.step_onto_retreat_stair(turn, {"west"}), expected)
+
     def test_retreat_chooses_lower_observed_damage_when_both_stairs_are_guarded(self):
         cells = [cell("here"), cell("west", -1, down=True), cell("east", 1, down=True)]
         foes = []

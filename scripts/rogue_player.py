@@ -150,6 +150,17 @@ class PendingScrollTrial:
     newly_sampled_appearance: str | None
 
 
+@dataclass
+class MeleeExposure:
+    """Visible foes in reach of a square and their combined estimated damage."""
+
+    foes: list[Creature]
+    damage: int
+
+    def threatens(self, health: Health | None, *, rounds: int) -> bool:
+        return health is not None and self.damage * rounds >= health.current
+
+
 class MeleeRank(NamedTuple):
     """Higher fields win in order. Equal ranks preserve the observed target order."""
 
@@ -542,6 +553,10 @@ class Adventurer:
     def damage_estimate(self, foe: Creature) -> int:
         return max(self.observed_loss[foe.target], self.observed_loss_by_name[foe.name])
 
+    def melee_exposure(self, turn: Turn, offset: tuple[int, int, int] = (0, 0, 0)) -> MeleeExposure:
+        foes = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=offset)]
+        return MeleeExposure(foes, sum(self.damage_estimate(foe) for foe in foes))
+
     def nearby_drainer(self, turn: Turn, foe: Creature) -> bool:
         # Allow one closing step before a creature can strike in contact.
         return foe.name in self.draining_creatures and turn.distance_to(foe) <= 2
@@ -568,11 +583,11 @@ class Adventurer:
     def combat(self, turn: Turn) -> tuple[Action, str] | None:
         health = turn.health
         injured = health is not None and health.current * 2 < health.maximum
-        adjacent = [foe for foe in turn.hostiles if turn.in_contact(foe)]
+        exposure = self.melee_exposure(turn)
+        adjacent = exposure.foes
         surrounded = len(adjacent) >= 2
-        exposure = sum(self.damage_estimate(foe) for foe in adjacent)
-        lethal = health is not None and exposure >= health.current
-        two_hit_threat = health is not None and exposure * 2 >= health.current
+        lethal = exposure.threatens(health, rounds=1)
+        two_hit_threat = exposure.threatens(health, rounds=2)
         needs_healing = injured or lethal or (surrounded and health is not None and health.current * 4 < health.maximum * 3)
         if decision := self.survival_consumable(turn, needs_healing=needs_healing, lethal=lethal):
             return decision
@@ -858,9 +873,7 @@ class Adventurer:
             return None
         # Opening a door spends the turn in the current cell.
         destination = step.direction.offset if isinstance(step, Move) else (0, 0, 0)
-        exposure = sum(self.damage_estimate(foe) for foe in turn.hostiles
-                       if turn.in_contact(foe, from_offset=destination))
-        if turn.health and 2 * exposure >= turn.health.current:
+        if self.melee_exposure(turn, destination).threatens(turn.health, rounds=2):
             escape = self.evade(turn)
             if escape and not any(turn.in_contact(foe, from_offset=escape[0].direction.offset)
                                   for foe in turn.hostiles):
@@ -874,12 +887,12 @@ class Adventurer:
             cell = turn.cell_at(direction.offset)
             if cell is None or cell.key not in exits or cell.trap:
                 continue
-            threats = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=cell.offset)]
-            exposure = sum(self.damage_estimate(foe) for foe in threats)
-            if threats and (not turn.health or len(threats) > contacts or 2 * exposure >= turn.health.current):
+            exposure = self.melee_exposure(turn, cell.offset)
+            guards = len(exposure.foes)
+            if guards and (not turn.health or guards > contacts or exposure.threatens(turn.health, rounds=2)):
                 continue
             clearance = min((turn.distance_to(foe, from_offset=cell.offset) for foe in turn.hostiles), default=0)
-            candidates.append(((exposure, len(threats), -clearance), direction))
+            candidates.append(((exposure.damage, guards, -clearance), direction))
         if not candidates:
             return None
         _, direction = min(candidates, key=lambda candidate: candidate[0])
