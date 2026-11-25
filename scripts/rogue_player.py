@@ -915,10 +915,11 @@ class Adventurer:
             return step, "forage"
         if returning or self.depth >= self.retrieval_depth:
             return None
-        if not self.food_scouts.can_explore(self.depth, turn, ticks_until_empty=nutrition.ticks_until_empty,
-                                           carried_meals=packed.meal_count):
+        if not self.food_scouts.can_explore(self.depth, turn, ticks_until_empty=nutrition.ticks_until_empty):
             return None
         if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys(), avoid_traps=True):
+            self.food_scouts.start_if_new(self.depth, turn.tick, ticks_until_empty=nutrition.ticks_until_empty,
+                                          carried_meals=packed.meal_count)
             return step, "scout_for_food"
         return None
 

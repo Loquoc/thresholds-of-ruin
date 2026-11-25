@@ -4700,6 +4700,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(turn)
                 player.maps[3].visited.add("passage")
                 self.assertEqual(player.choose(turn), expected)
+                self.assertEqual(3 in player.food_scouts.by_floor, trap is None)
 
     def test_injured_food_scout_keeps_moving_until_the_scouting_budget_expires(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
@@ -4722,9 +4723,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         scouts = FoodScoutHistory()
         hall = player_turn([cell("hall")], tick=100)
         stairs = player_turn([cell("stairs", down=True)], tick=200)
-        self.assertFalse(scouts.can_explore(3, hall, ticks_until_empty=400, carried_meals=0))
+        self.assertFalse(scouts.can_explore(3, hall, ticks_until_empty=400))
         scouts.finish(3)
-        self.assertTrue(scouts.can_explore(3, stairs, ticks_until_empty=400, carried_meals=0))
+        self.assertTrue(scouts.can_explore(3, stairs, ticks_until_empty=400))
+        self.assertNotIn(3, scouts.by_floor)
+        scouts.start_if_new(3, stairs.tick, ticks_until_empty=400, carried_meals=0)
         self.assertEqual(scouts.by_floor[3], FoodScout(deadline=300, starting_meals=0))
 
     def test_food_scout_counts_edible_portions_in_a_stack(self):
