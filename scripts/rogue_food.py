@@ -142,18 +142,22 @@ class FoodScoutHistory:
             if carried < scout.meal_baseline:
                 self.by_floor[floor] = FoodScout(scout.deadline, meal_baseline=carried)
 
-    def can_explore(self, floor: int, turn: Turn, *, ticks_until_empty: int) -> bool:
+    @staticmethod
+    def _starting_budget(turn: Turn) -> int:
+        """Allow a quarter of the remaining food clock for a detour from the down stair."""
+        if turn.cell is None or not turn.cell.stairs_down or turn.nutrition is None:
+            return 0
+        return turn.nutrition.ticks_until_empty // 4
+
+    def can_explore(self, floor: int, turn: Turn) -> bool:
         if floor not in self.by_floor:
-            return turn.cell is not None and turn.cell.stairs_down and ticks_until_empty // 4 > 0
+            return self._starting_budget(turn) > 0
         scout = self.by_floor[floor]
         return scout is not None and turn.tick < scout.deadline
 
     def start_if_new(self, floor: int, turn: Turn) -> None:
-        if floor not in self.by_floor and turn.nutrition is not None:
-            self.by_floor[floor] = FoodScout(
-                deadline=turn.tick + turn.nutrition.ticks_until_empty // 4,
-                meal_baseline=carried_meal_count(turn),
-            )
+        if floor not in self.by_floor and (budget := self._starting_budget(turn)) > 0:
+            self.by_floor[floor] = FoodScout(deadline=turn.tick + budget, meal_baseline=carried_meal_count(turn))
 
 
 def estimate_carried_food(meals: Iterable[Item], food_value: Mapping[str, int]) -> FoodEstimate:

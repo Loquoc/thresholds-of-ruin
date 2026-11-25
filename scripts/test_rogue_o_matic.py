@@ -4726,12 +4726,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_leaving_an_unscouted_floor_preserves_its_first_detour(self):
         scouts = FoodScoutHistory()
-        hall = player_turn([cell("hall")], tick=100)
-        stairs = player_turn([cell("stairs", down=True)], tick=200)
-        self.assertFalse(scouts.can_explore(3, hall, ticks_until_empty=400))
+        stats = {"nutrition": {"kind": "required", "reserve": 4, "maximum": 100, "unit_ticks": 100,
+                               "hunger": "weak", "elapsed": 0}}
+        hall = player_turn([cell("hall")], tick=100, stats=stats)
+        stairs = player_turn([cell("stairs", down=True)], tick=200, stats=stats)
+        self.assertFalse(scouts.can_explore(3, hall))
+        scouts.start_if_new(3, hall)
         scouts.finish(3)
-        self.assertTrue(scouts.can_explore(3, stairs, ticks_until_empty=400))
+        self.assertTrue(scouts.can_explore(3, stairs))
         self.assertNotIn(3, scouts.by_floor)
+
+    def test_new_food_scout_requires_at_least_one_tick_of_detour_budget(self):
+        for reserve_ticks in (3, 4, 7, 8):
+            with self.subTest(reserve_ticks=reserve_ticks):
+                nutrition = {"kind": "required", "reserve": 1, "maximum": 100, "unit_ticks": 10,
+                             "hunger": "weak", "elapsed": 10 - reserve_ticks}
+                turn = player_turn([cell("stairs", down=True)], tick=100, stats={"nutrition": nutrition})
+                scouts = FoodScoutHistory()
+                self.assertEqual(scouts.can_explore(3, turn), reserve_ticks >= 4)
+                scouts.start_if_new(3, turn)
+                if reserve_ticks == 3:
+                    self.assertNotIn(3, scouts.by_floor)
+                else:
+                    self.assertEqual(scouts.by_floor[3].deadline, 100 + reserve_ticks // 4)
 
     def test_food_scout_counts_edible_portions_in_a_stack(self):
         scout = FoodScout(deadline=100, meal_baseline=2)
