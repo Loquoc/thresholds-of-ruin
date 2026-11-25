@@ -788,6 +788,10 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     else:
         player.opponents.draining_names.add(turn.hostiles[0].name)
     player.observe(turn)
+    if sys.argv[2] != "explore" and sys.argv[3] != "carrying":
+        # A past cancellation upstairs must not prevent escape after a later one downstairs.
+        player.crossings.cancelled_departures.update((turn.cell.key, d) for d in (Direction.UP, Direction.DOWN))
+        player.crossings.deferred_departure = turn.cell.key, Direction.DOWN
     step, reason = player.choose(turn)
     if sys.argv[2] == "explore":
         assert turn.hostiles[0].distance == 4
@@ -3415,7 +3419,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         code = """
 import os
 from rogue_player import Adventurer
-from tor_client_bot import ItemUse, Outcome, Session, UseAbility, UseItem, Wait
+from tor_client_bot import Direction, ItemUse, Outcome, Session, UseAbility, UseItem, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(address, token, 1) as player, Session.connect(address, token, 3) as enemy:
@@ -3434,7 +3438,8 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
     foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
     policy = Adventurer(26, "item.amulet.amulet-of-yendor")
     policy.observe(turn)
-    policy.crossings.wait_after_cancel = os.environ["BOT_TEST_AFTER_STAIR_CANCEL"] == "1"
+    if os.environ["BOT_TEST_AFTER_STAIR_CANCEL"] == "1":
+        policy.crossings.deferred_departure = turn.cell.key, Direction.DOWN
     policy.opponents.damage_by_target[foe.target] = 1 if low_damage else hp
     action, reason = policy.choose(turn)
     if os.environ["BOT_TEST_UNKNOWN_SCROLLS"] == "1":
@@ -3459,7 +3464,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         receipt = turn.submit(action)
         assert receipt.status is Outcome.CONFIRMED
         policy.admitted(turn, action, receipt, reason=reason)
-        assert not policy.crossings.wait_after_cancel
+        assert policy.crossings.deferred_departure is None
         assert player.wait_for_decision().health.current > hp
 """
         result = subprocess.run(

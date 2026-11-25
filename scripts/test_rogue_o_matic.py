@@ -3859,17 +3859,31 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         crossings.pending = pending
         self.assertTrue(crossings.can_cancel(receipt))
 
+    def test_stair_retry_wait_applies_only_to_the_most_recent_cancellation(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
+        foe = {"id": "dragon", "name": "dragon", "position": cell("enemy", 2)["position"]}
+        turn = player_turn([cell("stairs", up=True, down=True), cell("enemy", 2)],
+                           actors=[foe], hostiles=["dragon"])
+        for direction, expected in ((Direction.UP, (Wait(), "wait_after_cancel")),
+                                    (Direction.DOWN, (Move(Direction.UP), "retreat_upstairs"))):
+            with self.subTest(cancelled=direction):
+                player.admitted(turn, Move(direction))
+                player.crossings.record_cancellation()
+                player.crossings.pending = None
+                self.assertEqual(choose(player, turn), expected)
+                player.admitted(turn, Wait())
+
     def test_healing_after_a_stair_cancellation_spends_the_retry_wait(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.crossings.wait_after_cancel = True
         here, east = cell("here", down=True), cell("east", 1)
         foe = {"id": "orc", "name": "orc", "position": east["position"]}
         turn = player_turn([here, east], actors=[foe], hostiles=["orc"], inventory=healing_potions(),
                            interactions={"inventory": [{"item": "healing", "drinkable": True}]},
                            combat={"hp": 3, "max_hp": 10})
+        player.crossings.deferred_departure = turn.cell.key, Direction.DOWN
         action, reason = choose(player, turn)
         self.assertEqual(reason, "heal")
-        self.assertTrue(player.crossings.wait_after_cancel)
+        self.assertEqual(player.crossings.deferred_departure, (turn.cell.key, Direction.DOWN))
         player.admitted(turn, action, reason=reason)
         self.assertEqual(choose(player, player_turn([here])), (Move(Direction.DOWN), "descend"))
 

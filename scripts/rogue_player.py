@@ -129,7 +129,7 @@ class PendingStair:
 class StairCrossings:
     pending: PendingStair | None = None
     cancelled_departures: set[tuple[str, Direction]] = field(default_factory=set)
-    wait_after_cancel: bool = False
+    deferred_departure: tuple[str, Direction] | None = None
 
     def can_cancel(self, previous: Result) -> bool:
         pending = self.pending
@@ -139,7 +139,7 @@ class StairCrossings:
     def record_cancellation(self) -> None:
         if self.pending is not None:
             self.cancelled_departures.add(self.pending.departure)
-            self.wait_after_cancel = True
+            self.deferred_departure = self.pending.departure
 
     def observe(self, turn: Turn) -> PendingStair | None:
         """Return a witnessed arrival once. Keep uncertain or still-busy crossings pending."""
@@ -152,7 +152,7 @@ class StairCrossings:
         elif arrived and (turn.can_act or turn.terminal):
             self.pending = None
             self.cancelled_departures.clear()
-            self.wait_after_cancel = False
+            self.deferred_departure = None
             return pending
         return None
 
@@ -323,8 +323,8 @@ class Adventurer:
             case MemoryReason.CANCEL_STALLED_STAIR:
                 self.crossings.record_cancellation()
 
-        if self.crossings.wait_after_cancel and not isinstance(action, (ActivityChoice, Identify)):
-            self.crossings.wait_after_cancel = False
+        if not isinstance(action, (ActivityChoice, Identify)):
+            self.crossings.deferred_departure = None
 
         match action:
             case Pickup() if action.item.category == "food":
@@ -1051,11 +1051,9 @@ class Adventurer:
         """Choose a gameplay action once prompts, interruptions and falling are handled."""
         if decision := self.combat(turn):
             action, _ = decision
-            retrying_stair = (self.crossings.wait_after_cancel and isinstance(action, Move)
-                              and (turn.cell.key, action.direction) in self.crossings.cancelled_departures)
-            if not retrying_stair:
+            if not (isinstance(action, Move) and self.crossings.deferred_departure == (turn.cell.key, action.direction)):
                 return decision
-        if self.crossings.wait_after_cancel:
+        if self.crossings.deferred_departure is not None:
             return Wait(), MemoryReason.WAIT_AFTER_CANCEL
 
         trapped = self.trapped(turn)
