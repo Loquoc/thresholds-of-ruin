@@ -3952,6 +3952,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.searches["landing"] = attempts
                 self.assertEqual(player.return_connection_sites(memory, "hall", {"exit"}), expected)
 
+    def test_return_search_ignores_walls_around_an_already_connected_stair(self):
+        cells = [cell("open-stair", -1, up=True), cell("here"), cell("hall", 1),
+                 cell("wall", 2, wall=True), cell("lost-stair", 3, up=True),
+                 cell("side-wall", -1, 1, wall=True), cell("other-side", 0, 1)]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(player_turn(cells))
+        memory = player.maps[player.depth]
+        self.assertEqual(player.return_connection_sites(memory, "here", memory.stairs(Direction.UP)),
+                         {"hall"})
+
     def test_return_search_traverses_a_shared_stair_passage_once(self):
         from unittest.mock import patch
 

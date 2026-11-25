@@ -170,6 +170,21 @@ def is_searchable_dead_end(site: Cell | RememberedCell, memory: FloorMap) -> boo
     return not (site.stairs_up or site.stairs_down) and memory.is_dead_end(site.key)
 
 
+def squares_across_stair_walls(memory: FloorMap, origin: str, upstairs: set[str]) -> set[RememberedCell]:
+    """Find floor squares one wall away from a disconnected upstairs passage."""
+    candidates: set[RememberedCell] = set()
+    remaining_stairs = upstairs.copy()
+    while remaining_stairs:
+        passage = {cell.key for cell, _ in memory.reachable(remaining_stairs.pop())}
+        remaining_stairs.difference_update(passage)
+        if origin in passage:
+            continue
+        walls = {cell.key for key in passage for cell in memory.adjacent(key) if cell.wall}
+        for wall in walls:
+            candidates.update(cell for cell in memory.adjacent(wall) if not cell.wall and cell.key not in passage)
+    return candidates
+
+
 class SearchRank(NamedTuple):
     """Higher fields win, in declaration order. Tied sites share a routing query."""
 
@@ -1080,22 +1095,12 @@ class Adventurer:
     def return_connection_sites(self, memory: FloorMap, origin: str, upstairs: set[str]) -> set[str]:
         """Find unexhausted search squares across a wall from a disconnected stair passage."""
         sites: set[str] = set()
-        remaining_stairs = upstairs.copy()
-        while remaining_stairs:
-            passages = {cell.key for cell, _ in memory.reachable(remaining_stairs.pop())}
-            remaining_stairs.difference_update(passages)
-            if origin in passages:
-                continue
-            boundary_walls = {cell.key for key in passages for cell in memory.adjacent(key) if cell.wall}
-            for wall in boundary_walls:
-                for cell in memory.adjacent(wall):
-                    if cell.wall or cell.key in passages:
-                        continue
-                    remaining = self.remaining_dead_end_searches(cell, memory)
-                    if remaining is None:
-                        remaining = 3 - self.search_attempts_at(cell.key)
-                    if remaining > 0:
-                        sites.add(cell.key)
+        for cell in squares_across_stair_walls(memory, origin, upstairs):
+            remaining = self.remaining_dead_end_searches(cell, memory)
+            if remaining is None:
+                remaining = 3 - self.search_attempts_at(cell.key)
+            if remaining > 0:
+                sites.add(cell.key)
         if sites - {origin}:
             return {cell.key for cell, _ in memory.reachable(origin) if cell.key in sites}
         return sites
