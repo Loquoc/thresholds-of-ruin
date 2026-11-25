@@ -827,6 +827,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 decision = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual(decision == (Move(Direction.NORTH), "take_corridor"), not enclosed)
 
+    def test_corridor_hold_ends_at_its_deadline_even_without_an_intervening_observation(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        start = player_turn([cell("room"), cell("entrance", -1)], tick=50)
+        player.observe(start)
+        player.admitted(start, Move(Direction.WEST), reason="take_corridor")
+        just_before = player_turn([cell("entrance", down=True)], tick=649)
+        self.assertEqual(choose(player, just_before), (Wait(), "hold_corridor"))
+
+        deadline = player_turn([cell("entrance", down=True)], tick=650)
+        self.assertEqual(player.choose(deadline), (Move(Direction.DOWN), "descend"))
+        player.observe(deadline)
+        self.assertIsNone(player.corridor_stand)
+
     def test_missed_corridor_move_does_not_reserve_the_entrance_for_a_later_visit(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         start = player_turn([cell("room"), cell("entrance", -1)])

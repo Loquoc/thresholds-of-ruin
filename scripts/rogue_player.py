@@ -219,12 +219,16 @@ class Adventurer:
         self.training_checked_at = turn.hit_dice
         return None
 
+    def holding_corridor(self, cell: Cell, tick: int) -> bool:
+        if self.corridor_stand is None:
+            return False
+        entrance, deadline = self.corridor_stand
+        return cell.key == entrance and tick < deadline
+
     def observe(self, turn: Turn, combat: CombatReport | None = None) -> None:
         here = turn.cell
-        if self.corridor_stand and here and turn.can_act:
-            entrance, until = self.corridor_stand
-            if here.key != entrance or turn.tick >= until:
-                self.corridor_stand = None
+        if here and turn.can_act and not self.holding_corridor(here, turn.tick):
+            self.corridor_stand = None
         self.observe_search(turn)
         self.potion_trials.observe(turn)
         self.scroll_trials.observe(turn)
@@ -1296,10 +1300,8 @@ class Adventurer:
         if decision := self.combat(turn):
             return decision
 
-        if self.corridor_stand and turn.hunger not in URGENT_HUNGER:
-            entrance, until = self.corridor_stand
-            if turn.cell.key == entrance and turn.tick < until:
-                return Wait(), "hold_corridor"
+        if self.holding_corridor(turn.cell, turn.tick) and turn.hunger not in URGENT_HUNGER:
+            return Wait(), "hold_corridor"
 
         memory = self.maps[self.depth]
         trapped = self.trapped(turn)
