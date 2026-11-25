@@ -1,12 +1,114 @@
 """Equipment and consumption through the ASCII client's native keyboard."""
 import json
+import shutil
+import subprocess
 import unittest
 
-from process_harness import ProcessTestCase, read_capture
+from process_harness import ROOT, ProcessTestCase, read_capture
 
 
 class AsciiInteractionProcesses(ProcessTestCase):
     graphical = True
+
+    def test_fire_quiver_depletion_replacement_and_cancel(self):
+        package = self.directory / "rogue-quiver"
+        shutil.copytree(ROOT / "scenarios/rogue", package)
+        manifest = package / "scenario.toml"
+        definition = manifest.read_text()
+        swaps = {
+            'archetype = "rogue.mace", quantity = 1, equipped_slot = 0':
+                'archetype = "rogue.mace", quantity = 1',
+            'archetype = "rogue.shortbow", quantity = 1 },\n  # Rogue':
+                'archetype = "rogue.shortbow", quantity = 1, equipped_slot = 0 },\n  # Rogue',
+            '{ archetype = "rogue.arrow", quantity = 32 },':
+                '{ archetype = "rogue.arrow", quantity = 2 },\n'
+                '  { archetype = "rogue.spare_arrow", quantity = 3 },',
+            '"item.weapon.arrow", "item.food.ration"':
+                '"item.weapon.arrow", "item.weapon.spare-arrow", "item.food.ration"',
+        }
+        for original, replacement in swaps.items():
+            self.assertEqual(definition.count(original), 1, original)
+            definition = definition.replace(original, replacement)
+        manifest.write_text(definition)
+        catalog = package / "catalog/items.toml"
+        items = catalog.read_text()
+        definition = items.split('[items."rogue.arrow"]', 1)[1].split("# Generated loot", 1)[0]
+        definition = definition.replace('name = "arrow"', 'name = "spare arrow"')
+        definition = definition.replace('identity = "item.weapon.arrow"', 'identity = "item.weapon.spare-arrow"')
+        catalog.write_text(items + '\n[items."rogue.spare_arrow"]' + definition)
+
+        validation = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
+                                    capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual(validation.returncode, 0, validation.stderr)
+        self.server(scenario=package)
+        window, initial = self.window()
+
+        def view(frame):
+            return frame["state"]["observation"]
+
+        def quantities(frame):
+            return {item["name"]: int(item["quantity"]) for item in view(frame)["inventory"]
+                    if item["name"] in {"arrow", "spare arrow"}}
+
+        def press(key):
+            return self.key(window, key)
+
+        def wait_for(predicate):
+            return self.ascii_frame(window, lambda f: not f["busy"] and predicate(f))
+
+        def choose_ammo(frame, name):
+            rows = frame["projectile_rows"]
+            for _ in range(next(i for i, row in enumerate(rows) if row[2:] == name)):
+                press("down")
+            return press("enter")
+
+        def aim(frame, name):
+            prompt = frame["projectile_prompt"] or ""
+            return prompt.startswith(f"Fire {'an' if name == 'arrow' else 'a'} {name} ")
+
+        def fire_ready(name):
+            frame = press("fire")
+            return frame if aim(frame, name) else wait_for(lambda f: aim(f, name))
+
+        def shot(before, remaining):
+            frame = self.key(window, "right", wait_for_admission=True)
+            if quantities(frame) != remaining:
+                frame = wait_for(lambda f: quantities(f) == remaining and f["can_admit_intention"])
+            self.assertGreater(int(view(frame)["tick"]), int(view(before)["tick"]))
+            self.assertIsNone(frame["weapon_preview"], "direction must not open a confirmation")
+            self.assertIsNone(frame["projectile_selection"])
+            self.assertEqual(quantities(frame), remaining)
+            return frame
+
+        self.assertEqual(quantities(initial), {"arrow": 2, "spare arrow": 3})
+        opened = press("fire")
+        if not any(row[2:] == "arrow" for row in opened["projectile_rows"]):
+            opened = wait_for(lambda f: any(row[2:] == "arrow" for row in f["projectile_rows"]))
+        self.assertEqual(view(opened), view(initial), "opening Fire with an empty quiver is free")
+        self.assertNotIn("shortbow", " ".join(opened["projectile_rows"]), "launcher was auto-selected")
+        self.assertEqual(view(press("escape")), view(initial))
+
+        press("commands")
+        window.write(json.dumps({"type": "text", "text": "quiver"}))
+        wait_for(lambda f: any("#quiver" in row for row in f["command_rows"]))
+        selection = press("enter")
+        if not any(row[2:] == "arrow" for row in selection["projectile_rows"]):
+            selection = wait_for(lambda f: any(row[2:] == "arrow" for row in f["projectile_rows"]))
+        quivered = choose_ammo(selection, "arrow")
+        self.assertIsNone(quivered["projectile_selection"])
+        self.assertEqual(view(quivered), view(initial), "quivering is free")
+
+        before = fire_ready("arrow")
+        self.assertEqual(view(press("escape")), view(before), "cancelled aim is free")
+        shot(fire_ready("arrow"), {"arrow": 1, "spare arrow": 3})
+        depleted = shot(fire_ready("arrow"), {"spare arrow": 3})
+        replacement = press("fire")
+        if not any(row[2:] == "spare arrow" for row in replacement["projectile_rows"]):
+            replacement = wait_for(lambda f: any(row[2:] == "spare arrow" for row in f["projectile_rows"]))
+        self.assertEqual(view(replacement), view(depleted))
+        self.assertTrue(aim(choose_ammo(replacement, "spare arrow"), "spare arrow"))
+        self.assertEqual(view(press("escape")), view(depleted), "replacement does not fire")
+        shot(fire_ready("spare arrow"), {"spare arrow": 2})
 
     def test_native_equipment_removal_and_unknown_potion_choices(self):
         self.server(scenario="interactions")

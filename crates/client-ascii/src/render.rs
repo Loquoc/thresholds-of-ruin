@@ -233,14 +233,31 @@ impl Canvas {
 
     fn draw_map(&mut self, app: &App, state: &tor_client_common::ClientState) {
         let o = &state.state().observation;
-        let cursor = app.travel_cursor.or(app.look_cursor);
+        let cursor = app
+            .projectile_cursor()
+            .map(|(position, band)| {
+                use crate::model::AimBand;
+                let color = match band {
+                    AimBand::Short => ACCENT,
+                    AimBand::Long => GOLD,
+                    AimBand::Origin | AimBand::Outside | AimBand::Hidden => DANGER,
+                };
+                (position, color)
+            })
+            .or_else(|| {
+                app.travel_cursor
+                    .or(app.look_cursor)
+                    .map(|position| (position, GOLD))
+            });
         let target = app
             .attack_targets
             .get(app.selected)
             .map(|actor| (actor.position.x, actor.position.y));
         for tile in map_tiles(state, &app.palette) {
             let column = (tile.position.x, tile.position.y);
-            let selected = cursor.is_some_and(|c| (c.x, c.y) == column);
+            let selected = cursor
+                .filter(|(c, _)| (c.x, c.y) == column)
+                .map(|(_, color)| color);
             let x = tile.center.0 - tile.step / 2;
             let y = tile.center.1 - tile.step / 2;
             self.rect(
@@ -248,8 +265,8 @@ impl Canvas {
                 y,
                 tile.step - 1,
                 tile.step - 1,
-                if selected {
-                    GOLD
+                if let Some(color) = selected {
+                    color
                 } else if tile.remembered {
                     0x151a20
                 } else if tile.kind == Kind::Player {
@@ -262,7 +279,7 @@ impl Canvas {
                 x + 1,
                 y + 1,
                 &tile.glyph.to_string(),
-                if selected { BG } else { tile.color },
+                if selected.is_some() { BG } else { tile.color },
                 2,
                 1,
             );
@@ -283,16 +300,14 @@ impl Canvas {
             }
         }
         // A cursor over an unknown column is still shown.
-        if let Some(cursor) = cursor {
-            let dx = cursor.x - o.position.x + map::COLS / 2;
-            let dy = cursor.y - o.position.y + map::ROWS / 2;
-            if (0..map::COLS).contains(&dx) && (0..map::ROWS).contains(&dy) {
+        if let Some((position, color)) = cursor {
+            if let Some((cx, cy)) = map::cell_center(o, position) {
                 self.outline(
-                    map::LEFT + dx as usize * map::STEP,
-                    map::TOP + dy as usize * map::STEP,
+                    cx - map::STEP / 2,
+                    cy - map::STEP / 2,
                     map::STEP,
                     map::STEP,
-                    GOLD,
+                    color,
                 );
             }
         }
@@ -543,7 +558,7 @@ impl Canvas {
             }
         }
         if app.inventory_open {
-            self.screen("INVENTORY", "ESC or i closes");
+            self.screen("INVENTORY", &app.secondary_weapon_hint());
             if let Some(state) = &app.state {
                 let o = &state.state().observation;
                 let entries = crate::inventory_entries(app, o);

@@ -4,6 +4,7 @@ use tor_protocol::{Action, Direction, ItemTarget, ItemView, Observation};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ItemOperation {
     Equip,
+    Wield,
     Unequip,
     Drink,
     Eat,
@@ -30,6 +31,13 @@ pub fn item_choices(
         };
         match operation {
             ItemOperation::Equip => affordance.slot.is_some() && affordance.equipped_slot.is_none(),
+            ItemOperation::Wield => {
+                affordance.equipped_slot.is_none()
+                    && affordance
+                        .slot
+                        .as_ref()
+                        .is_some_and(|slot| slot.requires_attack)
+            }
             ItemOperation::Unequip => affordance.equipped_slot.is_some(),
             ItemOperation::Drink => affordance.drinkable,
             ItemOperation::Eat => affordance.edible,
@@ -50,6 +58,7 @@ impl ItemOperation {
     pub fn verb(self) -> &'static str {
         match self {
             Self::Equip => "equip",
+            Self::Wield => "wield",
             Self::Unequip => "remove",
             Self::Drink => "drink",
             Self::Eat => "eat",
@@ -61,8 +70,9 @@ impl ItemOperation {
     }
 }
 
-/// Select the first free matching socket in disclosed anatomy order. Replacement
-/// always requires a separate removal; a hidden statistic never selects an item.
+/// Equip keeps the first free matching socket. Wield uses the first matching
+/// weapon socket even if held; the server checks removal, fit, and timing
+/// as one action. Neither chooses a destination using undisclosed facts.
 pub fn item_action(
     view: &Observation,
     item: ItemTarget,
@@ -131,7 +141,7 @@ pub fn item_action(
             Ok(Action::Unequip { item })
         }
         ItemOperation::Unequip => Err("That item isn't equipped.".into()),
-        ItemOperation::Equip => {
+        ItemOperation::Equip | ItemOperation::Wield => {
             if affordance.equipped_slot.is_some() {
                 return Err("That item is already equipped.".into());
             }
@@ -139,20 +149,40 @@ pub fn item_action(
                 .slot
                 .as_ref()
                 .ok_or("You can't equip that item.")?;
+            let wield = operation == ItemOperation::Wield;
+            if wield && !kind.requires_attack {
+                return Err("That item isn't wielded as a weapon.".into());
+            }
+            let occupied = if wield {
+                0
+            } else {
+                interactions
+                    .inventory
+                    .iter()
+                    .fold(0_u64, |slots, candidate| {
+                        let bit = candidate
+                            .equipped_slot
+                            .and_then(|index| 1_u64.checked_shl(u32::from(index)))
+                            .unwrap_or(0);
+                        slots | bit
+                    })
+            };
             let slot = interactions
                 .slots
                 .iter()
                 .enumerate()
                 .find_map(|(index, slot)| {
                     let index = u16::try_from(index).ok()?;
-                    (slot.id == kind.id
-                        && !interactions
-                            .inventory
-                            .iter()
-                            .any(|candidate| candidate.equipped_slot == Some(index)))
-                    .then_some(index)
+                    let free = 1_u64
+                        .checked_shl(u32::from(index))
+                        .is_some_and(|bit| occupied & bit == 0);
+                    (slot.id == kind.id && free).then_some(index)
                 })
-                .ok_or("There is no free matching equipment slot. Remove an item first.")?;
+                .ok_or(if wield {
+                    "You have no matching weapon socket."
+                } else {
+                    "There is no free matching equipment slot. Remove an item first."
+                })?;
             Ok(Action::Equip { item, slot })
         }
     }

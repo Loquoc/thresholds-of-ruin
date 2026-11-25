@@ -639,7 +639,7 @@ fn equipment_keys_filter_public_classes_and_reuse_exact_equip_remove_actions() {
                     test_support::equipment_slot(
                         &format!("fixture_socket_{index}"),
                         "equipped",
-                        false,
+                        index == 0,
                     )
                 })
                 .collect();

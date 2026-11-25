@@ -8,6 +8,7 @@ import copy
 import json
 import shutil
 import sqlite3
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -64,8 +65,8 @@ def preview_lines(preview):
 class ProjectileProcesses(ProcessTestCase):
     graphical = True
 
-    def setup_encounter(self, *, short_ranges=False):
-        self.package = projectile_package(self, short_ranges=short_ranges)
+    def setup_encounter(self, **options):
+        self.package = projectile_package(self, **options)
         self.game = self.server("--checkpoint-interval", 1, scenario=self.package, seed=42)
         self.probe, initial = self.client(observe=True)
         self.target, target = self.client(actor=3)
@@ -447,6 +448,210 @@ class ProjectileProcesses(ProcessTestCase):
         self.assertEqual(sum(int(row["item"]["quantity"]) for row in view(final)["ground_items"]
                              if row["item"]["name"] == "dagger"), 1)
 
+    def test_ascii_cell_aim_shows_range_and_submits_one_off_axis_shot(self):
+        self.setup_encounter(short_ranges=True)
+        owner, initial = self.client()
+        bow = item(initial, "shortbow")["id"]
+        dagger = item(initial, "dagger")["id"]
+        self.assertIsNone(self.act(owner, {"type": "unequip", "item": dagger})["error"])
+        self.settle()
+        self.assertIsNone(self.act(owner, {"type": "equip", "item": bow, "slot": 0})["error"])
+        self.settle()
+        owner.stop()
+        window, before = self.window()
+        self.assertEqual(next(row["launch_range"] for row in view(before)["known_item_uses"]
+                              if row["item"] == bow), {"short_cells": 2, "long_cells": 3})
+
+        def press(key):
+            return self.key(window, key)
+
+        def cursor(frame, x, y, band):
+            self.assertEqual(frame["projectile_cursor"], [{"x": x, "y": y, "z": 0}, band])
+
+        ammunition = press("fire")
+        if ammunition["projectile_rows"] != ["> arrow"]:
+            ammunition = self.ascii_frame(window, lambda f: not f["busy"] and f["projectile_rows"] == ["> arrow"])
+        self.assertEqual(ammunition["projectile_rows"], ["> arrow"])
+        press("enter")
+        cursor(press("tab"), 0, 0, "origin")
+        cursor(press("north_east"), 1, -1, "short")
+        cursor(press("right"), 2, -1, "short")   # Last short-range square.
+        cursor(press("right"), 3, -1, "long")    # First long-range square.
+        cursor(press("right"), 4, -1, "outside") # First out-of-range square.
+        invalid = press("enter")
+        cursor(invalid, 4, -1, "outside")
+        self.assertEqual(view(invalid), view(before))
+        cancelled = press("escape")
+        self.assertIsNone(cancelled["projectile_cursor"])
+        self.assertEqual(view(cancelled), view(before))
+        self.assertEqual(self.admissions("rogue.launch"), [])
+
+        aim = press("fire")
+        if not aim["projectile_prompt"]:
+            aim = self.ascii_frame(window, lambda f: not f["busy"] and f["projectile_prompt"])
+        self.assertIn("Tab aims at a square", aim["projectile_prompt"])
+        press("tab")
+        press("north_east")
+        press("right")
+        selected = press("right")
+        cursor(selected, 3, -1, "long")
+        off_axis = [3, -1, 0]
+        self.assertFalse(any([actor["position"][axis] for axis in "xyz"] == off_axis
+                             for actor in view(selected)["visible_actors"]))
+        submitted = self.key(window, "enter", wait_for_simulation=False)
+        self.assertIsNone(submitted["weapon_preview"])
+        self.assertIsNone(submitted["projectile_cursor"])
+        final = self.settle()
+        self.assertEqual(int(item(final, "arrow")["quantity"]), int(item(before, "arrow")["quantity"]) - 1)
+        admitted, = self.admissions("rogue.launch")
+        aim = admitted["action"]["invocation"]["aim"]
+        self.assertEqual(aim["kind"], "cell_projectile")
+        self.assertEqual(aim["offset"], off_axis)
+
+    def ascii_primary_weapon(self, *, cursed=False, offhand_mace=False):
+        self.setup_encounter(primary_dagger=True, cursed_dagger=cursed, offhand_mace=offhand_mace)
+        window, before = self.window()
+        dagger, bow = (item(before, name)["id"] for name in ("dagger", "shortbow"))
+        self.assertEqual(self.sockets(before)[dagger], 0, "ordinary primary held before the attempt")
+        self.assertIsNone(self.sockets(before)[bow])
+        return window, before, dagger, bow
+
+    @staticmethod
+    def sockets(frame):
+        return {row["item"]: row["equipped_slot"] for row in view(frame)["interactions"]["inventory"]}
+
+    def choose_shortbow(self, window, before):
+        choosing = self.key(window, "wield")
+        self.assertEqual(len(choosing["item_rows"]), 1)
+        self.assertIn("shortbow", choosing["item_rows"][0])
+        self.assertEqual(view(choosing), view(before), "choosing to wield doesn't itself act")
+        return self.key(window, "enter", wait_for_simulation=False)
+
+    def settle_weapon_shortcut(self, incoming):
+        # There is an ordinary ready boundary after removal and before the
+        # ASCII client submits Equip. That first ready boundary is not success.
+        for _ in range(60):
+            current = self.settle()
+            if self.sockets(current)[incoming] == 0:
+                return current
+            time.sleep(0.05)
+        self.fail("Equip never followed the confirmed removal")
+
+    def designate_secondary(self, window, name):
+        self.key(window, "commands")
+        window.write(json.dumps({"type": "text", "text": "secondary"}))
+        command = self.ascii_frame(window, lambda f: f["command_line"] == "secondary")
+        self.assertTrue(any("#secondary" in row for row in command["command_rows"]),
+                        "The secondary weapon selector must be discoverable")
+        choosing = self.key(window, "enter")
+        self.assertEqual(len(choosing["item_rows"]), 1)
+        self.assertIn(name, choosing["item_rows"][0])
+        self.key(window, "enter")
+        inventory = self.key(window, "inventory")
+        self.assertTrue(any(name in row and "secondary weapon" in row for row in inventory["inventory_rows"]))
+        self.key(window, "escape")
+
+    def test_ascii_secondary_weapon_swaps_there_and_back(self):
+        window, before, dagger, bow = self.ascii_primary_weapon()
+        missing = self.key(window, "swap_weapon")
+        self.assertIn("No secondary weapon chosen", missing["status"])
+        self.assertDisclosedStateEqual(missing["state"], before["state"])
+        self.designate_secondary(window, "shortbow")
+        self.assertDisclosedStateEqual(self.snapshot()["state"], before["state"])
+        for incoming, outgoing, next_name in [(bow, dagger, "dagger"), (dagger, bow, "shortbow")]:
+            self.key(window, "swap_weapon", wait_for_simulation=False)
+            after = self.settle_weapon_shortcut(incoming)
+            self.assertEqual(self.sockets(after)[incoming], 0)
+            self.assertIsNone(self.sockets(after)[outgoing])
+            inventory = self.key(window, "inventory")
+            self.assertTrue(any(next_name in row and "secondary weapon" in row
+                                for row in inventory["inventory_rows"]))
+            self.key(window, "escape")
+
+    def test_ascii_secondary_weapon_stays_designated_when_swap_is_blocked(self):
+        window, before, dagger, bow = self.ascii_primary_weapon(cursed=True)
+        self.designate_secondary(window, "shortbow")
+        self.key(window, "swap_weapon", wait_for_simulation=False)
+        after = self.settle()
+        self.assertEqual(self.sockets(after)[dagger], 0)
+        self.assertIsNone(self.sockets(after)[bow])
+        shown = self.ascii_frame(window, lambda f: "it is cursed" in f["messages"]["turn"])
+        self.assertIn("dagger", shown["messages"]["turn"])
+        inventory = self.key(window, "inventory")
+        self.assertTrue(any("shortbow" in row and "secondary weapon" in row
+                            for row in inventory["inventory_rows"]))
+
+    def test_ascii_wield_one_command_replaces_the_primary_weapon(self):
+        window, before, dagger, bow = self.ascii_primary_weapon()
+        attempted = self.choose_shortbow(window, before)
+        final = self.settle_weapon_shortcut(bow)
+        self.assertEqual(self.sockets(final)[bow], 0, attempted["status"])
+        self.assertIsNone(self.sockets(final)[dagger], "the old weapon is carried, not dropped")
+        self.assertEqual(int(view(final)["tick"]) - int(view(before)["tick"]), 200,
+                         "removal and equip both use the published weapon-slot timing")
+
+    def test_ascii_wield_refuses_cursed_primary_without_changing_equipment(self):
+        window, before, dagger, bow = self.ascii_primary_weapon(cursed=True)
+        self.choose_shortbow(window, before)
+        final = self.settle()
+        self.assertEqual(self.sockets(final)[dagger], 0)
+        self.assertIsNone(self.sockets(final)[bow])
+        self.assertEqual(item(final, "shortbow")["quantity"], item(before, "shortbow")["quantity"])
+        shown = self.ascii_frame(window, lambda f: "it is cursed" in f["messages"]["turn"])
+        self.assertIn("dagger", shown["messages"]["turn"])
+
+    def test_ascii_wield_checkpoint_resumes_only_the_server_removal(self):
+        window, before, dagger, bow = self.ascii_primary_weapon()
+        attempted = self.choose_shortbow(window, before)
+        preparing = attempted if view(attempted)["combat"]["preparation_active"] else self.ascii_frame(
+            window, lambda f: view(f)["combat"]["preparation_active"])
+        self.assertEqual(self.sockets(preparing)[dagger], 0)
+        self.assertIsNone(self.sockets(preparing)[bow])
+        identity, = preparing["intentions"]
+        self.assertEqual(identity["phase"], "started")
+
+        # Restart restores only the existing Unequip action. The ASCII
+        # follow-up is deliberately not persisted or recovered.
+        self.flush_save()
+        self.game.stop()
+        window.stop(); self.probe.stop(); self.target.stop()
+        self.server(scenario=self.package, seed=None)
+        self.probe, _ = self.client(observe=True)
+        self.target, _ = self.client(actor=3)
+        window, paused = self.window()
+        restored, = paused["intentions"]
+        self.assertEqual(restored["intention"], identity["intention"])
+        self.assertEqual(restored["phase"], "paused")
+        self.assertEqual(self.sockets(paused), self.sockets(before))
+        self.assertEqual(view(paused)["combat"]["preparation_remaining"],
+                         view(preparing)["combat"]["preparation_remaining"])
+
+        resumed = self.key(window, "resume_intention", wait_for_simulation=False)
+        self.assertEqual([row["intention"] for row in resumed["intentions"]], [identity["intention"]])
+        final = self.settle()
+        self.assertIsNone(self.sockets(final)[dagger])
+        self.assertIsNone(self.sockets(final)[bow])
+        self.assertEqual(int(view(final)["tick"]) - int(view(before)["tick"]), 100)
+
+    def test_ascii_wield_reports_unfilled_socket_when_server_refuses_equip(self):
+        window, before, dagger, bow = self.ascii_primary_weapon(offhand_mace=True)
+        self.choose_shortbow(window, before)
+        final = self.settle()
+        refused = self.ascii_frame(window, lambda f: "new weapon was not equipped" in f["status"])
+        self.assertIn("grip", refused["status"])
+        self.assertIsNone(self.sockets(final)[dagger])
+        self.assertIsNone(self.sockets(final)[bow])
+        self.assertEqual(self.sockets(final)[item(final, "mace")["id"]], 10)
+
+    @non_graphical
+    def test_invalid_incoming_weapon_does_not_remove_the_current_one(self):
+        self.setup_encounter(primary_dagger=True)
+        owner, before = self.client()
+        arrow = item(before, "arrow")["id"]
+        result = self.act(owner, {"type": "equip", "item": arrow, "slot": 0})
+        self.assertIsNotNone(result["error"], result)
+        self.assertDisclosedStateEqual(self.snapshot()["state"], before["state"])
+
     def test_native_projectile_source_direction_preview_cancel_and_confirm(self):
         self.setup_encounter()
         setup, _ = self.text_client()
@@ -472,7 +677,7 @@ class ProjectileProcesses(ProcessTestCase):
             sources = press("Return", "enter")
             self.assertIn("dagger", "\n".join(sources["projectile_rows"]))
             aiming = press("Return", "enter")
-            self.assertEqual(aiming.get("projectile_prompt"), "Throw the dagger. Choose a direction.")
+            self.assertEqual(aiming.get("projectile_prompt"), "Throw the dagger. Choose a direction; Tab aims at a square.")
             start = len(self.replies)
             preview = press("Right", "right")
             self.assertEqual(preview.get("projectile_prompt"), "Throw the dagger east? Enter confirms. Esc cancels.")
@@ -506,14 +711,14 @@ class ProjectileProcesses(ProcessTestCase):
         owner.stop()
         window, initial = self.capture_client(native=True)
         native = self.native_keys(window)
-        sources = press("f", "fire")
+        # Explicit Launch from the ability menu still asks for exact terms.
+        # The separate quick Fire path is covered by the quiver process test.
+        menu = press("Z", "abilities")
+        index = [row["id"] for row in menu["ability_choices"]].index("rogue.launch")
+        for _ in range(index):
+            press("Down", "down")
+        sources = press("Return", "enter")
         self.assertIn("shortbow", "\n".join(sources["projectile_rows"]))
-        empty = press("Tab", "tab")
-        self.assertIn("> No choices on this page.", empty["projectile_rows"])
-        dismissed = press("Return", "enter")
-        self.assertIsNone(dismissed["projectile_selection"])
-        self.assertEqual(dismissed["state"], initial["state"])
-        press("f", "fire")
         start = len(self.replies)
         ammunition = press("Return", "enter")
         page = self.reply("projectile_choices", start)["page"]
@@ -522,7 +727,7 @@ class ProjectileProcesses(ProcessTestCase):
         self.assertEqual(ammunition["projectile_selection"]["page"], page)
         self.assertEqual(ammunition["projectile_rows"], ["> arrow"])
         aiming = press("Return", "enter")
-        self.assertEqual(aiming.get("projectile_prompt"), "Fire an arrow with the shortbow. Choose a direction.")
+        self.assertEqual(aiming.get("projectile_prompt"), "Fire an arrow with the shortbow. Choose a direction; Tab aims at a square.")
         start = len(self.replies)
         preview = press("Right", "right")
         self.assertEqual(preview.get("projectile_prompt"), "Fire an arrow with the shortbow east? Enter confirms. Esc cancels.")

@@ -181,6 +181,7 @@ fn native_key(key: NativeKey) -> Option<Key> {
         NativeKey::S => Key::Search,
         NativeKey::T => Key::Throw,
         NativeKey::W => Key::Wield,
+        NativeKey::X => Key::SwapWeapon,
         NativeKey::Z => Key::Zap,
         NativeKey::Up | NativeKey::K => Key::Up,
         NativeKey::Down | NativeKey::J => Key::Down,
@@ -644,6 +645,9 @@ fn window_loop(
             dirty |= effect != Effect::None || app.running.is_none();
             effects.push(effect);
         }
+        let weapon_swap = app.continue_weapon_swap();
+        dirty |= weapon_swap != Effect::None;
+        effects.push(weapon_swap);
         let fire = app.continue_fire();
         dirty |= fire != Effect::None;
         effects.push(fire);
@@ -829,7 +833,7 @@ fn window_loop(
                 "hold_choices":app.hold_choice_offers(),"hold_rows":app.hold_rows(),
                 "supply_selection":app.supply_selection,"supply_rows":app.supply_rows(),
                 "projectile_prompt":app.projectile_prompt(),"weapon_preview":app.weapon_confirmation,"weapon_preview_rows":app.weapon_preview_rows(),
-                "projectile_selection":app.projectile_selection,"projectile_rows":app.projectile_rows(),
+                "projectile_selection":app.projectile_selection,"projectile_rows":app.projectile_rows(),"projectile_cursor":app.projectile_cursor(),
                 "selected_weapon":app.selected_weapon,"weapon_selection":app.weapon_selection,"weapon_rows":app.weapon_rows(),
                 "status_lines":state.map(|s|tor_client_ascii::status_lines(&app,s)),
                 "rendered_status_lines":state.map(|s|tor_client_ascii::status_lines_at_width(&app,s,(tor_client_ascii::render::WIDTH-48)/16)),
@@ -1076,10 +1080,13 @@ mod tests {
                 "{native:?}"
             );
         }
+        assert_eq!(
+            native_key_with_modifiers(NativeKey::X, false, false),
+            Some(Key::SwapWeapon)
+        );
         for native in [
             NativeKey::P,
             NativeKey::V,
-            NativeKey::X,
             NativeKey::Key2,
             NativeKey::Key3,
             NativeKey::LeftBracket,
