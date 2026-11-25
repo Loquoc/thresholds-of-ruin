@@ -241,18 +241,17 @@ class Adventurer:
         previous = self.previous_losses
         self.previous_losses = losses
         lasting_injury = losses is not None and previous is not None and losses.increased_since(previous)
-        injured_this_turn = loss > 0 or lasting_injury
         outgoing = report.outgoing
         self.polymorph.observe(outgoing)
         attributable_loss = 0 if includes_self_damage(outgoing, turn.self_target) else loss
         incoming = report.incoming
         self.opponents.record_injury(turn.hostiles, incoming, attributable_loss, lasting_injury=lasting_injury)
-        if here and (turn.hostiles or (injured_this_turn and incoming)):
+        injury_from_incoming = attributable_loss > 0 or lasting_injury
+        if here and (turn.hostiles or (injury_from_incoming and incoming)):
             self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:
             self.scroll_trials.tried_in_encounter = False
             self.last_retreat_origin = None
-        injury_from_incoming = attributable_loss > 0 or lasting_injury
         if here and witnessed_unseen_attack(incoming, turn.hostiles, injured=injury_from_incoming):
             self.last_unseen_attack = here.key, turn.tick
 

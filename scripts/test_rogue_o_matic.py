@@ -576,6 +576,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(player_turn(cells, combat={"hp": 10}))
                 player.observe(player_turn(cells, tick=100, combat={"hp": 8, "events": events}))
                 self.assertEqual(player.last_unseen_attack, expected)
+                self.assertEqual("here" in player.danger_until, expected is not None)
 
     def test_unseen_effect_needs_independent_evidence_when_a_visible_hit_explains_the_injury(self):
         tiles = [cell("stairs", down=True), cell("west", -1), cell("east", 1)]
