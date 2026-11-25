@@ -22,6 +22,20 @@ def useful_loot(item: Item) -> bool:
     return item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
 
 
+def guarded_supply_cells(turn: Turn) -> set[str]:
+    """Locate useful ground items within one square of any part of a visible hostile."""
+    guards = [offset for foe in turn.hostiles for offset in foe.cells]
+    guarded = set()
+    if guards:
+        for ground in turn.ground_items:
+            if ground.cell is None or ground.cell.key in guarded or not useful_loot(ground.item):
+                continue
+            x, y, z = ground.offset
+            if any(abs(x - gx) <= 1 and abs(y - gy) <= 1 and abs(z - gz) <= 1 for gx, gy, gz in guards):
+                guarded.add(ground.cell.key)
+    return guarded
+
+
 def usable_melee_weapon(item: Item) -> bool:
     return not item.known_cursed and melee_score(item) >= 0
 

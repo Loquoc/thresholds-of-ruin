@@ -42,7 +42,7 @@ from rogue_combat import (
     MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
-    HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot, useful_loot,
+    HEALING_POTIONS, LootGoals, guarded_supply_cells, loot_goals, preferred_pickup, route_to_loot,
 )
 from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
@@ -197,7 +197,7 @@ class Adventurer:
         self.potion_trials.observe(turn)
         self.scroll_trials.observe(turn)
         self.expire_danger_warnings(turn.tick)
-        self.observe_guarded_supplies(turn)
+        self.supplies_guarded_until.update(dict.fromkeys(guarded_supply_cells(turn), turn.tick + RECENT_DANGER_TICKS))
         if self.travel_times.entered_at is None:
             self.travel_times.entered_at = turn.tick
         self.meals.observe(turn)
@@ -218,17 +218,6 @@ class Adventurer:
                 expired = [key for key, deadline in warnings.items() if deadline <= tick]
                 for key in expired:
                     del warnings[key]
-
-    def observe_guarded_supplies(self, turn: Turn) -> None:
-        guard_cells = [cell for foe in turn.hostiles for cell in foe.cells]
-        if not guard_cells:
-            return
-        for ground in turn.ground_items:
-            if ground.cell is None or not useful_loot(ground.item):
-                continue
-            x, y, z = ground.offset
-            if any(abs(x - gx) <= 1 and abs(y - gy) <= 1 and abs(z - gz) <= 1 for gx, gy, gz in guard_cells):
-                self.supplies_guarded_until[ground.cell.key] = turn.tick + RECENT_DANGER_TICKS
 
     def observe_combat(self, turn: Turn, report: CombatReport) -> None:
         here = turn.cell

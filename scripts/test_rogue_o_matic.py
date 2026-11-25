@@ -2092,6 +2092,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn([cell("here", down=True)], inventory=[weapon("shortbow")], ground=[ground])
         self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
 
+    def test_guard_warning_allows_pickup_once_arrows_are_within_reach_and_the_guard_is_gone(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        here, stash, guard_cell = [cell(str(x), x) for x in range(3)]
+        arrow = {"id": "arrows", "name": "arrows", "identity": "item.weapon.arrow",
+                 "class": "weapon", "identified": True, "quantity": 4}
+        guard = {"id": "guard", "name": "orc", "position": guard_cell["position"]}
+        ground = {**stash, "item": arrow, "reachable": False}
+        player.observe(player_turn([here, stash, guard_cell], ground=[ground], actors=[guard], hostiles=["guard"]))
+        turn = player_turn([here, stash, guard_cell], ground=[{**ground, "reachable": True}], tick=100)
+        self.assertEqual(choose(player, turn), (Pickup(turn.ground_items[0].item), "take"))
+        self.assertIn(stash["key"], player.supplies_guarded_until)
+
     def test_collects_nearby_gold_before_a_distant_stack_of_arrows(self):
         bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow",
                "identified": True, "quantity": 1, "class": "weapon"}
