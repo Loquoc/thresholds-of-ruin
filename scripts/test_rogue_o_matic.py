@@ -1810,6 +1810,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(dict(player.observed_loss), expected)
                 self.assertEqual(dict(player.observed_loss_by_name), expected)
 
+    def test_damage_learning_excludes_a_reflected_hit_in_the_same_interval(self):
+        room = [cell("here"), cell("east", 1)]
+        foe = {"id": "hunter", "name": "orc", "position": room[1]["position"]}
+        for outcome, expected in (("applied", {}), ("miss", {"hunter": 6})):
+            with self.subTest(outcome=outcome):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(player_turn(room, actors=[foe], hostiles=["hunter"]))
+                events = [
+                    {"type": "ability", "target": "player", "caster": "hunter", "outcome": "applied"},
+                    {"type": "ability", "target": "player", "caster": "player", "outcome": outcome,
+                     "ability": {"id": "rogue.wand_lightning"}},
+                ]
+                player.observe(player_turn(room, actors=[foe], hostiles=["hunter"], combat={"hp": 4, "events": events}))
+                self.assertEqual(dict(player.observed_loss), expected)
+                self.assertEqual(player.observed_loss_by_name.get("orc"), expected.get("hunter"))
+
     def test_makes_a_short_safe_detour_for_a_visible_unidentified_potion(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         potion = {"id": "dose", "class": "potion", "name": "blue potion",

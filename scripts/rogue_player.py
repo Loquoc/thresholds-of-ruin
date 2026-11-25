@@ -43,6 +43,7 @@ from tor_client_bot import (
     Zap,
 )
 
+from rogue_combat import SELF_DAMAGE_ABILITIES, sole_applied_attacker
 from rogue_loot import DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, route_to_loot, useful_loot
 from rogue_training import purchase_training
 from rogue_retreat import (
@@ -321,13 +322,17 @@ class Adventurer:
         self.previous_losses = losses
         lasting_injury = losses is not None and previous is not None and losses.increased_since(previous)
         injured_this_turn = loss > 0 or lasting_injury
+        attributable_loss = loss
         for effect in report.outgoing:
             target = effect.target
+            if (target == turn.self_target and effect.ability in SELF_DAMAGE_ABILITIES
+                    and effect.outcome is AbilityOutcome.APPLIED):
+                attributable_loss = 0
             if (target is not None and self.polymorph_by_target.get(target) is PolymorphState.ATTEMPTED
                     and effect.ability == "rogue.wand_polymorph" and effect.outcome is AbilityOutcome.UNAFFECTED):
                 self.polymorph_by_target[target] = PolymorphState.RESISTED
         incoming = report.incoming
-        self.record_injury(turn, incoming, loss, lasting_injury=lasting_injury)
+        self.record_injury(turn, incoming, attributable_loss, lasting_injury=lasting_injury)
         if here and (turn.hostiles or (injured_this_turn and incoming)):
             self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:
@@ -348,11 +353,7 @@ class Adventurer:
         if health_loss <= 0 and not lasting_injury:
             return
 
-        # Keep anonymous hits in the set: a named attacker and an unseen one can share the damage.
-        sources = {event.caster for event in incoming if event.outcome is AbilityOutcome.APPLIED}
-        if len(sources) != 1:
-            return
-        source, = sources
+        source = sole_applied_attacker(incoming)
         if source is None:
             return
         if health_loss > 0:
