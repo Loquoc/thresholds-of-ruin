@@ -1674,6 +1674,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertTrue(trials.can_spend_charge(replace(first, charges=1)))
         self.assertFalse(trials.can_spend_charge(replace(first, charges=0)))
 
+    def test_readies_a_weapon_before_experimenting_with_an_unknown_potion(self):
+        mace = {"id": "mace", "identity": "item.weapon.mace", "class": "weapon", "name": "mace",
+                "quantity": 1, "identified": True}
+        flask = {"id": "flask", "class": "potion", "name": "cloudy flask", "quantity": 1, "identified": False}
+        slot = {"id": "weapon", "name": "Weapon"}
+        for equipped, expected in ((False, "equip_melee"), (True, "test_unknown_potion")):
+            with self.subTest(equipped=equipped):
+                turn = player_turn([cell("stairs", down=True)], inventory=[flask, mace], interactions={
+                    "slots": [slot], "inventory": [{"item": "flask", "drinkable": True},
+                                                  {"item": "mace", "slot": slot, "equipped_slot": 0 if equipped else None}]})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
+
     def test_samples_an_unknown_potion_appearance_once_while_healthy(self):
         item = {"id": "a", "name": "flask", "appearance": "smoky flask", "identified": False,
                 "quantity": 2, "class": "potion"}

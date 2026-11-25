@@ -883,15 +883,15 @@ class Adventurer:
                 return UseItem(item, ItemUse.READ), "identify_gear"
         if improvement := improve_worn_gear(turn):
             return improvement
-        health = turn.health
-        can_experiment = bool(health and recovery_deficit(health) == 0 and not self.carrying_objective(turn))
-        if can_experiment and (potion := self.potion_trials.choose(turn)):
-            return UseItem(potion, ItemUse.DRINK), "test_unknown_potion"
         if weapon := ready_weapon(turn, bow=False):
             return weapon
-        if can_experiment:
-            return self.study_scroll_at_exit(turn)
-        return None
+
+        health = turn.health
+        if health is None or recovery_deficit(health) or self.carrying_objective(turn):
+            return None
+        if potion := self.potion_trials.choose(turn):
+            return UseItem(potion, ItemUse.DRINK), "test_unknown_potion"
+        return self.study_scroll_at_exit(turn)
 
     def study_scroll_at_exit(self, turn: Turn) -> tuple[UseItem, MemoryReason] | None:
         """Try an unidentified scroll with a usable escape stair and something to identify."""

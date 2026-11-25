@@ -1840,7 +1840,8 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual(progress["floors"]["2"]["moves_admitted"], 0)
 
     def test_levitating_player_gets_a_ground_contact_reason_at_the_stair(self):
-        self.start_paired_stair_fixture(loadout=[{"archetype": "rogue.levitation", "quantity": 1}])
+        self.start_paired_stair_fixture(loadout=[{"archetype": "rogue.levitation", "quantity": 1},
+                                                {"archetype": "rogue.mace", "quantity": 1}])
         code = """
 import os, sys
 from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem
@@ -1863,7 +1864,8 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_bot_descends_after_its_sampled_potion_stops_levitation(self):
-        self.start_paired_stair_fixture(loadout=[{"archetype": "rogue.levitation", "quantity": 1}])
+        self.start_paired_stair_fixture(loadout=[{"archetype": "rogue.levitation", "quantity": 1},
+                                                {"archetype": "rogue.mace", "quantity": 1}])
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
              "--budget", "100"], cwd=self.directory,
@@ -1872,10 +1874,11 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         )
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertTrue(rows, result.stderr)
-        self.assertEqual(rows[0]["reason"], "test_unknown_potion")
+        self.assertEqual([row["reason"] for row in rows[:2]], ["equip_melee", "test_unknown_potion"])
+        self.assertTrue(all(row["result"]["status"] == "confirmed" for row in rows[:2]))
         first_descent = next(i for i, row in enumerate(rows) if row.get("reason") == "descend")
-        self.assertGreater(first_descent, 1)
-        self.assertTrue(all(row["reason"] == "wait_for_ground_contact" for row in rows[1:first_descent]))
+        self.assertGreater(first_descent, 2)
+        self.assertTrue(all(row["reason"] == "wait_for_ground_contact" for row in rows[2:first_descent]))
         self.assertEqual(rows[first_descent]["result"]["status"], "confirmed")
         self.assertEqual(rows[first_descent + 1]["floor"], 2)
 
