@@ -504,27 +504,38 @@ impl Game {
         item: Option<ItemId>,
     ) -> Result<(), GameError> {
         self.validate_identification(actor, choice, item)?;
-        let learned = item.map(|id| {
-            let i = &self.items[&id];
+        let previous_name = item.map(|id| {
             (
                 id,
-                i.spec.identity.clone(),
-                i.charges,
-                i.spec.has_instance_condition().then_some(i.condition),
+                self.observed_carried_item_name(actor, id)
+                    .expect("validated carried item"),
             )
         });
         let mut outcome = self.actor_outcome(actor)?;
-        if let Some((id, identity, charges, condition)) = learned {
-            if let Some(condition) = condition {
-                outcome.state.known_equipment.identify(id, condition)?;
+        if let Some(id) = item {
+            let item = &self.items[&id];
+            if item.spec.has_instance_condition() {
+                outcome.state.known_equipment.identify(id, item.condition)?;
             }
-            outcome.state.knowledge.insert(identity);
-            if let Some(charges) = charges {
+            outcome.state.knowledge.insert(item.spec.identity.clone());
+            if let Some(charges) = item.charges {
                 outcome.state.known_charges.insert(id, charges);
             }
         }
         outcome.state.identification = None;
-        self.apply_outcome(outcome)
+        self.apply_outcome(outcome)?;
+        if let Some((id, before)) = previous_name {
+            let identified = self
+                .observed_carried_item_name(actor, id)
+                .expect("identification leaves the item carried");
+            let line = if before == identified {
+                format!("You identify the {identified}.")
+            } else {
+                format!("You identify the {before}: {identified}.")
+            };
+            self.narrate_gameplay(actor, line);
+        }
+        Ok(())
     }
     pub(crate) fn magic_knowledge_valid(&self, actor: ActorId) -> bool {
         let a = &self.actors[&actor];

@@ -1196,9 +1196,9 @@ Two production defects and one class of stale pins, counted by root cause:
   combat view, so clients cannot see a scripted victory; that was tutorial
   content, fixed by giving its character a build. One method, one root cause.
 - **Stale version pins (stale tests, expected with the format change).**
-  The then-new wire revision (73), save format 72, scenario format 38 and validator
+  The then-new wire revision (73), archive revision (72), scenario format 38 and validator
   `tor-scenario-52` failed the explicit pin and golden tests until the
-  matching wire samples and the save format 72 scenario golden were
+  matching wire samples and the archive 72 scenario golden were
   recorded and the pins updated. These are deliberate first-red pins, not defects.
 
 Not counted: a bulk `format = 37` replacement that also rewrote one literal
@@ -1445,3 +1445,19 @@ two failed executions (hosted Linux debug and release). The test now requires an
 exact rewind whenever history is within the window. Beyond it, rewinding to the
 dropped start must be refused without acting or consuming a sequence, and a
 one-turn game of the same package must rewind exactly.
+
+### Identify turn's scripted outcome (2026-11-24)
+
+The hosted Linux debug Rust lane exposed one stale Text fixture: after a paid
+Read, its mocked Identify updated item knowledge but omitted the server-authored
+narration. The old test had relied on the client inventing a line from the
+action. The fixture now sends the existing outcome message used by the server
+and requires the exact line once, while preserving its no-extra-turn, charge
+and request-count checks. The live service and source-free replay separately
+check that the server produces and retains the cue. No production change was
+needed for this test failure.
+
+The next hosted Linux debug Rust run found one independent current-format
+assertion still pinning save archive 72. Its expected archive is now 73;
+the scenario, ruleset, component and arena formats are unchanged. The
+separate physical-framing and previous-save rejection witnesses remain.

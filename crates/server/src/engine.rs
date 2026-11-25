@@ -27,7 +27,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 72;
+pub(crate) const ARCHIVE_VERSION: u32 = 73;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -3849,14 +3849,19 @@ impl Engine {
                         .take(tor_protocol::MAX_HISTORY_NARRATION_LINES)
                         .map(|(_, line)| line.to_owned())
                         .collect();
-                    let mut entry = if record.entry.visible_to(actor, user) {
-                        self.disclose_entry(&record.entry)?
+                    let visible = record.entry.visible_to(actor, user);
+                    let disclosed = visible
+                        .then(|| self.disclose_entry(&record.entry))
+                        .flatten();
+                    let mut entry = if let Some(entry) = disclosed {
+                        entry
                     } else if record.entry.audience == Audience::Actor
-                        && record.entry.actor != actor
                         && !narration.is_empty()
+                        && (visible || record.entry.actor != actor)
                     {
-                        // Same stable history cursor; never project the foreign
-                        // actor, action, author or private targeting capability.
+                        // A literal cue can be visible when the action is not:
+                        // e.g. our Identify or another actor's movement. Keep
+                        // the cursor but disclose no action or targeting data.
                         HistoryEntry {
                             id: record.entry.id.clone(),
                             branch: record.entry.branch.clone(),

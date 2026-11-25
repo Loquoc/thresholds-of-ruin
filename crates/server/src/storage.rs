@@ -839,6 +839,14 @@ fn load(path: &Path) -> Result<Loaded, Failure> {
     let app: i64 = conn
         .query_row("PRAGMA application_id", [], |r| r.get(0))
         .map_err(|_| invalid_archive())?;
+    if app == APP_ID && version != SAVE_FORMAT {
+        return Err(Failure::new(
+            tor_protocol::ErrorCode::InvalidArchive,
+            &format!(
+                "Unsupported or inconsistent game journal: save format {version}; this build requires save format {SAVE_FORMAT}."
+            ),
+        ));
+    }
     // Region record rows aren't checked here, so opening a save doesn't read
     // the whole world; each row's checksum is checked when it's read.
     let integrity = [
@@ -859,8 +867,7 @@ fn load(path: &Path) -> Result<Loaded, Failure> {
     .map_err(|_| invalid_archive())?;
     // SQLite must get the first opportunity to recover a hot rollback journal,
     // including a partially extended database page from an interrupted write.
-    if version != SAVE_FORMAT
-        || app != APP_ID
+    if app != APP_ID
         || integrity.iter().any(|result| result != "ok")
         || file.metadata().map_err(|_| storage_failure())?.len() % page_size != 0
     {

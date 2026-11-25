@@ -24,6 +24,8 @@ enum Frame {
     ExecutionRefusal(ErrorCode),
     /// The next observation, with the action event it follows.
     View(StateView, Option<Event>),
+    /// The next observation with one server-authored fact in its outcome.
+    ViewWithFact(StateView, OutcomeFact),
     /// The status of the journey this request started.
     Journey(TravelPhase),
     /// Play stopped; whose move it is.
@@ -35,6 +37,12 @@ enum Frame {
     ProjectileChoices(ProjectileChoicePage),
     SnapshotReply,
     Control(bool),
+}
+
+impl Frame {
+    fn is_view(&self) -> bool {
+        matches!(self, Self::View(..) | Self::ViewWithFact(..))
+    }
 }
 
 type Responder = Box<dyn FnMut(&Request, &StateView) -> Vec<Frame>>;
@@ -216,13 +224,13 @@ impl Link for Scripted {
                 ..
             }
         ) && !frames.iter().any(|frame| matches!(frame, Frame::Admitted))
-            && frames.iter().any(|frame| matches!(frame, Frame::View(..)))
+            && frames.iter().any(Frame::is_view)
         {
             if let Some(ack) = frames.iter().position(|frame| matches!(frame, Frame::Ack)) {
                 let receipt = frames.remove(ack);
                 let after_effects = frames
                     .iter()
-                    .rposition(|frame| matches!(frame, Frame::View(..)))
+                    .rposition(Frame::is_view)
                     .expect("view checked above")
                     + 1;
                 // A later actor's frames after Waiting are not this receipt's effects.
@@ -369,7 +377,12 @@ impl Link for Scripted {
                         snapshot: Box::new(snapshot),
                     }
                 }
-                Frame::View(mut state, event) => {
+                frame @ (Frame::View(..) | Frame::ViewWithFact(..)) => {
+                    let (mut state, event, fact) = match frame {
+                        Frame::View(state, event) => (state, event, None),
+                        Frame::ViewWithFact(state, fact) => (state, None, Some(fact)),
+                        _ => unreachable!(),
+                    };
                     let (tick, revision) = self.last();
                     state.revision = revision + 1;
                     state.snapshot = SnapshotId(format!("view-{id}-{}", self.sequence));
@@ -395,11 +408,12 @@ impl Link for Scripted {
                         HistoryContent::Action { event, .. } => Some(event.as_ref()),
                         _ => None,
                     });
-                    let facts = OutcomeFacts::capture(
+                    let mut facts = OutcomeFacts::capture(
                         &preceding.state().observation,
                         &state.observation,
                         action,
                     );
+                    facts.facts.extend(fact);
                     let outcome = self.update(
                         tick,
                         UpdateBody::Outcome {
@@ -3977,6 +3991,7 @@ fn magic_turn_state() -> StateView {
 
 #[tokio::test]
 async fn ordinary_read_discloses_paid_choice_then_identifies_without_another_scroll() {
+    const CUE: &str = "You identify the ivory wand: Wand of sparks.";
     let initial = magic_turn_state();
     let scroll = initial.observation.inventory[0].id;
     let wand = initial.observation.inventory[1].id;
@@ -4024,7 +4039,16 @@ async fn ordinary_read_discloses_paid_choice_then_identifies_without_another_scr
             interactions.identification = None;
             interactions.completed.clear();
             interactions.inventory[0].charges = Some(3);
-            vec![Frame::View(after, None), Frame::Ack]
+            vec![
+                Frame::ViewWithFact(
+                    after,
+                    OutcomeFact::UserMessage {
+                        style: UserMessageStyle::Narration,
+                        segments: vec![UserMessageSegment::Text(CUE.into())],
+                    },
+                ),
+                Frame::Ack,
+            ]
         }
     });
     let mut engine = Engine::default();
@@ -4038,7 +4062,7 @@ async fn ordinary_read_discloses_paid_choice_then_identifies_without_another_scr
     assert_eq!(link.sent.len(), 1);
     let tick = link.client.state().observation.tick;
     let identified = play(&mut link, &mut engine, "identify ivory wand").await;
-    assert!(identified.contains("identify"), "{identified}");
+    assert_eq!(identified.matches(CUE).count(), 1, "{identified}");
     assert_eq!(link.sent.len(), 2);
     assert_eq!(link.client.state().observation.tick, tick);
     assert_eq!(link.client.state().observation.inventory.len(), 1);

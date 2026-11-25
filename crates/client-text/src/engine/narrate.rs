@@ -532,9 +532,6 @@ fn episode(teller: &mut Teller, e: &Episode) {
                     teller.say(format!("you step {}", direction_name(*direction)))
                 }
                 Goal::MagicItem {
-                    action: Action::Identify { item: Some(_), .. },
-                } => teller.say(format!("you identify {object}")),
-                Goal::MagicItem {
                     action: Action::Identify { item: None, .. },
                 } => teller.say("you leave the identification choice"),
                 Goal::Wait if !after.iter().any(told) => teller.say("time passes"),

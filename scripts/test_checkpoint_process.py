@@ -62,7 +62,7 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
             self.assertEqual(db.execute("SELECT payload, checksum FROM checkpoint").fetchone(),
                              (payload, checksum))
 
-    def assert_invalid_save(self, *, scenario=None):
+    def assert_invalid_save(self, *, scenario=None, save_version=None):
         before = self.save.read_bytes()
         result = subprocess.run(
             [self.bin / ("tor-server" + self.suffix), "--listen", "127.0.0.1:0",
@@ -73,6 +73,9 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
         self.assertNotIn('"address"', result.stdout, "an invalid save must never advertise a listener")
         self.assertIn("InvalidArchive", result.stderr)
         self.assertIn("unsupported or inconsistent game journal", result.stderr.lower())
+        if save_version is not None:
+            self.assertIn(f"save format {save_version}; this build requires save format {SAVE_VERSION}",
+                          result.stderr.lower())
         self.assertEqual(self.save.read_bytes(), before)
 
     def test_playable_rogue_rejects_previous_save_archive_and_checkpoint_before_rewrite(self):
@@ -113,7 +116,7 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
                         changed = copy.deepcopy(checkpoint)
                         changed["version"] = obsolete
                         self.write_checkpoint(changed)
-                    self.assert_invalid_save()
+                    self.assert_invalid_save(save_version=obsolete if boundary == "sqlite" else None)
 
     def test_checkpoint_requires_health_recovery_and_build_fields_before_listening(self):
         package = creature_package(self, "required-health-ledger-checkpoint", abilities=("fixture_focus_fear",))
