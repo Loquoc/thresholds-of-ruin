@@ -2172,6 +2172,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(turn, action, reason=reason)
         self.assertNotIsInstance(choose(player, turn)[0], Zap)
 
+    def test_slow_attempt_tracks_only_the_foe_reached_in_a_shared_lane(self):
+        cells = [cell(str(x), x) for x in range(4)]
+        foes = [{"id": name, "name": name, "position": cells[x]["position"]}
+                for name, x in (("front", 2), ("rear", 3))]
+        wand = {"id": "staff", "name": "staff", "class": "wand", "identity": "item.wand.wand-slow",
+                "identified": True, "quantity": 1}
+        offer = {"item": "staff", "zappable": True, "device_activation": "direction", "charges": 2}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss.update(front=6, rear=9)
+        for actors, expected, tick in ((foes, "front", 0), (foes[1:], "rear", 100)):
+            turn = player_turn(cells, actors=actors, hostiles=[foe["id"] for foe in actors], tick=tick,
+                               inventory=[wand], interactions={"inventory": [offer]})
+            action, reason = choose(player, turn)
+            self.assertEqual(reason, "slow_approach")
+            target = next(foe for foe in turn.hostiles if foe.target == expected)
+            self.assertIn(action.target, turn.cells_of(target))
+            player.admitted(turn, action, reason=reason)
+        self.assertEqual(player.attempted_slow, {"front", "rear"})
+
     def test_control_targets_include_close_drainers_and_rank_only_nearby_threats(self):
         cells = [cell(str(x), x) for x in range(5)]
         foes = [{"id": name, "name": name, "position": cells[x]["position"]}

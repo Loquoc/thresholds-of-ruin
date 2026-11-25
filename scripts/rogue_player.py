@@ -735,13 +735,7 @@ class Adventurer:
         return None
 
     def counter_threat(self, turn: Turn, health: int, *, in_melee: bool = False) -> tuple[Zap, str] | None:
-        devices = []
-        for identity, reason in CONTROL_DEVICES:
-            if in_melee and reason != MemoryReason.POLYMORPH_THREAT:
-                continue
-            for device in turn.devices:
-                if device.item.identity == identity and self.wand_trials.can_spend_charge(device):
-                    devices.append((device, reason))
+        devices = self.control_devices(turn, in_melee=in_melee)
         if not devices:
             return None
         for foe, damage in self.control_targets(turn, health):
@@ -754,6 +748,17 @@ class Adventurer:
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
                     return zap, reason
         return None
+
+    def control_devices(self, turn: Turn, *, in_melee: bool) -> list[tuple[Device, str]]:
+        """List usable control wands in policy order, preserving inventory order within each kind."""
+        devices = []
+        for identity, reason in CONTROL_DEVICES:
+            if in_melee and reason != MemoryReason.POLYMORPH_THREAT:
+                continue
+            for device in turn.devices:
+                if device.item.identity == identity and self.wand_trials.can_spend_charge(device):
+                    devices.append((device, reason))
+        return devices
 
     def control_targets(self, turn: Turn, health: int) -> list[tuple[Creature, int]]:
         """Rank nearby drainers and potential two-hit threats by observed damage."""
