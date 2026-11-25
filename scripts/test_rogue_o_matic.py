@@ -648,6 +648,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offers[2]["equipped_slot"] = 0
         self.assertEqual(choose(player, picture())[1], "enchant_weapon")
 
+        # A disclosed melee attack is sufficient even for a scenario-specific weapon.
+        inventory[2]["identity"] = "item.weapon.fixture-blade"
+        self.assertEqual(choose(player, picture())[1], "enchant_weapon")
+
         # A stronger spare that is known to be cursed leaves the worn sword eligible for enchantment.
         del offers[2]["equipped_slot"]
         offers[2]["known_cursed"] = True

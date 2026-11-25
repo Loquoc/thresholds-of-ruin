@@ -1985,6 +1985,45 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_player_identifies_ground_long_sword_and_upgrades_primary_weapon(self):
         self.check_ground_gear("weapon", "rogue.mace", "rogue.long_sword", 43)
 
+    def test_player_enchants_a_disclosed_custom_melee_weapon(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        identity = "item.weapon.fixture-blade"
+        manifest["archetypes"]["rogue.long_sword"]["identity"] = identity
+        character, = manifest["characters"]
+        character.update(known_identities=[identity, "item.scroll.identify-weapon", "item.scroll.enchant-weapon"],
+                         loadout=[{"archetype": "rogue.long_sword", "quantity": 1, "equipped_slot": 0},
+                                  {"archetype": "rogue.identify_weapon", "quantity": 1},
+                                  {"archetype": "rogue.enchant_weapon", "quantity": 1}])
+        contents["regions"][0].update(actors=[], items=[])
+        self.check_policy_scenario(contents, "custom-enchantment", """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import ItemUse, Outcome, Session, UseItem
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    identify = next(item for item in turn.inventory if item.identity == "item.scroll.identify-weapon")
+    assert turn.submit(UseItem(identify, ItemUse.READ)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    prompt = turn.identification
+    blade = next(item for item in prompt.items if item.identity == "item.weapon.fixture-blade")
+    assert turn.submit(prompt.select(blade)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    def attack(turn):
+        return next(slot.occupant.weapon_attack for slot in turn.equipment if slot.kind == "weapon")
+    before = attack(turn)
+    assert before is not None
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    action, reason = player.choose(turn)
+    assert reason == "enchant_weapon", (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    assert attack(game.wait_for_decision()) != before
+""")
+
     def test_player_enchants_the_ground_weapon_upgrade_after_equipping_it(self):
         self.check_ground_gear("weapon", "rogue.mace", "rogue.long_sword", 43, enchant_weapon=True)
 
