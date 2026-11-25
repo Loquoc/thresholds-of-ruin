@@ -448,6 +448,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.last_unseen_attack = "attack", 100
                 self.assertEqual(choose(player, turn), (Move(expected), "evade_unseen_attack"))
 
+    def test_unseen_attack_evasion_uses_the_mapped_corridor_after_losing_sight_of_the_site(self):
+        miss = {"type": "unseen_ability", "target": "player", "outcome": "miss"}
+        for away, expected in ((1, Direction.EAST), (-1, Direction.WEST)):
+            with self.subTest(away=away):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                corridor = [cell(str(i), away * i) for i in range(4)]
+                player.observe(player_turn(corridor, tick=100, combat={"events": [miss]}))
+                around_player = [cell(str(i), away * (i - 2)) for i in (1, 2, 3)]
+                decision = choose(player, player_turn(around_player, tick=200))
+                self.assertEqual(decision, (Move(expected), "evade_unseen_attack"))
+
     def test_melee_upgrade_compares_disclosed_damage_accuracy_and_timing(self):
         from tor_client_bot import Equip, Unequip
 

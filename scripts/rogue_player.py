@@ -690,7 +690,7 @@ class Adventurer:
 
         if turn.holds or self.trapped(turn):
             return None
-        if step := evade_unseen_attacker(turn, origin):
+        if step := evade_unseen_attacker(turn, origin, self.maps.get(self.depth)):
             return step, "evade_unseen_attack"
         return None
 

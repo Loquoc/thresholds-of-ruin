@@ -13,15 +13,22 @@ def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: S
     return memory.toward(turn, goals)
 
 
-def evade_unseen_attacker(turn: Turn, attack_origin: str) -> Move | None:
+def evade_unseen_attacker(turn: Turn, attack_origin: str, memory: FloorMap | None = None) -> Move | None:
+    """Favor clear steps away from the attack site, using the mapped route when it leaves sight."""
     origin = next((cell for cell in turn.visible_cells if cell.key == attack_origin), None)
+    mapped_distances = {}
+    if origin is None and memory is not None:
+        mapped_distances = {cell.key: distance for cell, distance in memory.reachable(attack_origin)}
     best_rank = None
     step = None
     for direction in turn.walkable_directions:
         cell = turn.cell_at(direction.offset)
         if cell is None or cell.key == attack_origin:
             continue
-        distance = max(abs(a - b) for a, b in zip(cell.offset, origin.offset)) if origin else 0
+        if origin is None:
+            distance = mapped_distances.get(cell.key, 0)
+        else:
+            distance = max(abs(a - b) for a, b in zip(cell.offset, origin.offset))
         rank = cell.trap is None, distance
         if best_rank is None or rank > best_rank:
             best_rank = rank
