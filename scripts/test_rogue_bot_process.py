@@ -690,7 +690,7 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         self.assertEqual(progress["floors"][str(depth)]["searches_failed"], 0)
 
     def test_bot_routes_away_from_a_foe_toward_a_disclosed_stair(self):
-        self.check_safe_stair_route(diagonal=False)
+        self.check_safe_stair_route("open")
 
     def test_outnumbered_bot_takes_nearby_downstairs(self):
         self.check_outnumbered_descent([(2, 3), (3, 3)])
@@ -877,7 +877,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_bot_uses_a_safe_diagonal_to_a_disclosed_stair(self):
-        self.check_safe_stair_route(diagonal=True)
+        self.check_safe_stair_route("diagonal")
 
     def test_bot_opens_a_closed_door_on_its_remembered_stair_route(self):
         from discovery_package import write_package
@@ -948,12 +948,12 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_stair_approach_breaks_contact_with_a_dangerous_attacker(self):
-        self.check_safe_stair_route(diagonal=False, exposed=True)
+        self.check_safe_stair_route("guarded")
 
     def test_stair_retreat_leaves_the_lethal_guard_when_a_weaker_foe_remains(self):
-        self.check_safe_stair_route(diagonal=False, exposed=True, second_guard=True)
+        self.check_safe_stair_route("two_guards")
 
-    def check_safe_stair_route(self, *, diagonal, exposed=False, second_guard=False):
+    def check_safe_stair_route(self, scenario):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -962,15 +962,15 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         manifest["characters"][0]["loadout"] = []
         manifest["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/up"}}
         lower, = contents["regions"]
-        if diagonal or exposed:
+        if scenario != "open":
             lower["anchors"]["start"] = [2, 2, 0]
-        lower["anchors"]["up"] = [1, 1, 0] if diagonal else [2, 1, 0]
+        lower["anchors"]["up"] = [1, 1, 0] if scenario == "diagonal" else [2, 1, 0]
         lower["actors"] = [{"archetype": "rogue.griffin", "id": 3, "controller": "external",
                             "at": [4, 2, 0], "turn_ticks": 1000000}]
-        if exposed:
+        if scenario in {"guarded", "two_guards"}:
             lower["anchors"]["up"] = [3, 2, 0]
             lower["actors"][0]["at"] = [3, 3, 0]
-        if second_guard:
+        if scenario == "two_guards":
             lower["walls"] = [[x, 1, z] for x in (1, 2, 3) for z in range(2)]
             lower["actors"].append({"archetype": "rogue.bat", "id": 4, "at": [2, 3, 0],
                                     "turn_ticks": 1000000, "controller": "external"})
@@ -1001,27 +1001,26 @@ try:
 finally:
     diagnostics.close()
 session, enemy = (Session.connect(address, token, actor) for actor in (1, 3))
-second_guard = os.environ["BOT_TEST_SECOND_GUARD"] == "1"
-bat = Session.connect(address, token, 4) if second_guard else None
+scenario = os.environ["BOT_TEST_STAIR_SCENARIO"]
+bat = Session.connect(address, token, 4) if scenario == "two_guards" else None
 try:
     turn = session.observe()
     policy = Adventurer(26, "item.amulet.amulet-of-yendor", depth=2)
     policy.observe(turn)
-    exposed = os.environ["BOT_TEST_EXPOSED"] == "1"
+    exposed = scenario in {"guarded", "two_guards"}
     if exposed:
         griffin = next(foe for foe in turn.hostiles if foe.name == "griffin")
         policy.opponents.damage_by_name[griffin.name] = turn.health.current
-    if second_guard:
+    if scenario == "two_guards":
         policy.opponents.damage_by_name["bat"] = 1
-    action, reason = policy.retreat_to_stairs(turn) if second_guard else policy.choose(turn)
-    diagonal = os.environ["BOT_TEST_DIAGONAL"] == "1"
-    direction = Direction.NORTH_WEST if diagonal else Direction.NORTH
+    action, reason = policy.choose(turn)
     if exposed:
         assert isinstance(action, Move) and reason == "retreat", (action, reason)
         assert not turn.in_contact(griffin, from_offset=action.direction.offset)
-        if second_guard:
+        if scenario == "two_guards":
             assert any(turn.in_contact(foe, from_offset=action.direction.offset) for foe in turn.hostiles)
     else:
+        direction = Direction.NORTH_WEST if scenario == "diagonal" else Direction.NORTH
         assert (action, reason) == (Move(direction), "retreat_to_stairs"), (action, reason)
     offset = action.direction.offset
     goal = next(cell.key for cell in turn.visible_cells if cell.offset == offset)
@@ -1045,8 +1044,7 @@ finally:
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
-                 "BOT_TEST_ADDRESS": self.address, "BOT_TEST_DIAGONAL": str(int(diagonal)),
-                 "BOT_TEST_SECOND_GUARD": str(int(second_guard)), "BOT_TEST_EXPOSED": str(int(exposed))},
+                 "BOT_TEST_ADDRESS": self.address, "BOT_TEST_STAIR_SCENARIO": scenario},
             text=True, capture_output=True, timeout=55,
         )
         server.stop(save=False)

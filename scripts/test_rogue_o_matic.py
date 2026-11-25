@@ -3319,10 +3319,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         for damage, expected in ((0, Direction.EAST), (4, Direction.WEST), (5, Direction.EAST)):
             with self.subTest(damage=damage):
                 player.opponents.damage_by_target["bat"] = damage
-                self.assertEqual(player.retreat_to_stairs(turn)[0], Move(expected))
+                self.assertEqual(player.choose(turn)[0], Move(expected))
         player.opponents.damage_by_target["bat"] = 1
         player.opponents.draining_names.add("bat")
-        self.assertEqual(player.retreat_to_stairs(turn)[0], Move(Direction.EAST))
+        self.assertEqual(player.choose(turn)[0], Move(Direction.EAST))
 
     def test_a_retreat_can_open_a_door_or_break_contact_before_opening_it(self):
         from tor_client_bot import OpenDoor
