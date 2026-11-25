@@ -66,9 +66,12 @@ def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | N
     return base
 
 
+def _readable_scrolls(turn: Turn) -> dict[str, Item]:
+    return {item.identity: item for item in turn.inventory if item.identity is not None and ItemUse.READ in item.uses}
+
+
 def choose_armor(turn: Turn) -> tuple[Action, str] | None:
-    scrolls = {i.identity: i for i in turn.inventory if ItemUse.READ in i.uses}
-    cure = scrolls.get("item.scroll.remove-curse")
+    cure = _readable_scrolls(turn).get("item.scroll.remove-curse")
     can_identify_armor = any("armor" in identification_categories(item) for item in turn.inventory)
     best = None
     best_rank = None
@@ -164,7 +167,7 @@ def choose_ring(turn: Turn) -> tuple[Action, str] | None:
 
 
 def improve_worn_gear(turn: Turn) -> tuple[Action, str] | None:
-    scrolls = {i.identity: i for i in turn.inventory if ItemUse.READ in i.uses}
+    scrolls = _readable_scrolls(turn)
     armor = next((s.occupant for s in turn.equipment if s.kind == "body_armor" and s.occupant), None)
     if armor:
         if armor.known_protected is False and armor.identity != "item.armor.leather-armor":

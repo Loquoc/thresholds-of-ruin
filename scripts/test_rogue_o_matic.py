@@ -242,6 +242,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    known_item_uses=[{"item": "lore", "identifies": categories}])
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
 
+    def test_blocked_armor_upgrade_uses_a_readable_known_cure(self):
+        from rogue_gear import choose_armor
+        from tor_client_bot import ItemUse, UseItem
+
+        body = {"id": "body_armor", "name": "Body"}
+        inventory = [{"id": key, "identity": identity, "name": key, "class": category, "identified": True, "quantity": 1}
+                     for key, identity, category in (("mail", "item.armor.ring-mail", "armor"),
+                                                     ("plate", "item.armor.plate-mail", "armor"),
+                                                     ("cure", "item.scroll.remove-curse", "scroll"),
+                                                     ("spare", "item.scroll.remove-curse", "scroll"))]
+        for readable in (True, False):
+            with self.subTest(readable=readable):
+                turn = player_turn([cell("here")], inventory=inventory, interactions={
+                    "slots": [body], "curse_blocked": ["mail"], "inventory": [
+                        {"item": "mail", "slot": body, "equipped_slot": 0},
+                        {"item": "plate", "slot": body}, {"item": "cure", "readable": readable},
+                        {"item": "spare", "readable": False}]})
+                expected = (UseItem(turn.inventory[2], ItemUse.READ), "remove_armor_curse") if readable else None
+                self.assertEqual(choose_armor(turn), expected)
+
     def test_protects_disclosed_unprotected_armor_and_preserves_scroll_otherwise(self):
         from tor_client_bot import UseItem, ItemUse
         body = {"id": "body_armor", "name": "body"}
