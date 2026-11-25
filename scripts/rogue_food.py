@@ -47,13 +47,6 @@ class PendingMeal:
     receipt: Result | None = None
     resolved: bool = False
 
-    @classmethod
-    def before_eating(cls, turn: Turn, item: Item, receipt: Result | None = None) -> "PendingMeal | None":
-        nutrition = turn.nutrition
-        if item.identity is None or nutrition is None:
-            return None
-        return cls(item.identity, carried_quantity(turn, item.identity), nutrition.reserve, receipt)
-
     def observed_gain(self, turn: Turn) -> int | None:
         nutrition = turn.nutrition
         if nutrition is None or nutrition.reserve >= nutrition.maximum:
@@ -72,6 +65,13 @@ class MealHistory:
 
     gains: dict[str, int] = field(default_factory=dict)
     pending: PendingMeal | None = None
+
+    def admitted(self, turn: Turn, item: Item, receipt: Result | None = None) -> None:
+        nutrition = turn.nutrition
+        if item.identity is None or nutrition is None:
+            self.pending = None
+            return
+        self.pending = PendingMeal(item.identity, carried_quantity(turn, item.identity), nutrition.reserve, receipt)
 
     def observe(self, turn: Turn) -> None:
         meal = self.pending

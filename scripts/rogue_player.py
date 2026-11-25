@@ -53,7 +53,7 @@ from rogue_retreat import (
 )
 from rogue_search import ORDINARY_WALL_SEARCHES, SearchHistory
 from rogue_food import (
-    MEAL_HUNGER, URGENT_HUNGER, FoodScoutHistory, MealHistory, PendingMeal, choose_meal, edible_items, estimate_carried_food,
+    MEAL_HUNGER, URGENT_HUNGER, FoodScoutHistory, MealHistory, choose_meal, edible_items, estimate_carried_food,
     FloorTravelTimes,
 )
 from rogue_gear import (
@@ -339,7 +339,7 @@ class Adventurer:
             trial = reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}
             self.scroll_trials.admitted(turn, self.depth, item, receipt if trial else None)
         elif action.use is ItemUse.EAT:
-            self.meals.pending = PendingMeal.before_eating(turn, item, receipt)
+            self.meals.admitted(turn, item, receipt)
 
     def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
         if turn.cell is None:

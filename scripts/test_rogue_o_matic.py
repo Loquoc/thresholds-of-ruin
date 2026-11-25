@@ -4539,6 +4539,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertIsNone(player.meals.pending)
                 self.assertEqual(player.meals.gains, {"fixture.ration": 30} if phase == "resolved" else {})
 
+    def test_an_unidentified_meal_replaces_an_unfinished_measurement(self):
+        from tor_client_bot import ItemUse, UseItem
+
+        known = {"id": "ration", "identity": "fixture.ration", "name": "ration", "class": "food",
+                 "quantity": 1, "identified": True}
+        unknown = {"id": "fruit", "name": "fruit", "class": "food", "quantity": 1, "identified": False}
+        nutrition = {"kind": "required", "unit_ticks": 100, "elapsed": 0, "maximum": 100,
+                     "reserve": 10, "hunger": "weak"}
+        turn = player_turn([cell("here")], inventory=[known, unknown], stats={"nutrition": nutrition},
+                           interactions={"inventory": [{"item": key, "edible": True} for key in ("ration", "fruit")]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        ration, fruit = turn.inventory
+        player.admitted(turn, UseItem(ration, ItemUse.EAT))
+        self.assertIsNotNone(player.meals.pending)
+        player.admitted(turn, UseItem(fruit, ItemUse.EAT))
+        player.observe(player_turn([cell("here")], stats={"nutrition": dict(nutrition, reserve=40)}))
+        self.assertEqual(player.meals.gains, {})
+
     def test_resolved_meal_is_measured_before_recovery_drains_the_reserve(self):
         from tor_client_bot import ItemUse, Result, UseItem
 
