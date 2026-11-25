@@ -353,18 +353,23 @@ class Adventurer:
             self.recovery_landing = None
         loss = self.previous_health - health.current if health and self.previous_health is not None else 0
         self.previous_health = health.current if health else None
+        losses = turn.restorable_losses
+        previous = self.previous_losses
+        self.previous_losses = losses
+        lasting_injury = losses is not None and previous is not None and losses.increased_since(previous)
+        injured_this_turn = loss > 0 or lasting_injury
         for effect in report.outgoing:
             target = effect.target
             if (target is not None and self.polymorph_by_target.get(target) is PolymorphState.ATTEMPTED
                     and effect.ability == "rogue.wand_polymorph" and effect.outcome is AbilityOutcome.UNAFFECTED):
                 self.polymorph_by_target[target] = PolymorphState.RESISTED
         incoming = report.incoming
-        self.record_injury(turn, incoming, loss)
+        self.record_injury(turn, incoming, loss, lasting_injury=lasting_injury)
         if self.danger_until:
             self.danger_until = {
                 key: expiry for key, expiry in self.danger_until.items() if expiry > turn.tick
             }
-        if here and (turn.hostiles or (loss > 0 and incoming)):
+        if here and (turn.hostiles or (injured_this_turn and incoming)):
             self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:
             self.tried_unknown_scroll = False
@@ -373,17 +378,14 @@ class Adventurer:
             event.unseen
             and (
                 event.outcome is AbilityOutcome.MISS
-                or (event.outcome is AbilityOutcome.APPLIED and loss > 0)
+                or (event.outcome is AbilityOutcome.APPLIED and injured_this_turn)
             )
             for event in incoming
         ):
             self.last_unseen_attack = here.key, turn.tick
 
-    def record_injury(self, turn: Turn, incoming: tuple[IncomingAbility, ...], health_loss: int) -> None:
-        losses = turn.restorable_losses
-        previous = self.previous_losses
-        self.previous_losses = losses
-        lasting_injury = losses is not None and previous is not None and losses.increased_since(previous)
+    def record_injury(self, turn: Turn, incoming: tuple[IncomingAbility, ...], health_loss: int,
+                      *, lasting_injury: bool) -> None:
         if health_loss <= 0 and not lasting_injury:
             return
 

@@ -368,6 +368,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.last_unseen_attack = "stairs", 100
                 self.assertEqual(choose(player, turn)[1], expected)
 
+    def test_unseen_hit_that_drains_strength_prompts_evasion_at_unchanged_health(self):
+        tiles = [cell("stairs", down=True), cell("west", -1)]
+        def picture(tick, strength, events):
+            attributes = dict.fromkeys(("strength", "speed", "intellect", "willpower", "awareness", "presence"), 0)
+            attributes["strength"] = strength
+            return player_turn(tiles, tick=tick, combat={"hp": 10, "events": events}, stats={
+                "restorable_losses": {"attributes": attributes, "hit_dice": 0, "maximum_health": 0}})
+
+        hit = {"type": "unseen_ability", "target": "player", "outcome": "applied"}
+        for strength, expected in ((0, "descend"), (1, "evade_unseen_attack")):
+            with self.subTest(strength=strength):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(picture(0, 0, []))
+                self.assertEqual(choose(player, picture(100, strength, [hit]))[1], expected)
+
     def test_unseen_attack_prefers_a_clear_step_and_can_escape_through_the_only_trap(self):
         pit = {"id": "pit", "family": None, "reachable": True}
         east = {**cell("east", 1), "trap": pit}
