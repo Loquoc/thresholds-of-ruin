@@ -12,12 +12,12 @@ import sys
 from process_harness import ProcessTestCase, ROOT, TOKEN
 
 
-def add_injury_potion(manifest):
+def add_injury_potion(manifest, *, damage=5, stackable=False):
     manifest["archetypes"]["injury"] = {
-        "class": "potion", "identity": "item.potion.fixture.injury", "name": "injury potion",
+        "class": "potion", "identity": "item.potion.fixture.injury", "name": "injury potion", "stackable": stackable,
         "consumable": {"effects": [{"kind": "damage", "damage": {
             "kind": "components", "components": [
-                {"category": "vital", "amount": {"kind": "fixed", "amount": 5}}
+                {"category": "vital", "amount": {"kind": "fixed", "amount": damage}}
             ],
         }}]},
     }
@@ -1087,14 +1087,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         contents = fixture()
         contents["regions"][0]["actors"] = []
         manifest = contents["manifest"]
-        manifest["archetypes"]["injury"] = {
-            "class": "potion", "identity": "item.potion.fixture.injury", "name": "injury potion",
-            "consumable": {"effects": [{"kind": "damage", "damage": {
-                "kind": "components", "components": [
-                    {"category": "vital", "amount": {"kind": "fixed", "amount": 6}}
-                ],
-            }}]},
-        }
+        add_injury_potion(manifest, damage=6)
         character, = manifest["characters"]
         character["loadout"] = [{"archetype": "injury", "quantity": 1}]
         server = self.server(scenario=write_package(self, contents, "rogue-bot-recovery-position"))
@@ -2842,12 +2835,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         manifest = contents["manifest"]
         character, = manifest["characters"]
         injury = "item.potion.fixture.injury"
-        manifest["archetypes"]["injury"] = {
-            "class": "potion", "identity": injury, "name": "injury potion", "stackable": True,
-            "consumable": {"effects": [{"kind": "damage", "damage": {"kind": "components",
-                "components": [{"category": "vital", "amount": {"kind": "fixed", "amount": 2}}],
-            }}]},
-        }
+        add_injury_potion(manifest, damage=2, stackable=True)
         character["loadout"] = [{"archetype": name, "quantity": quantity} for name, quantity in (
             ("rogue.healing", 1), ("rogue.extra_healing", 1), ("rogue.hallucination", 1), ("injury", 20))]
         character["known_identities"].extend((injury, "item.potion.healing", "item.potion.extra-healing",
@@ -2878,6 +2866,8 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert turn.submit(action).status is Outcome.CONFIRMED
     after = player.wait_for_decision()
     assert after.health.current > turn.health.current and not after.has_condition("rogue.hallucinating")
+    assert any(item.identity == "item.potion.healing" for item in after.inventory)
+    assert all(item.identity != "item.potion.extra-healing" for item in after.inventory)
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -2900,12 +2890,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         contents = fixture()
         manifest = contents["manifest"]
         manifest["archetypes"]["rogue.extra_healing"]["name"] = "Restorative draught"
-        manifest["archetypes"]["injury"] = {
-            "class": "potion", "identity": "item.potion.fixture.injury", "name": "injury potion",
-            "consumable": {"effects": [{"kind": "damage", "damage": {"kind": "components",
-                "components": [{"category": "vital", "amount": {"kind": "fixed", "amount": 5}}],
-            }}]},
-        }
+        add_injury_potion(manifest)
         character, = manifest["characters"]
         gear = ("rogue.enchant_armor", "rogue.protect_armor") if unknown_scrolls else ("rogue.healing", "rogue.extra_healing")
         character["loadout"] = [{"archetype": name, "quantity": 1} for name in ("injury", *gear)]
@@ -2969,12 +2954,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
 
         contents = fixture()
         manifest = contents["manifest"]
-        manifest["archetypes"]["injury"] = {
-            "class": "potion", "identity": "item.potion.fixture.injury", "name": "injury potion",
-            "consumable": {"effects": [{"kind": "damage", "damage": {"kind": "components",
-                "components": [{"category": "vital", "amount": {"kind": "fixed", "amount": 5}}],
-            }}]},
-        }
+        add_injury_potion(manifest)
         character, = manifest["characters"]
         character.update(anchor="2/up", loadout=[{"archetype": "injury", "quantity": 1}])
         manifest["stair_pairs"] = {"first": {"upper": "1/down", "lower": "2/up"}}
@@ -3276,14 +3256,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         character["known_identities"].append("item.ring.ring-slow-digestion")
         character["loadout"] = [{"archetype": "rogue.ring_slow_digestion", "quantity": 1},
                                 {"archetype": "injury", "quantity": 1}]
-        manifest["archetypes"]["injury"] = {
-            "class": "potion", "identity": "item.potion.fixture.injury", "name": "injury potion",
-            "consumable": {"effects": [{"kind": "damage", "damage": {
-                "kind": "components", "components": [
-                    {"category": "vital", "amount": {"kind": "fixed", "amount": 5}}
-                ],
-            }}]},
-        }
+        add_injury_potion(manifest)
         contents["regions"][0]["actors"] = []
         server = self.server(scenario=write_package(self, contents, "rogue-bot-slow-digestion"))
         self.install_bot_extension()
