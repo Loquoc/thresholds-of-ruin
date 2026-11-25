@@ -1304,22 +1304,32 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(turns[0]["result"]["status"], "confirmed")
         self.assertTrue(turns[-1]["amulet_acquired"], turns)
 
-    def test_bot_eats_server_offered_food_without_a_ration_tag(self):
+    def nutrition_run(self, budget, **scenario):
         from nutrition_package import prepare
 
-        server = self.server(scenario=prepare(self, initial=2, unit_ticks=1000))
+        server = self.server(scenario=prepare(self, **scenario))
         self.install_bot_extension()
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
-             "--budget", "2"],
-            cwd=self.directory, env={**os.environ, "PYTHONPATH": str(self.directory),
-                                     "TOR_SERVER_TOKEN": TOKEN},
+             "--budget", str(budget)],
+            cwd=self.directory, env={**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN},
             text=True, capture_output=True, timeout=55,
         )
         server.stop(save=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertTrue(result.stdout.strip(), result.stderr)
-        first, second, terminal = (json.loads(line) for line in result.stdout.splitlines())
+        return [json.loads(line) for line in result.stdout.splitlines()]
+
+    def test_starvation_report_includes_the_servers_final_reserve_and_threshold(self):
+        from rogue_o_matic_cohort import death_cause
+
+        *actions, report = self.nutrition_run(5, initial=1, unit_ticks=1, consume_turns=2, terminal_on_death=True)
+        self.assertEqual(actions[0]["reason"], "eat")
+        self.assertEqual(report["terminal"], "death")
+        self.assertEqual(report["last_nutrition"], {"kind": "required", "reserve": -3, "starve_at": -3})
+        self.assertEqual(death_cause(report), "starvation")
+
+    def test_bot_eats_server_offered_food_without_a_ration_tag(self):
+        first, second, terminal = self.nutrition_run(2, initial=2, unit_ticks=1000)
         self.assertEqual(first["action"]["type"], "eat")
         self.assertEqual(first["result"]["status"], "confirmed")
         self.assertEqual(first["nutrition_reserve"], 2)
