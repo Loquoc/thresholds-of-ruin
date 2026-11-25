@@ -917,6 +917,13 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     door = turn.cell_at((1, 0, 0)).door
     assert not door.open and turn.hostiles
 
+    # A previously visited doorway can close again. Recovery can use the mapped detour.
+    from rogue_retreat import recovery_stair_step
+    memory = player.maps[2]
+    memory.visited.add(turn.cell_at(Direction.EAST.offset).key)
+    step = recovery_stair_step(turn, memory, memory.stairs(Direction.UP), set())
+    assert isinstance(step, Move) and turn.cell_at(step.direction.offset).key in memory.visited, step
+
     def take_retreat_action(turn, expected):
         action, reason = player.choose(turn)
         assert (action, reason) == (expected, "retreat_to_stairs"), (action, reason)

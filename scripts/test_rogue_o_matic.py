@@ -4357,6 +4357,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.maps[1].visited.add("-3")
         self.assertEqual(player.choose(turn), (Move(Direction.WEST), "reposition_to_recover"))
 
+    def test_recovery_walks_a_familiar_stair_route_around_a_closed_door(self):
+        tiles = [cell(str(x), x, down=x in (-3, 2)) for x in range(-3, 3)]
+        doorway = next(tile for tile in tiles if tile["key"] == "1")
+        doorway["door"] = {"id": "gate", "open": False, "reachable": True}
+        turn = player_turn(tiles, combat={"hp": 6}, stats={"health_recovery": {
+            "period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        player.maps[1].visited.update({"1", "-1", "-2"})
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "recover_en_route"))
+        player.danger_until["-1"] = 1200
+        self.assertEqual(player.choose(turn), (Wait(), "recover"))
+
     def test_recovery_prefers_a_clear_route_to_shelter_over_a_shorter_dangerous_route(self):
         turn = player_turn([cell(str(x), x) for x in range(-3, 3)], combat={"hp": 6},
                            stats={"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,

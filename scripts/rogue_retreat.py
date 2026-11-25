@@ -21,6 +21,10 @@ def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: S
     return toward(turn, goals)
 
 
+def _reachable_closed_doors(turn: Turn) -> set[str]:
+    return {cell.key for cell in turn.visible_cells if cell.door and cell.door.reachable and not cell.door.open}
+
+
 def recovery_stair_step(turn: Turn, memory: FloorMap, stairs: set[str], danger: Set[str]) -> Move | None:
     """Walk on familiar ground, or expose a dangerous next step so the caller can wait."""
     if not stairs:
@@ -37,7 +41,7 @@ def recovery_stair_step(turn: Turn, memory: FloorMap, stairs: set[str], danger: 
         return move
     if step is not None:
         unfamiliar = memory.cells.keys() - memory.visited - stairs
-        detour = memory.toward_avoiding_traps(turn, stairs, avoid=danger | unfamiliar)
+        detour = memory.toward_avoiding_traps(turn, stairs, avoid=danger | unfamiliar | _reachable_closed_doors(turn))
         if isinstance(detour, Move):
             return detour
     if danger:
@@ -50,8 +54,7 @@ def route_to_recovery_shelter(turn: Turn, memory: FloorMap, danger: Set[str]) ->
     shelters = memory.visited - danger
     step = route_around_danger(turn, memory, shelters, danger, avoid_traps=True)
     if isinstance(step, OpenDoor):
-        doors = {cell.key for cell in turn.visible_cells if cell.door and cell.door.reachable and not cell.door.open}
-        if detour := memory.toward_avoiding_traps(turn, shelters, avoid=danger | doors):
+        if detour := memory.toward_avoiding_traps(turn, shelters, avoid=danger | _reachable_closed_doors(turn)):
             return detour
     return step
 
