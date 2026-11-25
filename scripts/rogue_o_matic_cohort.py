@@ -126,7 +126,7 @@ class AdmittedMove:
     intention: str
     origin: TraceSite
     reason: str | None
-    tick: int
+    tick: int | None
     reserve: int | None
 
     @classmethod
@@ -136,8 +136,19 @@ class AdmittedMove:
             return None
         receipt = result.get("receipt") or {}
         if intention := receipt.get("intention"):
-            return cls(intention, origin, row.get("reason"), row["tick"], row.get("nutrition_reserve"))
+            return cls(intention, origin, row.get("reason"), row.get("tick"), row.get("nutrition_reserve"))
         return None
+
+    def record_supply_cost(self, row: dict, detours: dict) -> None:
+        """Count a resolved step even when its elapsed time cannot be measured."""
+        detours["resolved_steps"] += 1
+        end_tick = row.get("tick")
+        if type(self.tick) is int and type(end_tick) is int and end_tick >= self.tick:
+            detours["ticks"] += end_tick - self.tick
+        else:
+            detours["untimed_steps"] = detours.get("untimed_steps", 0) + 1
+        if row.get("nutrition_reserve") is not None and self.reserve is not None:
+            detours["reserve_spent"] += max(0, self.reserve - row["nutrition_reserve"])
 
     def resolved_at(self, row, site: TraceSite) -> bool:
         return (row.get("previous_intention_id") == self.intention
@@ -240,10 +251,7 @@ def trace_report(path):
                         progress["reversals_without_new_terrain"] += 1
                     previous_origin = last_move.origin
                     if last_move.reason == "seek_supplies":
-                        detours["resolved_steps"] += 1
-                        detours["ticks"] += row["tick"] - last_move.tick
-                        if row.get("nutrition_reserve") is not None and last_move.reserve is not None:
-                            detours["reserve_spent"] += max(0, last_move.reserve - row["nutrition_reserve"])
+                        last_move.record_supply_cost(row, detours)
                 else:
                     previous_origin = None
                 last_move = AdmittedMove.from_trace(row, site)

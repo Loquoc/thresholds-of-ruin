@@ -510,10 +510,20 @@ assert get_type_hints(play)["player"] is Adventurer
                  "previous_intention_phase": "resolved"}
         with tempfile.TemporaryDirectory() as directory:
             trace = Path(directory) / "turns.jsonl"
-            trace.write_text("\n".join(map(json.dumps, (move, final))), encoding="utf-8")
-            _, progress = trace_report(trace)
-        self.assertEqual(progress["actions"], 1)
-        self.assertEqual(progress["supply_detours"], {"ticks": 120, "reserve_spent": 3, "resolved_steps": 1})
+            for start_tick, end_tick, ticks, untimed in ((100, 220, 120, 0), (None, 220, 0, 1),
+                                                        (100, None, 0, 1), (220, 100, 0, 1)):
+                with self.subTest(start_tick=start_tick, end_tick=end_tick):
+                    rows = [dict(move, tick=start_tick), dict(final, tick=end_tick)]
+                    for row in rows:
+                        if row["tick"] is None:
+                            del row["tick"]
+                    trace.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+                    _, progress = trace_report(trace)
+                    self.assertEqual(progress["actions"], 1)
+                    expected = {"ticks": ticks, "reserve_spent": 3, "resolved_steps": 1}
+                    if untimed:
+                        expected["untimed_steps"] = untimed
+                    self.assertEqual(progress["supply_detours"], expected)
 
     def test_trace_gap_breaks_movement_costs_and_floor_transitions(self):
         from pathlib import Path
