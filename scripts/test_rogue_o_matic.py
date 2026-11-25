@@ -541,6 +541,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(player, turn)
             self.assertEqual((action.item.target, reason), ("prize", "take"))
 
+    def test_pickup_prioritizes_a_needed_healing_reserve_over_incidental_loot(self):
+        here = cell("here")
+        coin = {"id": "gold", "identity": "item.coin.gold", "class": "coin", "name": "gold", "quantity": 1, "identified": True}
+        potion = {"id": "dose", "identity": "item.potion.healing", "class": "potion",
+                  "name": "healing", "quantity": 1, "identified": True}
+        ground = [{**here, "item": item, "reachable": True} for item in (coin, potion)]
+        for stock, expected in ((1, "dose"), (2, "gold")):
+            with self.subTest(stock=stock):
+                turn = player_turn([here], ground=ground, inventory=[{**potion, "id": "pack", "quantity": stock}])
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.item.target, reason), (expected, "take"))
+
     def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
         here, near = cell("exit", down=True), cell("ring", 1)
         slot = {"id": "ring", "name": "Finger"}

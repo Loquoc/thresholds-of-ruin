@@ -1493,6 +1493,31 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     def test_bot_walks_to_a_nearby_potion_and_collects_it(self):
         self.check_supply_detour("rogue.healing", [], "test_unknown_potion")
 
+    def test_cli_takes_a_known_healing_potion_before_gold_on_the_same_square(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        character, = contents["manifest"]["characters"]
+        character.update(loadout=[], known_identities=["item.potion.healing"])
+        room, = contents["regions"]
+        room.update(actors=[], items=[{"id": 9, "archetype": "rogue.gold", "at": [1, 2, 0]},
+                                      {"id": 10, "archetype": "rogue.healing", "at": [1, 2, 0]}])
+        self.server(scenario=write_package(self, contents, "healing-before-gold"))
+        self.install_bot_extension()
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
+             "--budget", "1", "--record-decisions"], cwd=self.directory,
+            env={**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN},
+            text=True, capture_output=True, timeout=55,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        action, terminal = map(json.loads, result.stdout.splitlines())
+        self.assertEqual((action["reason"], action["result"]["status"], terminal["terminal"]),
+                         ("take", "confirmed", "action_budget"))
+        inventory = json.loads(terminal["recording"])["state"]["observation"]["inventory"]
+        self.assertEqual([item["identity"] for item in inventory], ["item.potion.healing"])
+
     def test_bot_collects_nearby_gold_before_distant_visible_arrows(self):
         from discovery_package import write_package
         from utility_potions_package import fixture

@@ -13,6 +13,7 @@ from rogue_retreat import route_around_danger
 
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
 LOOT_CLASSES = {"amulet", "armor", "coin", "food", "potion", "ring", "scroll", "tool", "wand", "weapon"}
+HEALING_RESERVE_PER_KIND = 2
 HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
 
 
@@ -33,7 +34,7 @@ def worth_long_detour(objective: str, item: Item, carried: Counter[str | None], 
     """Items worth routing to beyond the short supply-detour radius."""
     identity = item.identity
     if identity in HEALING_POTIONS:
-        return carried[identity] < 2
+        return carried[identity] < HEALING_RESERVE_PER_KIND
     if identity == "item.weapon.arrow" and returning and carried["item.weapon.shortbow"]:
         return not under_threat and carried[identity] < 8
     if (identity == objective and not returning) or item.category == "food":
