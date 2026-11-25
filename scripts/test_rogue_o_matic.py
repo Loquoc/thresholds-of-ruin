@@ -429,6 +429,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(picture(0, 0, []))
                 self.assertEqual(choose(player, picture(100, strength, [hit]))[1], expected)
 
+    def test_reflected_damage_does_not_identify_an_unseen_effect_as_an_attack(self):
+        cells = [cell("here"), cell("west", -1)]
+        reflected = {"type": "ability", "caster": "player", "target": "player", "outcome": "applied",
+                     "ability": {"id": "rogue.wand_fire"}}
+        unseen = {"type": "unseen_ability", "target": "player", "outcome": "applied"}
+        for events, expected in (([unseen], ("here", 100)), ([reflected, unseen], None),
+                                 ([unseen, reflected], None)):
+            with self.subTest(events=events):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(player_turn(cells, combat={"hp": 10}))
+                player.observe(player_turn(cells, tick=100, combat={"hp": 8, "events": events}))
+                self.assertEqual(player.last_unseen_attack, expected)
+
     def test_unseen_cast_by_a_disclosed_hostile_keeps_the_bot_moving_after_contact_is_lost(self):
         tiles = [cell("stairs", down=True), cell("west", -1), cell("east", 1)]
         caster = {"id": "caster", "name": "phantom", "position": tiles[2]["position"]}

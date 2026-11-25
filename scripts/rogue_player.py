@@ -288,7 +288,8 @@ class Adventurer:
         if not turn.hostiles:
             self.scroll_trials.tried_in_encounter = False
             self.last_retreat_origin = None
-        if here and witnessed_unseen_attack(incoming, turn.hostiles, injured=injured_this_turn):
+        injury_from_incoming = attributable_loss > 0 or lasting_injury
+        if here and witnessed_unseen_attack(incoming, turn.hostiles, injured=injury_from_incoming):
             self.last_unseen_attack = here.key, turn.tick
 
     def observe_polymorph_resistance(self, outgoing: tuple[OutgoingAbility, ...]) -> None:
