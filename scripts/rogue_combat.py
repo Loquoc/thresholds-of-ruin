@@ -138,6 +138,18 @@ class MeleeExposure:
         return (below_half_health(health) or self.threatens(health, rounds=1)
                 or (surrounded and health.current * 4 < health.maximum * 3))
 
+    def healing_potion(self, turn: Turn) -> Item | None:
+        """For a minor injury, spend a dose only if it also treats an active condition."""
+        health = turn.health
+        injured = health is not None and health.current < health.maximum
+        if self.needs_healing(health) or (injured and turn.has_condition("rogue.blindness")):
+            return choose_healing_potion(turn, two_hit_threat=self.threatens(health, rounds=2))
+        if injured and turn.has_condition("rogue.hallucinating"):
+            dose = choose_healing_potion(turn, two_hit_threat=False)
+            if dose is not None and dose.identity == "item.potion.extra-healing":
+                return dose
+        return None
+
 
 @dataclass
 class OpponentHistory:

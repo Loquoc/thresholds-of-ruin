@@ -37,8 +37,9 @@ from tor_client_bot import (
     Zap,
 )
 
+from rogue_combat import choose_healing_potion as choose_healing_potion
 from rogue_combat import (
-    below_half_health, choose_healing_potion, choose_melee_attack, choose_projectile, includes_self_damage, recovery_deficit,
+    below_half_health, choose_melee_attack, choose_projectile, includes_self_damage, recovery_deficit,
     MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
@@ -379,13 +380,8 @@ class Adventurer:
     def survival_consumable(self, turn: Turn, exposure: MeleeExposure) -> tuple[UseItem, str] | None:
         """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
         health = turn.health
-        injured = health is not None and health.current < health.maximum
-        if exposure.needs_healing(health) or (injured and turn.has_condition("rogue.blindness")):
-            if potion := choose_healing_potion(turn, two_hit_threat=exposure.threatens(health, rounds=2)):
-                return UseItem(potion, ItemUse.DRINK), "heal"
-        elif injured and turn.has_condition("rogue.hallucinating"):
-            if extra := offered_item_use(turn, "item.potion.extra-healing", ItemUse.DRINK):
-                return extra, "heal"
+        if potion := exposure.healing_potion(turn):
+            return UseItem(potion, ItemUse.DRINK), "heal"
 
         if exposure.threatens(health, rounds=1):
             if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):

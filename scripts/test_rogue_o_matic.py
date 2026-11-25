@@ -4157,6 +4157,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 if expected:
                     self.assertEqual(action.item.identity, "item.potion.healing")
 
+    def test_overlapping_blindness_and_hallucination_allow_an_ordinary_healing_fallback(self):
+        doses = healing_potions()
+        conditions = [{"condition": {"id": identity, "name": identity}, "phase": "active", "remaining_ticks": 100}
+                      for identity in ("rogue.blindness", "rogue.hallucinating")]
+        for extra_offered, expected in ((True, "extra-healing"), (False, "healing")):
+            with self.subTest(extra_offered=extra_offered):
+                offers = [{"item": "healing", "drinkable": True}, {"item": "extra-healing", "drinkable": extra_offered}]
+                turn = player_turn([cell("here")], inventory=doses, combat={"hp": 8, "max_hp": 10},
+                                   stats={"conditions": conditions}, interactions={"inventory": offers})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.item.target, reason), (expected, "heal"))
+
     def test_minor_injury_and_hallucination_require_a_dose_that_can_treat_both(self):
         doses = healing_potions()
         hallucination = {"condition": {"id": "rogue.hallucinating", "name": "Hallucinating"},
