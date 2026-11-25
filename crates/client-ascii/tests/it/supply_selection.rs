@@ -1,4 +1,4 @@
-use tor_client_ascii::{App, Effect, Input, Key};
+use tor_client_ascii::{AimBand, App, Effect, Input, Key};
 use tor_client_common::{test_support, ClientState};
 use tor_protocol::*;
 
@@ -814,6 +814,236 @@ fn projectile_launch_queries_exact_launcher_ammunition_then_direction_and_previe
     assert_eq!(app.input(Input::Key { key: Key::Escape }), Effect::None);
     assert!(app.weapon_confirmation.is_none());
 }
+fn launch_app() -> App {
+    let mut app = projectile_app();
+    let mut snapshot = app.state.as_ref().unwrap().reset_snapshot().unwrap();
+    let ability = &mut std::sync::Arc::make_mut(&mut snapshot.state)
+        .observation
+        .combat
+        .as_mut()
+        .unwrap()
+        .own_stats
+        .as_mut()
+        .unwrap()
+        .abilities[0];
+    ability.id = "test.launch".into();
+    ability.name = "Launch".into();
+    app.set_state(ClientState::from_snapshot(snapshot).unwrap());
+    app.ready();
+    app
+}
+
+#[test]
+fn fire_auto_selects_the_sole_launcher_and_direction_submits_once() {
+    let mut app = launch_app();
+    let launcher = EquippedProjectileWeapon {
+        item: super::item_target(81),
+        socket: 10,
+    };
+    let ammo = super::item_target(80);
+    let query = projectile_query(app.input(Input::Key { key: Key::Fire }));
+    projectile_reply(
+        &mut app,
+        query,
+        vec![ProjectileChoice::Launcher { launcher }],
+        None,
+        "source",
+    );
+    let query = projectile_query(app.continue_fire());
+    assert_eq!(query.phase, ProjectileChoicePhase::Ammunition { launcher });
+    projectile_reply(
+        &mut app,
+        query,
+        vec![ProjectileChoice::Ammunition { item: ammo }],
+        None,
+        "ammo",
+    );
+    assert_eq!(app.continue_fire(), Effect::None);
+    assert_eq!(app.input(Input::Key { key: Key::Enter }), Effect::None);
+    let effect = app.input(Input::Key {
+        key: Key::NorthEast,
+    });
+    let Some(Request::Command {
+        command: Command::Act { action },
+        ..
+    }) = super::request(effect)
+    else {
+        panic!("direction should send a single paid action, not a preview");
+    };
+    assert!(
+        matches!(action, Action::UseAbility { invocation, .. } if invocation ==
+        AbilityInvocation::directional_projectile(Direction::NorthEast,
+            ProjectileDeliverySelection::Launch { launcher, ammunition: ammo }))
+    );
+    assert!(app.weapon_confirmation.is_none());
+    assert_eq!(app.input(Input::Key { key: Key::Enter }), Effect::None);
+}
+
+#[test]
+fn cell_aim_enter_submits_one_off_axis_action() {
+    let mut app = launch_app();
+    let launcher = EquippedProjectileWeapon {
+        item: super::item_target(81),
+        socket: 10,
+    };
+    let ammo = super::item_target(80);
+    let mut snapshot = app.state.as_ref().unwrap().reset_snapshot().unwrap();
+    let view = &mut std::sync::Arc::make_mut(&mut snapshot.state).observation;
+    view.known_item_uses = vec![KnownItemUse {
+        item: launcher.item,
+        identifies: vec![],
+        throw_range: None,
+        launch_range: Some(ProjectileRangeView {
+            short_cells: 2,
+            long_cells: 4,
+        }),
+    }];
+    view.visible_cells = (1..=5)
+        .filter(|x| *x != 4)
+        .map(|x| CellView {
+            position: Position { x, y: -1, z: 0 },
+            object_presentation: None,
+            lit: true,
+            door: None,
+            trap: None,
+            material: String::new(),
+            key: format!("aim-cell-{x}"),
+            stairs_up: false,
+            stairs_down: false,
+            wall: false,
+            place_hint: false,
+            asset: None,
+        })
+        .collect();
+    app.set_state(ClientState::from_snapshot(snapshot).unwrap());
+    app.ready();
+
+    let query = projectile_query(app.input(Input::Key { key: Key::Fire }));
+    projectile_reply(
+        &mut app,
+        query,
+        vec![ProjectileChoice::Launcher { launcher }],
+        None,
+        "source",
+    );
+    let query = projectile_query(app.continue_fire());
+    projectile_reply(
+        &mut app,
+        query,
+        vec![ProjectileChoice::Ammunition { item: ammo }],
+        None,
+        "ammo",
+    );
+    assert_eq!(app.input(Input::Key { key: Key::Enter }), Effect::None);
+    assert_eq!(app.input(Input::Key { key: Key::Tab }), Effect::None);
+    let press = |app: &mut App, key| app.input(Input::Key { key });
+    assert_eq!(app.projectile_cursor().unwrap().1, AimBand::Origin);
+    for (key, band) in [
+        (Key::NorthEast, AimBand::Short),
+        (Key::Right, AimBand::Short), // last short cell
+        (Key::Right, AimBand::Long),  // first long cell
+        (Key::Right, AimBand::Hidden),
+        (Key::Right, AimBand::Outside), // first out-of-range cell, even though visible
+    ] {
+        assert_eq!(
+            press(&mut app, key),
+            Effect::None,
+            "moving the cursor is free"
+        );
+        assert_eq!(app.projectile_cursor().unwrap().1, band);
+    }
+    assert_eq!(
+        press(&mut app, Key::Enter),
+        Effect::None,
+        "red cursor cannot fire"
+    );
+    assert_eq!(press(&mut app, Key::Left), Effect::None);
+    assert_eq!(
+        press(&mut app, Key::Enter),
+        Effect::None,
+        "hidden cells cannot fire"
+    );
+    for _ in 0..2 {
+        assert_eq!(press(&mut app, Key::Left), Effect::None);
+    }
+    let Some(Request::Command {
+        command: Command::Act { action },
+        ..
+    }) = super::request(app.input(Input::Key { key: Key::Enter }))
+    else {
+        panic!("Enter should submit the selected square without confirmation");
+    };
+    assert!(
+        matches!(action, Action::UseAbility { invocation, .. } if invocation ==
+        AbilityInvocation::cell_projectile([2, -1, 0],
+            ProjectileDeliverySelection::Launch { launcher, ammunition: ammo }))
+    );
+    assert!(app.weapon_confirmation.is_none());
+    assert_eq!(app.input(Input::Key { key: Key::Enter }), Effect::None);
+}
+
+#[test]
+fn quick_fire_checks_each_server_page_and_reuses_only_offered_quiver_ammunition() {
+    let mut app = launch_app();
+    let launcher = EquippedProjectileWeapon {
+        item: super::item_target(81),
+        socket: 10,
+    };
+    let preferred = super::item_target(80);
+    let arm = |app: &mut App, key, tag: &str| {
+        let query = projectile_query(app.input(Input::Key { key }));
+        projectile_reply(
+            app,
+            query,
+            vec![ProjectileChoice::Launcher { launcher }],
+            Some(128),
+            &format!("{tag}-source"),
+        );
+        let query = projectile_query(app.continue_fire());
+        assert_eq!(query.offset, 128);
+        projectile_reply(app, query, vec![], None, &format!("{tag}-empty-source"));
+        let query = projectile_query(app.continue_fire());
+        assert_eq!(query.phase, ProjectileChoicePhase::Ammunition { launcher });
+        assert_eq!(query.offset, 0);
+        query
+    };
+    let query = arm(&mut app, Key::Quiver, "quiver");
+    projectile_reply(
+        &mut app,
+        query,
+        vec![ProjectileChoice::Ammunition { item: preferred }],
+        None,
+        "preferred",
+    );
+    assert_eq!(app.input(Input::Key { key: Key::Enter }), Effect::None);
+    assert!(app.projectile_selection.is_none());
+
+    let query = arm(&mut app, Key::Fire, "matched");
+    projectile_reply(&mut app, query, vec![], Some(128), "empty-ammo");
+    let query = projectile_query(app.continue_fire());
+    assert_eq!(query.offset, 128);
+    projectile_reply(
+        &mut app,
+        query,
+        vec![ProjectileChoice::Ammunition { item: preferred }],
+        None,
+        "paged-preferred",
+    );
+    assert_eq!(app.continue_fire(), Effect::None);
+    assert!(app.projectile_prompt().is_some());
+    assert_eq!(app.input(Input::Key { key: Key::Escape }), Effect::None);
+
+    let first = arm(&mut app, Key::Fire, "unmatched");
+    projectile_reply(&mut app, first.clone(), vec![], Some(128), "no-ammo-1");
+    let second = projectile_query(app.continue_fire());
+    projectile_reply(&mut app, second, vec![], None, "no-ammo-2");
+    assert_eq!(projectile_query(app.continue_fire()), first);
+    projectile_reply(&mut app, first, vec![], None, "no-ammo-finished");
+    assert_eq!(app.continue_fire(), Effect::None);
+    assert!(app.projectile_prompt().is_none());
+    assert_eq!(app.input(Input::Key { key: Key::Right }), Effect::None);
+}
+
 #[test]
 fn fire_uses_server_source_pages_and_falls_back_once() {
     let mut app = projectile_app();

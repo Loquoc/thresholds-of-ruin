@@ -182,10 +182,15 @@ command. There is no numeric-keypad mode.
 | `.` or Space | Wait one action |
 | `s` | Use your disclosed Search ability on yourself. This is a paid action, unlike look; nothing is invented if Search is not granted |
 | `Z` | Choose a granted ability. Up/Down selects, Enter uses a self-only ability or opens its target/source picker, and Esc cancels; choosing is free |
-| `t` / `f` | Throw a carried weapon or Fire using a launcher or hand throw. Choose a source, direction, and confirm. In Fire, Tab switches source types when both are available |
+| `f` | Fire with your equipped launcher. The sole launcher is selected automatically. If a quivered stack is still compatible, choose a direction to fire once. Otherwise choose ammunition, then aim or cancel with Esc. At the direction prompt, Tab switches to a map cursor: teal is short range, gold is long range, and red cannot fire. Move to a visible square and press Enter once to fire; Tab switches back |
+| `#quiver` | Select preferred ammunition for your equipped launcher without aiming or spending a turn. Fire reuses the stack until it is gone or no longer compatible |
+| `t` | Choose a disclosed hand-throw source and direction, then confirm. Fire can fall back to hand throws if no launcher choice is available |
 | `,` | Pick up. A lone object is taken at once; otherwise choose by letter (digits first set a count) |
 | `d` | Drop: choose by inventory letter, digits first set a count |
-| `w` / `W` / `P` | Equip a weapon / armor / accessory; always asks, by inventory letter |
+| `w` | Wield a carried weapon, choosing it by inventory letter. If the socket is occupied, the client removes the old weapon, then equips the new one using normal timing. These are two server actions. Esc stops the shortcut, not a submitted action; if the second step is refused, the socket can be empty. Use `#equip` to fill a free secondary socket instead |
+| `#secondary` | Choose a carried secondary weapon for this client session. The inventory marks the selection; setting it costs no turn |
+| `x` | Swap the wielded and secondary weapons using the same Wield shortcut. The secondary choice changes only after the new weapon is equipped |
+| `W` / `P` | Equip armor / an accessory; always asks, by inventory letter |
 | `T` / `R` | Remove armor / an accessory; always asks, by inventory letter |
 | `q` / `e` | Drink / eat: choose by inventory letter |
 | `r` / `z` | Read a carried item / select a device then a direction; F6 / F12 remain aliases |
@@ -231,9 +236,9 @@ the same server authority checks. Tab completes a unique command-name prefix.
 Enter confirms the command. Opening, completing or cancelling the editor costs no turn.
 
 Unsupported NetHack mechanics are not bound to unrelated actions: force-fighting
-an empty square, automatic pickup, weapon swapping, two-weapon toggling, kicking,
+an empty square, automatic pickup, two-weapon mode, kicking,
 and count-prefixed repeated commands are not added by this layout. In particular,
-`@`, `x`, and `X` do not toggle any of those mechanics. `a` applies only portable
+`@` and `X` do not toggle any of those mechanics. `a` applies only portable
 lights; it does not break a wand or invent other tool uses. `Z` lists all disclosed
 non-basic abilities, not a client-inferred spell list. Search, Throw and Launch
 shortcuts require unambiguous current grants of the appropriate target kind.

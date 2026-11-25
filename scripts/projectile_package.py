@@ -12,7 +12,7 @@ from arena_matrix import toml_source
 from rogue_roster_package import PRODUCTION, encounter
 
 
-def projectile_package(test, *, short_ranges=False):
+def projectile_package(test, *, short_ranges=False, primary_dagger=False, cursed_dagger=False, offhand_mace=False):
     manifest, region = encounter("emu", height=6 if short_ranges else 2)
     manifest["id"] = "projectile-client-acceptance"
     character = manifest["characters"][0]
@@ -20,10 +20,12 @@ def projectile_package(test, *, short_ranges=False):
     # Socket 10 is the ordinary secondary weapon socket. Its nonzero Focus
     # price makes cancellation/payment observable with unchanged Rogue rules.
     character["loadout"] = [
-        {"archetype": "rogue.dagger", "quantity": 1, "equipped_slot": 10},
+        {"archetype": "rogue.dagger", "quantity": 1, "equipped_slot": 0 if primary_dagger else 10},
         {"archetype": "rogue.shortbow", "quantity": 1},
         {"archetype": "rogue.arrow", "quantity": 6},
     ]
+    if offhand_mace:
+        character["loadout"].append({"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 10})
     package = test.directory / "projectile-client-acceptance"
     (package / "regions").mkdir(parents=True)
     (package / "catalog").mkdir()
@@ -41,6 +43,8 @@ def projectile_package(test, *, short_ranges=False):
     items = tomllib.loads(items_path.read_text(encoding="utf-8"))
     for name in ("rogue.dagger", "rogue.shortbow"):
         items["items"][name].pop("equipment_generation")
+    if cursed_dagger:
+        items["items"]["rogue.dagger"]["equipment_generation"] = {"kind": "cursed"}
     if short_ranges:
         # Keep the inside and outside boundaries of both deliveries in sight.
         dagger = items["items"]["rogue.dagger"]["equipment"]["weapon_profile"]

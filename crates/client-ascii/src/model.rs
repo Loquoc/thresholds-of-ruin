@@ -11,6 +11,81 @@ use tor_protocol::*;
 
 mod controls;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AimBand {
+    Origin,
+    Hidden,
+    Short,
+    Long,
+    Outside,
+}
+impl AimBand {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Origin => "Choose a square other than your own",
+            Self::Hidden => "Choose a visible square",
+            Self::Short => "Short range",
+            Self::Long => "Long range",
+            Self::Outside => "Out of range",
+        }
+    }
+
+    fn permits_shot(self) -> bool {
+        matches!(self, Self::Short | Self::Long)
+    }
+}
+
+struct ProjectileCursor {
+    // The observation is pinned by the projectile picker.
+    origin: Position,
+    position: Position,
+    range: ProjectileRangeView,
+    visible: std::collections::BTreeSet<Position>,
+}
+impl ProjectileCursor {
+    fn offset(&self) -> [i32; 3] {
+        [
+            self.position.x - self.origin.x,
+            self.position.y - self.origin.y,
+            self.position.z - self.origin.z,
+        ]
+    }
+
+    fn band(&self) -> AimBand {
+        let cells = self
+            .offset()
+            .into_iter()
+            .map(i32::unsigned_abs)
+            .max()
+            .unwrap_or(0);
+        match cells {
+            0 => AimBand::Origin,
+            cells if cells > self.range.long_cells => AimBand::Outside,
+            _ if !self.visible.contains(&self.position) => AimBand::Hidden,
+            cells if cells <= self.range.short_cells => AimBand::Short,
+            _ => AimBand::Long,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProjectileShortcut {
+    Manual,
+    Fire,
+    Quiver,
+}
+
+struct PendingWeaponSwap {
+    incoming: ItemTarget,
+    removing: bool,
+    update_secondary: bool,
+    outgoing: ItemTarget,
+    slot: u16,
+    intention: Option<IntentionId>,
+    resolved: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Key {
@@ -23,8 +98,11 @@ pub enum Key {
     Search,
     Throw,
     Fire,
+    Quiver,
     Apply,
     Wield,
+    SetSecondaryWeapon,
+    SwapWeapon,
     Wear,
     PutOn,
     TakeOff,
@@ -197,10 +275,18 @@ pub struct App {
     pub weapon_confirmation: Option<tor_client_common::weapon_preview::WeaponPreview>,
     pub projectile_selection: Option<tor_client_common::projectiles::ProjectileMenu>,
     fire_alternate: Option<String>,
-    fire_auto_switch: bool,
+    projectile_cursor: Option<ProjectileCursor>,
+    projectile_shortcut: ProjectileShortcut,
+    /// Sole candidate seen so far during the server-authoritative source scan.
+    launcher_candidate: Option<EquippedProjectileWeapon>,
+    scan_launchers: bool,
+    quiver: Option<ItemTarget>,
     /// The look cursor, while choosing a cell to describe.
     pub look_cursor: Option<Position>,
     pub inventory_open: bool,
+    secondary_weapon: Option<ItemTarget>,
+    choosing_secondary_weapon: bool,
+    weapon_swap: Option<PendingWeaponSwap>,
     pub help_page: Option<HelpPage>,
     pub discovery_rows: Option<Vec<String>>,
     pub discovery_scroll: usize,
@@ -289,9 +375,16 @@ impl App {
             weapon_confirmation: None,
             projectile_selection: None,
             fire_alternate: None,
-            fire_auto_switch: false,
+            projectile_cursor: None,
+            projectile_shortcut: ProjectileShortcut::Manual,
+            launcher_candidate: None,
+            scan_launchers: false,
+            quiver: None,
             look_cursor: None,
             inventory_open: false,
+            secondary_weapon: None,
+            choosing_secondary_weapon: false,
+            weapon_swap: None,
             help_page: None,
             discovery_rows: None,
             discovery_scroll: 0,
@@ -369,6 +462,10 @@ impl App {
             .as_ref()
             .map(|s| (s.branch().clone(), s.state().revision));
         self.state = Some(state);
+        self.quiver = None;
+        self.secondary_weapon = None;
+        self.close_secondary_weapon_picker();
+        self.weapon_swap = None;
         self.submitted = None;
         // A new transport owner has no matching local chart selection.
         self.charts.clear();
@@ -403,6 +500,18 @@ impl App {
                         |reason| reason.message(),
                     ),
                 ))
+            }
+            _ => None,
+        };
+        let swap_phase = match &update.body {
+            UpdateBody::Intention { status, .. }
+                if self
+                    .weapon_swap
+                    .as_ref()
+                    .and_then(|swap| swap.intention.as_ref())
+                    == Some(&status.intention) =>
+            {
+                Some(status.phase)
             }
             _ => None,
         };
@@ -520,6 +629,7 @@ impl App {
         self.strike_detail_open = false;
         self.inspection = None;
         self.state_changed(old);
+        self.observe_weapon_swap(swap_phase);
         if self.role == AccessRole::Player {
             if let Some((failed, message)) = action_message {
                 if failed {
@@ -549,6 +659,8 @@ impl App {
             .map(|_| controls::MovementPrefix::Cancelled);
         self.effect_animations.clear();
         self.submitted = None;
+        self.weapon_swap = None;
+        self.close_secondary_weapon_picker();
         // Recovery cancels the transport's chart request. Return to the catalog
         // only after validation succeeds rather than leaving a loading selection
         // that has no corresponding worker query.
@@ -578,7 +690,7 @@ impl App {
             .as_ref()
             .is_some_and(|menu| self.state.as_ref().is_none_or(|state| !menu.current(state)))
         {
-            self.projectile_selection = None;
+            self.close_projectile_picker();
             self.status = "Projectile choices changed; choose the ability again.".into();
         }
         if self.weapon_confirmation.as_ref().is_some_and(|preview| {
@@ -648,6 +760,10 @@ impl App {
             self.messages.begin_turn();
             self.messages.reset_sightings();
             self.message_log = None;
+            self.quiver = None;
+            self.secondary_weapon = None;
+            self.choosing_secondary_weapon = false;
+            self.weapon_swap = None;
             self.status = "Timeline changed; pending selections cleared.".into();
         }
         if old.is_some_and(|(_, revision)| revision != state.state().revision) {
@@ -670,6 +786,8 @@ impl App {
             self.travel_cursor = None;
         }
         if !state.has_control() {
+            self.choosing_secondary_weapon = false;
+            self.weapon_swap = None;
             self.movement_prefix = self
                 .movement_prefix
                 .map(|_| controls::MovementPrefix::Cancelled);
@@ -695,6 +813,8 @@ impl App {
             .iter()
             .map(|item| item.id)
             .collect();
+        // The preference is local, but its item must still be in this owner's picture.
+        self.quiver = self.quiver.filter(|item| carried.contains(item));
         self.letters.retain(|item, _| carried.contains(item));
         for item in &state.state().observation.inventory {
             if !self.letters.contains_key(&item.id) {
@@ -717,7 +837,12 @@ impl App {
     /// The server refused a request: stop any run and say why, in terms of
     /// what the player tried.
     pub fn refused(&mut self, status: String) {
-        self.projectile_selection = None;
+        let status = if self.weapon_swap.take().is_some_and(|swap| !swap.removing) {
+            format!("The old weapon was removed, but the new weapon was not equipped. {status}")
+        } else {
+            status
+        };
+        self.close_projectile_picker();
         self.weapon_confirmation = None;
         if self.advancement_open {
             self.advancement_pages.invalidate();
@@ -743,16 +868,8 @@ impl App {
             return false;
         };
         let o = &state.state().observation;
-        let (dx, dy) = match direction {
-            Direction::North => (0, -1),
-            Direction::South => (0, 1),
-            Direction::East => (1, 0),
-            Direction::West => (-1, 0),
-            Direction::NorthEast => (1, -1),
-            Direction::SouthEast => (1, 1),
-            Direction::SouthWest => (-1, 1),
-            Direction::NorthWest => (-1, -1),
-            Direction::Up | Direction::Down => return false,
+        let Some((dx, dy)) = horizontal_step(direction) else {
+            return false;
         };
         let (Some(x), Some(y)) = (o.position.x.checked_add(dx), o.position.y.checked_add(dy))
         else {
@@ -877,6 +994,13 @@ impl App {
     }
 
     pub fn note_admission(&mut self, receipt: &RequestReceipt) {
+        if let (Some(swap), RequestReceipt::Admitted { intention, .. }) =
+            (&mut self.weapon_swap, receipt)
+        {
+            if swap.intention.is_none() {
+                swap.intention = Some(intention.clone());
+            }
+        }
         self.submitted = tor_client_common::compositor::AdmissionBoundary::new(receipt)
             .map(|work| (work, false));
     }
@@ -925,6 +1049,8 @@ impl App {
     }
 
     pub fn disconnect(&mut self, message: String) {
+        self.weapon_swap = None;
+        self.choosing_secondary_weapon = false;
         self.discovery_rows = None;
         self.command_line = None;
         self.movement_prefix = self
@@ -933,7 +1059,7 @@ impl App {
         self.applying = false;
         self.charts.clear();
         self.charts_open = false;
-        self.projectile_selection = None;
+        self.close_projectile_picker();
         self.close_advancement();
         self.travel_cursor = None;
         self.place_name = None;
@@ -2132,6 +2258,13 @@ impl App {
     /// Reduce input through the active modal screen before ordinary map controls.
     /// Returns an effect for the shell; it neither sends nor executes a game action.
     pub fn input(&mut self, input: Input) -> Effect {
+        if self.weapon_swap.is_some() {
+            if matches!(input, Input::Key { key: Key::Escape }) {
+                self.weapon_swap = None;
+                self.status = "Stopped the Wield shortcut. Already submitted actions still follow normal timing.".into();
+            }
+            return Effect::None;
+        }
         if matches!(
             input,
             Input::Key {
@@ -2864,6 +2997,24 @@ impl App {
                         };
                     }
                     if let Some(operation) = self.item_operation.take() {
+                        if std::mem::take(&mut self.choosing_secondary_weapon) {
+                            self.pickup.clear();
+                            let view = &self
+                                .state
+                                .as_ref()
+                                .expect("connected state")
+                                .state()
+                                .observation;
+                            if let Some(chosen) = item_choices(view, ItemOperation::Wield)
+                                .find(|candidate| candidate.id == item)
+                            {
+                                self.secondary_weapon = Some(item);
+                                self.status = format!("Secondary weapon: {}.", chosen.name);
+                            } else {
+                                self.status = "That weapon is no longer available.".into();
+                            }
+                            return Effect::None;
+                        }
                         if operation == ItemOperation::Zap {
                             let state = self.state.as_ref().expect("connected state");
                             if !item_choices(&state.state().observation, operation)
@@ -2900,6 +3051,10 @@ impl App {
                             self.status = if dual { "Zap in which direction? Movement keys select; . targets yourself; Esc cancels." }
                                 else { "Zap in which direction? Movement keys select; Esc cancels." }.into();
                             return Effect::None;
+                        }
+                        if operation == ItemOperation::Wield {
+                            self.pickup.clear();
+                            return self.wield_weapon(item, false);
                         }
                         let result = item_action(
                             &self
@@ -3082,13 +3237,29 @@ impl App {
             }
             Key::Search => self.named_ability("search", AbilityTargetKind::SelfOnly),
             Key::Throw => self.named_ability("throw", AbilityTargetKind::DirectionalProjectile),
-            Key::Fire => self.fire(),
+            Key::Fire => self.open_projectile_shortcut(ProjectileShortcut::Fire),
+            Key::Quiver => self.open_projectile_shortcut(ProjectileShortcut::Quiver),
             Key::Apply => self.open_apply_picker(),
+            Key::SetSecondaryWeapon => {
+                if self.weapon_swap.is_some() {
+                    self.status = "The previous weapon swap is still pending.".into();
+                    return Effect::None;
+                }
+                let effect = self.open_item_picker(ItemOperation::Wield, Some(Key::Wield));
+                self.choosing_secondary_weapon =
+                    self.item_operation == Some(ItemOperation::Wield) && !self.pickup.is_empty();
+                if self.choosing_secondary_weapon {
+                    self.status =
+                        "Choose a secondary weapon by inventory letter; Esc cancels.".into();
+                }
+                effect
+            }
+            Key::SwapWeapon => self.swap_weapon(),
             Key::Wield | Key::Wear | Key::PutOn | Key::TakeOff | Key::RemoveAccessory => {
-                let operation = if matches!(key, Key::TakeOff | Key::RemoveAccessory) {
-                    ItemOperation::Unequip
-                } else {
-                    ItemOperation::Equip
+                let operation = match key {
+                    Key::Wield => ItemOperation::Wield,
+                    Key::TakeOff | Key::RemoveAccessory => ItemOperation::Unequip,
+                    _ => ItemOperation::Equip,
                 };
                 self.open_item_picker(operation, Some(key))
             }
@@ -3461,7 +3632,159 @@ impl App {
         self.command(command)
     }
 
-    fn fire(&mut self) -> Effect {
+    pub(crate) fn secondary_weapon_hint(&self) -> String {
+        let Some(item) = self.secondary_weapon else {
+            return "Esc or i closes; no secondary weapon chosen".into();
+        };
+        if let Some(name) = self
+            .state
+            .as_ref()
+            .and_then(|state| {
+                state
+                    .state()
+                    .observation
+                    .inventory
+                    .iter()
+                    .find(|row| row.id == item)
+            })
+            .map(|row| row.name.as_str())
+        {
+            format!("Esc or i closes; secondary: {name} (x)")
+        } else {
+            "Esc or i closes; secondary weapon unavailable".into()
+        }
+    }
+
+    fn close_secondary_weapon_picker(&mut self) {
+        if std::mem::take(&mut self.choosing_secondary_weapon) {
+            self.item_operation = None;
+            self.pickup.clear();
+        }
+    }
+
+    fn swap_weapon(&mut self) -> Effect {
+        let Some(incoming) = self.secondary_weapon else {
+            self.status = "No secondary weapon chosen. Use #secondary.".into();
+            return Effect::None;
+        };
+        self.wield_weapon(incoming, true)
+    }
+
+    fn wield_weapon(&mut self, incoming: ItemTarget, update_secondary: bool) -> Effect {
+        let Some(state) = self.state.as_ref() else {
+            return Effect::None;
+        };
+        if !state.observation_current() || !state.character_ready() {
+            self.status = "Wait until your character is ready to wield a weapon.".into();
+            return Effect::None;
+        }
+        let view = &state.state().observation;
+        let action = match item_action(view, incoming, ItemOperation::Wield) {
+            Ok(action @ Action::Equip { .. }) => action,
+            Err(reason) => {
+                self.status = reason;
+                return Effect::None;
+            }
+            _ => unreachable!("Wield submits an equip"),
+        };
+        let Action::Equip { slot, .. } = action else {
+            unreachable!()
+        };
+        let Some(outgoing) = weapon_in_socket(view, slot) else {
+            if update_secondary {
+                self.status = "Nothing is wielded to swap. Wield a primary weapon first.".into();
+                return Effect::None;
+            }
+            return self.act(action);
+        };
+        let effect = self.act(Action::Unequip { item: outgoing });
+        if matches!(effect, Effect::Request(_)) {
+            self.weapon_swap = Some(PendingWeaponSwap {
+                incoming,
+                removing: true,
+                update_secondary,
+                outgoing,
+                slot,
+                intention: None,
+                resolved: false,
+            });
+        }
+        effect
+    }
+
+    fn observe_weapon_swap(&mut self, phase: Option<IntentionPhase>) {
+        let Some(swap) = self.weapon_swap.as_mut() else {
+            return;
+        };
+        match phase {
+            Some(
+                IntentionPhase::Cancelled
+                | IntentionPhase::Failed
+                | IntentionPhase::Paused
+                | IntentionPhase::Suspended,
+            ) => {
+                // Never resume the client shortcut automatically. The ordinary
+                // server action can still be resumed at the player's direction.
+                self.weapon_swap = None;
+            }
+            Some(IntentionPhase::Resolved) => swap.resolved = true,
+            _ => {}
+        }
+    }
+
+    pub fn continue_weapon_swap(&mut self) -> Effect {
+        let Some(state) = self.state.as_ref() else {
+            return Effect::None;
+        };
+        if self.busy
+            || !state.has_control()
+            || !state.observation_current()
+            || !state.character_ready()
+            || !state.can_admit_intention()
+            || !self.weapon_swap.as_ref().is_some_and(|swap| swap.resolved)
+        {
+            return Effect::None;
+        }
+        let Some(mut swap) = self.weapon_swap.take() else {
+            return Effect::None;
+        };
+        let view = &state.state().observation;
+        let held = weapon_in_socket(view, swap.slot);
+        if !swap.removing {
+            // The matching completion may have minted a singleton for a stack.
+            if held.is_some() && swap.update_secondary {
+                self.secondary_weapon = view
+                    .inventory
+                    .iter()
+                    .any(|item| item.id == swap.outgoing)
+                    .then_some(swap.outgoing);
+            }
+            return Effect::None;
+        }
+        if held.is_some() {
+            self.status = "Wield stopped: the weapon socket is still occupied.".into();
+            return Effect::None;
+        }
+        let action = Action::Equip {
+            item: swap.incoming,
+            slot: swap.slot,
+        };
+        if item_action(view, swap.incoming, ItemOperation::Wield).as_ref() != Ok(&action) {
+            self.status =
+                "Old weapon removed. The new weapon is no longer available for that socket.".into();
+            return Effect::None;
+        }
+        swap.removing = false;
+        swap.resolved = false;
+        swap.intention = None;
+        let effect = self.act(action);
+        if matches!(effect, Effect::Request(_)) {
+            self.weapon_swap = Some(swap);
+        }
+        effect
+    }
+
+    fn open_projectile_shortcut(&mut self, shortcut: ProjectileShortcut) -> Effect {
         let Some(state) = &self.state else {
             return Effect::None;
         };
@@ -3477,37 +3800,100 @@ impl App {
                 .map(|(ability, _)| ability.clone())
         };
         let launch = ability("launch");
-        let throw = ability("throw");
-        match (launch, throw) {
-            (Some(launch), Some(throw)) => {
-                let effect = self.choose_ability(launch);
-                if effect != Effect::None {
-                    self.fire_alternate = Some(throw.id);
-                    self.fire_auto_switch = true;
-                }
-                effect
+        let throw = (shortcut == ProjectileShortcut::Fire)
+            .then(|| ability("throw"))
+            .flatten();
+        if let Some(launch) = launch {
+            let effect = self.choose_ability(launch);
+            if effect != Effect::None {
+                self.projectile_shortcut = shortcut;
+                self.scan_launchers = true;
+                self.fire_alternate = throw.map(|ability| ability.id);
             }
-            (Some(ability), None) | (None, Some(ability)) => self.choose_ability(ability),
-            (None, None) => self.named_ability("launch", AbilityTargetKind::DirectionalProjectile),
+            effect
+        } else if let Some(throw) = throw {
+            self.choose_ability(throw)
+        } else {
+            self.named_ability("launch", AbilityTargetKind::DirectionalProjectile)
         }
     }
 
-    /// After the initial launcher reply, fall back to hand throws if there are no launchers.
+    /// Follow accepted server pages, never inferring launcher or ammo eligibility.
     pub fn continue_fire(&mut self) -> Effect {
         use tor_client_common::projectiles::Step;
-        if self.busy || !self.fire_auto_switch {
+        if self.busy || self.projectile_shortcut == ProjectileShortcut::Manual {
             return Effect::None;
         }
-        self.fire_auto_switch = false;
-        if self.projectile_selection.as_ref().is_some_and(|menu| {
-            menu.step() == Step::Choices
-                && menu.choices().is_empty()
-                && !menu.has_previous()
-                && !menu.has_next()
-        }) {
-            return self.switch_fire_source();
+        let (Some(state), Some(menu)) = (&self.state, &mut self.projectile_selection) else {
+            return Effect::None;
+        };
+        if menu.step() != Step::Choices {
+            return Effect::None;
         }
-        Effect::None
+        let command = match menu.query().map(|query| query.phase) {
+            Some(ProjectileChoicePhase::Sources {}) if self.scan_launchers => {
+                for choice in menu.choices() {
+                    if let ProjectileChoice::Launcher { launcher } = choice {
+                        if self.launcher_candidate.replace(*launcher).is_some() {
+                            self.scan_launchers = false;
+                            return Effect::None; // Multiple launchers retain the explicit picker.
+                        }
+                    }
+                }
+                if menu.has_next() {
+                    menu.next(state)
+                } else {
+                    self.scan_launchers = false;
+                    if let Some(launcher) = self.launcher_candidate.take() {
+                        menu.launcher_ammunition(state, launcher)
+                    } else if self.fire_alternate.is_some() {
+                        return self.switch_fire_source();
+                    } else {
+                        return Effect::None;
+                    }
+                }
+            }
+            Some(ProjectileChoicePhase::Ammunition { .. }) => {
+                if let Some(preferred) = self
+                    .quiver
+                    .filter(|_| self.projectile_shortcut == ProjectileShortcut::Fire)
+                {
+                    if let Some(index) = menu
+                        .choices()
+                        .iter()
+                        .position(|row| row.item() == preferred)
+                    {
+                        return self.select_projectile_choice(index);
+                    }
+                    if menu.has_next() {
+                        menu.next(state)
+                    } else {
+                        self.quiver = None;
+                        if menu.has_previous() {
+                            menu.first(state)
+                        } else {
+                            return Effect::None;
+                        }
+                    }
+                } else if menu.choices().is_empty() && menu.has_next() {
+                    menu.next(state)
+                } else {
+                    return Effect::None;
+                }
+            }
+            _ => return Effect::None,
+        };
+        match command {
+            Ok(command) => {
+                self.selected = 0;
+                self.command(command)
+            }
+            Err(reason) => {
+                self.close_projectile_picker();
+                self.status = reason;
+                Effect::None
+            }
+        }
     }
 
     fn switch_fire_source(&mut self) -> Effect {
@@ -3526,9 +3912,17 @@ impl App {
         effect
     }
 
+    fn close_projectile_picker(&mut self) {
+        self.projectile_selection = None;
+        self.projectile_cursor = None;
+    }
+
     fn open_projectile_picker(&mut self, ability: &str) -> Effect {
+        self.projectile_cursor = None;
         self.fire_alternate = None;
-        self.fire_auto_switch = false;
+        self.projectile_shortcut = ProjectileShortcut::Manual;
+        self.scan_launchers = false;
+        self.launcher_candidate = None;
         let Some(state) = &self.state else {
             return Effect::None;
         };
@@ -3569,6 +3963,12 @@ impl App {
         self.selected = 0;
         self.status = if menu.choices().is_empty() && !menu.has_previous() && !menu.has_next() {
             "No eligible projectile choices. Enter or Esc closes."
+        } else if matches!(page.query.phase, ProjectileChoicePhase::Ammunition { .. }) {
+            if self.projectile_shortcut == ProjectileShortcut::Quiver {
+                "Choose ammunition to quiver. Left/Right pages; Esc cancels."
+            } else {
+                "Choose compatible ammunition. Left/Right pages; Esc cancels."
+            }
         } else {
             "Choose a source. Left/Right pages; Esc cancels."
         }
@@ -3601,15 +4001,128 @@ impl App {
         }
         rows
     }
+    fn select_projectile_choice(&mut self, index: usize) -> Effect {
+        let state = self
+            .state
+            .as_ref()
+            .expect("projectile choice has current state");
+        let menu = self
+            .projectile_selection
+            .as_mut()
+            .expect("projectile picker");
+        match menu.choose(state, index) {
+            Ok(Some(command)) => {
+                self.selected = 0;
+                self.command(command)
+            }
+            Ok(None) => {
+                if self.projectile_shortcut != ProjectileShortcut::Manual {
+                    if let Some(ProjectileDeliverySelection::Launch { ammunition, .. }) =
+                        menu.delivery()
+                    {
+                        self.quiver = Some(ammunition);
+                        if self.projectile_shortcut == ProjectileShortcut::Quiver {
+                            self.close_projectile_picker();
+                            self.status = "Ammunition quivered.".into();
+                            return Effect::None;
+                        }
+                    }
+                }
+                self.status = "Choose a direction. Movement keys select; Esc cancels.".into();
+                Effect::None
+            }
+            Err(reason) => {
+                self.status = reason;
+                Effect::None
+            }
+        }
+    }
+
+    fn submit_aimed_projectile(&mut self, action: Result<Action, String>, quick: bool) -> Effect {
+        self.close_projectile_picker();
+        match action {
+            Ok(action) if quick => self.act_confirmed(action),
+            Ok(action) => self.act(action),
+            Err(reason) => {
+                self.status = reason;
+                Effect::None
+            }
+        }
+    }
+
+    pub fn projectile_cursor(&self) -> Option<(Position, AimBand)> {
+        let cursor = self.projectile_cursor.as_ref()?;
+        Some((cursor.position, cursor.band()))
+    }
+
+    fn open_projectile_cursor(&mut self) {
+        let (Some(state), Some(menu)) = (&self.state, &self.projectile_selection) else {
+            return;
+        };
+        let Some(range) = menu.range(state) else {
+            self.status = "This projectile's cell range is not disclosed. Use a direction.".into();
+            return;
+        };
+        let view = &state.state().observation;
+        let origin = view.position;
+        self.projectile_cursor = Some(ProjectileCursor {
+            origin,
+            position: origin,
+            range,
+            visible: view
+                .visible_cells
+                .iter()
+                .filter_map(|cell| (cell.position.z == origin.z).then_some(cell.position))
+                .collect(),
+        });
+    }
+
+    fn projectile_cursor_input(&mut self, input: Input) -> Effect {
+        let cursor = self.projectile_cursor.as_mut().expect("aiming cursor");
+        let state = self
+            .state
+            .as_ref()
+            .expect("picker has a current observation");
+        match input {
+            Input::Key { key: Key::Tab } => {
+                self.projectile_cursor = None;
+            }
+            Input::Key { key: Key::Enter } => {
+                if !cursor.band().permits_shot() {
+                    return Effect::None;
+                }
+                let menu = self.projectile_selection.as_ref().expect("aiming picker");
+                let action = menu.cell_action(state, cursor.offset());
+                return self.submit_aimed_projectile(action, true);
+            }
+            Input::Key { key } => {
+                if let Some((dx, dy)) = key.step_direction().and_then(horizontal_step) {
+                    cursor.position.x = cursor.position.x.saturating_add(dx);
+                    cursor.position.y = cursor.position.y.saturating_add(dy);
+                    cursor.position =
+                        crate::map::clamp(&state.state().observation, cursor.position);
+                }
+            }
+            Input::Click { x, y } => {
+                if let Some((dx, dy)) = crate::map::column_at(x, y) {
+                    cursor.position.x = cursor.origin.x.saturating_add(dx);
+                    cursor.position.y = cursor.origin.y.saturating_add(dy);
+                }
+            }
+            Input::Text { .. } => {}
+        }
+        Effect::None
+    }
+
     fn projectile_input(&mut self, input: Input) -> Effect {
         use tor_client_common::projectiles::Step;
         if matches!(input, Input::Key { key: Key::Escape }) {
-            self.projectile_selection = None;
+            self.close_projectile_picker();
             self.status = "Never mind.".into();
             return Effect::None;
         }
         let Some(state) = self.state.as_ref() else {
-            self.projectile_selection = None;
+            self.close_projectile_picker();
             return Effect::None;
         };
         let menu = self
@@ -3617,25 +4130,25 @@ impl App {
             .as_mut()
             .expect("projectile picker");
         if !menu.current(state) {
-            self.projectile_selection = None;
+            self.close_projectile_picker();
             self.status = "Projectile choices changed; choose the ability again.".into();
             return Effect::None;
         }
         if self.busy {
             return Effect::None;
         }
+        if self.projectile_cursor.is_some() {
+            return self.projectile_cursor_input(input);
+        }
+        if menu.step() == Step::Direction && matches!(input, Input::Key { key: Key::Tab }) {
+            self.open_projectile_cursor();
+            return Effect::None;
+        }
         if menu.step() == Step::Direction {
             if let Input::Click { x, y } = input {
                 if let Some(position) = crate::render::known_cell_at(state, x, y) {
                     let action = menu.cell_action(state, [position.x, position.y, position.z]);
-                    self.projectile_selection = None;
-                    return match action {
-                        Ok(action) => self.act(action),
-                        Err(reason) => {
-                            self.status = reason;
-                            Effect::None
-                        }
-                    };
+                    return self.submit_aimed_projectile(action, false);
                 }
                 return Effect::None;
             }
@@ -3646,14 +4159,8 @@ impl App {
         if menu.step() == Step::Direction {
             if let Some(direction) = key.step_direction() {
                 let action = menu.action(state, direction);
-                self.projectile_selection = None;
-                return match action {
-                    Ok(action) => self.act(action),
-                    Err(reason) => {
-                        self.status = reason;
-                        Effect::None
-                    }
-                };
+                let quick = self.projectile_shortcut == ProjectileShortcut::Fire;
+                return self.submit_aimed_projectile(action, quick);
             }
             return Effect::None;
         }
@@ -3676,11 +4183,11 @@ impl App {
                 return self.switch_fire_source();
             }
             Key::Enter if menu.choices().is_empty() && !menu.has_previous() && !menu.has_next() => {
-                self.projectile_selection = None;
+                self.close_projectile_picker();
                 self.status = "Never mind.".into();
                 return Effect::None;
             }
-            Key::Enter => menu.choose(state, self.selected),
+            Key::Enter => return self.select_projectile_choice(self.selected),
             _ => return Effect::None,
         };
         match command {
@@ -3688,10 +4195,7 @@ impl App {
                 self.selected = 0;
                 self.command(command)
             }
-            Ok(None) => {
-                self.status = "Choose a direction. Movement keys select; Esc cancels.".into();
-                Effect::None
-            }
+            Ok(None) => Effect::None,
             Err(reason) => {
                 self.status = reason;
                 Effect::None
@@ -3773,7 +4277,25 @@ impl App {
             });
         }
         let delivery = self.projectile_selection.as_ref()?.delivery()?;
-        Some(format!("{}. Choose a direction.", action(delivery)))
+        if let Some(cursor) = &self.projectile_cursor {
+            let band = cursor.band();
+            let confirm = if band.permits_shot() {
+                " Enter fires."
+            } else {
+                ""
+            };
+            return Some(format!(
+                "{}: {}. Move cursor;{confirm} Tab switches to direction. Esc cancels.",
+                action(delivery),
+                band.label()
+            ));
+        }
+        let hint = if self.status.starts_with("This projectile's cell range") {
+            self.status.as_str()
+        } else {
+            "Choose a direction; Tab aims at a square."
+        };
+        Some(format!("{}. {hint}", action(delivery)))
     }
 
     pub fn weapon_preview_rows(&self) -> Vec<String> {
@@ -4063,6 +4585,20 @@ pub fn history_lines(entries: &[HistoryEntry]) -> Vec<String> {
         .collect()
 }
 
+fn horizontal_step(direction: Direction) -> Option<(i32, i32)> {
+    Some(match direction {
+        Direction::North => (0, -1),
+        Direction::South => (0, 1),
+        Direction::East => (1, 0),
+        Direction::West => (-1, 0),
+        Direction::NorthEast => (1, -1),
+        Direction::SouthEast => (1, 1),
+        Direction::SouthWest => (-1, 1),
+        Direction::NorthWest => (-1, -1),
+        Direction::Up | Direction::Down => return None,
+    })
+}
+
 /// A direction as a word.
 pub fn direction_name(direction: Direction) -> &'static str {
     match direction {
@@ -4187,6 +4723,15 @@ fn equipment_reduction(step: &CombatTraceStep) -> Option<String> {
     ))
 }
 
+fn weapon_in_socket(view: &Observation, socket: u16) -> Option<ItemTarget> {
+    view.interactions
+        .as_ref()?
+        .inventory
+        .iter()
+        .find(|row| row.equipped_slot == Some(socket))
+        .map(|row| row.item)
+}
+
 /// Everything carried, lettered and in disclosed order.
 pub fn inventory_entries(app: &App, o: &Observation) -> Vec<InventoryEntry> {
     o.inventory
@@ -4225,6 +4770,9 @@ pub fn inventory_entries(app: &App, o: &Observation) -> Vec<InventoryEntry> {
                 })
                 .filter(|text| !text.is_empty());
             let mut parts: Vec<String> = stats.into_iter().collect();
+            if app.secondary_weapon == Some(item.id) {
+                parts.push("secondary weapon (x)".into());
+            }
             if let Some(light) = tor_client_common::items::portable_light_details(o, item.id) {
                 parts.push(light);
             }
@@ -4646,7 +5194,8 @@ impl HelpPage {
                 "FIGHT",
                 "Direction    Move toward an adjacent enemy to attack",
                 "t            Throw: choose a dart, then choose a direction",
-                "f            Fire: choose a launcher and aim",
+                "f            Fire: aim an equipped launcher",
+                "#quiver      Choose preferred ammunition",
                 "Tab          Switch between launchers and hand throws",
                 "#attack      Choose an attack target",
                 "F8 or F9     Resume or abandon paused work",
@@ -4656,6 +5205,7 @@ impl HelpPage {
                 "q / e / r    Drink a potion, eat food, or read a scroll",
                 "z / Z        Zap a device or choose an ability",
                 "F6 / F12     Alternate keys for reading or zapping",
+                "x            Swap with the secondary weapon (#secondary)",
                 "w / W / P    Wield a weapon, wear armor, or put on an accessory",
                 "T / R        Take off armor or remove an accessory",
                 "a / d        Apply a portable light or drop an item",

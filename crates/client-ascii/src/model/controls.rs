@@ -75,6 +75,11 @@ commands![
     ),
     ("puton", "equip a ring or amulet (P)", PutOn),
     ("quaff", "drink a carried item (q)", Drink),
+    (
+        "quiver",
+        "choose preferred ammunition for your launcher",
+        Quiver
+    ),
     ("read", "read a carried item (r / F6)", Read),
     ("release", "release actor control", Release),
     (
@@ -103,6 +108,11 @@ commands![
         Screenshot
     ),
     ("search", "use your disclosed Search ability (s)", Search),
+    (
+        "secondary",
+        "choose a secondary weapon for x",
+        SetSecondaryWeapon
+    ),
     ("slower", "show journeys more slowly", Slower),
     ("stats", "read personal creature stats (Ctrl-X)", Stats),
     ("takeoff", "remove armor (T)", TakeOff),
@@ -382,6 +392,7 @@ impl App {
             self.status = "You are observing. Press F3 to request control.".into();
             return Effect::None;
         }
+        self.choosing_secondary_weapon = false;
         let view = &state.state().observation;
         let mut seen = std::collections::BTreeSet::new();
         let items: Vec<_> = item_choices(view, operation)

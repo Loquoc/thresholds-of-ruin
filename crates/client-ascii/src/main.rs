@@ -181,6 +181,7 @@ fn native_key(key: NativeKey) -> Option<Key> {
         NativeKey::S => Key::Search,
         NativeKey::T => Key::Throw,
         NativeKey::W => Key::Wield,
+        NativeKey::X => Key::SwapWeapon,
         NativeKey::Z => Key::Zap,
         NativeKey::Up | NativeKey::K => Key::Up,
         NativeKey::Down | NativeKey::J => Key::Down,
@@ -259,7 +260,7 @@ fn run() -> Result<(), Error> {
                 println!(
                     "Ctrl-X: personal creature stats (Up/Down scroll, PgUp/PgDn page, Esc closes)."
                 );
-                println!("tor-client-ascii [--connect 127.0.0.1:4000] [--actor 1] [--observe] [--pace 75]\nSet TOR_SERVER_TOKEN to the server token. A native graphical display is required.\nNetHack-style non-numpad keys are case-sensitive. # opens TOR's extended commands, including attack, charts, control/release, report, screenshot and journey pace.\nArrows/hjklyubn: move (Shift runs); g/G then direction: run with TOR stop rules; m then direction: move without bump attacking; </>: up/down; Space or .: wait; ,: pick up; d: drop; w/W/P: wield/wear/put on; T/R: take off/remove accessory; q: drink; e: eat; r: read; z: zap; a: apply portable light; s: search; t/f: throw/fire if granted.\ni: inventory; ; or /: look; ?: help; Ctrl-P: earlier messages; o/c then direction: open/close adjacent door; _: select travel destination (< > jump to stairs); left click: travel; F3: acquire control; #release: release control. F8/F9: resume/cancel queued work. Move after a completed strike to cancel the sequence and step; outstanding recovery is still owed.\nF1: save a screenshot of the current game screen; F7: wizard command editor (wizard accounts); F5/Ctrl-O: remembered places (Up/Down select, Enter rename); F4: note (Tab audience, Enter save, Esc cancel); F2: history (Up/Down scroll, PgUp older, PgDn live); F6/F12: read/zap; F10: advancement; F11: escape a hold.\n#slower/#faster: show journey steps more slowly/quickly (--pace <ms>, default 75); any key during a journey shows the rest at once. [/]: previous/next page only inside strike details.\nEsc: cancel or close, never quit. S: save and close through the normal flush-on-close path. Relaunch to reconnect after a disconnect.\nUnsupported NetHack commands (such as force-fight, weapon swap, two-weapon mode, autopickup and counts) are not implemented.\nProcess tests only: --automation reads JSON input events on stdin and reports presented frames.\n--report-frames reports frames while retaining native keyboard input.\n--report-ready reports only the first connected native presentation.\n--capture <file.ppm> with either diagnostic option saves the last presented framebuffer.");
+                println!("tor-client-ascii [--connect 127.0.0.1:4000] [--actor 1] [--observe] [--pace 75]\nSet TOR_SERVER_TOKEN to the server token. A native graphical display is required.\nNetHack-style non-numpad keys are case-sensitive. # opens TOR's extended commands, including attack, charts, control/release, report, screenshot and journey pace.\nArrows/hjklyubn: move (Shift runs); g/G then direction: run with TOR stop rules; m then direction: move without bump attacking; </>: up/down; Space or .: wait; ,: pick up; d: drop; w/W/P: wield/wear/put on; T/R: take off/remove accessory; q: drink; e: eat; r: read; z: zap; a: apply portable light; s: search; t/f: throw/fire if granted.\ni: inventory; x: swap with the secondary weapon (#secondary); ; or /: look; ?: help; Ctrl-P: earlier messages; o/c then direction: open/close adjacent door; _: select travel destination (< > jump to stairs); left click: travel; F3: acquire control; #release: release control. F8/F9: resume/cancel queued work. Move after a completed strike to cancel the sequence and step; outstanding recovery is still owed.\nF1: save a screenshot of the current game screen; F7: wizard command editor (wizard accounts); F5/Ctrl-O: remembered places (Up/Down select, Enter rename); F4: note (Tab audience, Enter save, Esc cancel); F2: history (Up/Down scroll, PgUp older, PgDn live); F6/F12: read/zap; F10: advancement; F11: escape a hold.\n#slower/#faster: show journey steps more slowly/quickly (--pace <ms>, default 75); any key during a journey shows the rest at once. [/]: previous/next page only inside strike details.\nEsc: cancel or close, never quit. S: save and close through the normal flush-on-close path. Relaunch to reconnect after a disconnect.\nUnsupported NetHack commands (such as force-fight, two-weapon mode, autopickup and counts) are not implemented.\nProcess tests only: --automation reads JSON input events on stdin and reports presented frames.\n--report-frames reports frames while retaining native keyboard input.\n--report-ready reports only the first connected native presentation.\n--capture <file.ppm> with either diagnostic option saves the last presented framebuffer.");
                 return Ok(());
             }
             "--connect" => address = args.next().ok_or("Missing --connect address")?.parse()?,
@@ -644,6 +645,9 @@ fn window_loop(
             dirty |= effect != Effect::None || app.running.is_none();
             effects.push(effect);
         }
+        let weapon_swap = app.continue_weapon_swap();
+        dirty |= weapon_swap != Effect::None;
+        effects.push(weapon_swap);
         let fire = app.continue_fire();
         dirty |= fire != Effect::None;
         effects.push(fire);
@@ -829,7 +833,7 @@ fn window_loop(
                 "hold_choices":app.hold_choice_offers(),"hold_rows":app.hold_rows(),
                 "supply_selection":app.supply_selection,"supply_rows":app.supply_rows(),
                 "projectile_prompt":app.projectile_prompt(),"weapon_preview":app.weapon_confirmation,"weapon_preview_rows":app.weapon_preview_rows(),
-                "projectile_selection":app.projectile_selection,"projectile_rows":app.projectile_rows(),
+                "projectile_selection":app.projectile_selection,"projectile_rows":app.projectile_rows(),"projectile_cursor":app.projectile_cursor(),
                 "selected_weapon":app.selected_weapon,"weapon_selection":app.weapon_selection,"weapon_rows":app.weapon_rows(),
                 "status_lines":state.map(|s|tor_client_ascii::status_lines(&app,s)),
                 "rendered_status_lines":state.map(|s|tor_client_ascii::status_lines_at_width(&app,s,(tor_client_ascii::render::WIDTH-48)/16)),
@@ -1076,10 +1080,13 @@ mod tests {
                 "{native:?}"
             );
         }
+        assert_eq!(
+            native_key_with_modifiers(NativeKey::X, false, false),
+            Some(Key::SwapWeapon)
+        );
         for native in [
             NativeKey::P,
             NativeKey::V,
-            NativeKey::X,
             NativeKey::Key2,
             NativeKey::Key3,
             NativeKey::LeftBracket,

@@ -217,6 +217,27 @@ impl ProjectileMenu {
         let offset = self.previous.pop().ok_or("There are no earlier choices.")?;
         self.begin(phase, offset)
     }
+    /// Start the ammunition query for a launcher collected from accepted source pages.
+    pub fn launcher_ammunition(
+        &mut self,
+        state: &ClientState,
+        launcher: EquippedProjectileWeapon,
+    ) -> Result<Command, String> {
+        self.require_current(state)?;
+        validate_choice(
+            &state.state().observation,
+            ProjectileChoice::Launcher { launcher },
+        )?;
+        self.previous.clear();
+        self.begin(ProjectileChoicePhase::Ammunition { launcher }, 0)
+    }
+    /// Return to the first page without walking back through the scan.
+    pub fn first(&mut self, state: &ClientState) -> Result<Command, String> {
+        self.require_current(state)?;
+        let phase = self.query.as_ref().ok_or("No projectile query.")?.phase;
+        self.previous.clear();
+        self.begin(phase, 0)
+    }
     pub fn choose(&mut self, state: &ClientState, index: usize) -> Result<Option<Command>, String> {
         self.require_current(state)?;
         let page = self
@@ -233,10 +254,7 @@ impl ProjectileMenu {
                 self.delivery = Some(ProjectileDeliverySelection::Throw { source })
             }
             (ProjectileChoicePhase::Sources {}, ProjectileChoice::Launcher { launcher }) => {
-                self.previous.clear();
-                return self
-                    .begin(ProjectileChoicePhase::Ammunition { launcher }, 0)
-                    .map(Some);
+                return self.launcher_ammunition(state, launcher).map(Some);
             }
             (
                 ProjectileChoicePhase::Ammunition { launcher },
@@ -253,6 +271,30 @@ impl ProjectileMenu {
         self.request_id = None;
         Ok(None)
     }
+    /// Uses the selected source's owner-disclosed physical range, not terrain or
+    /// creature visibility. Resolve once when opening a cursor, not on each step.
+    pub fn range(&self, state: &ClientState) -> Option<ProjectileRangeView> {
+        let (source, launch) = match self.delivery()? {
+            ProjectileDeliverySelection::Launch { launcher, .. } => (launcher.item, true),
+            ProjectileDeliverySelection::Throw {
+                source:
+                    ThrownSourceSelection::Equipped { item, .. }
+                    | ThrownSourceSelection::Carried { item, .. },
+            } => (item, false),
+        };
+        let item_use = state
+            .state()
+            .observation
+            .known_item_uses
+            .iter()
+            .find(|row| row.item == source)?;
+        if launch {
+            item_use.launch_range
+        } else {
+            item_use.throw_range
+        }
+    }
+
     pub fn cell_action(&self, state: &ClientState, offset: [i32; 3]) -> Result<Action, String> {
         self.require_current(state)?;
         let delivery = self.delivery.ok_or("Choose a projectile source first.")?;
