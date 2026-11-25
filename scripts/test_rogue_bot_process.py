@@ -391,7 +391,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         *actions, terminal = (json.loads(line) for line in run.stdout.splitlines())
         self.assertEqual(actions[0]["reason"], "permanent_growth")
-        self.assertIn("earned_training", [row["reason"] for row in actions], (actions, run.stderr))
+        purchases = [row["action"] for row in actions if row["reason"] == "earned_training"]
+        self.assertEqual([(p["hit_die"], p["pool"]) for p in purchases], [(2, "advancement"), (3, "advancement")])
+        self.assertEqual(purchases[0]["id"], "rattling_blow")
         self.assertEqual(terminal["terminal"], "action_budget")
         code = """
 import os, sys

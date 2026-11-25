@@ -853,7 +853,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         training.preview.return_value = Mock(would_die=False)
         turn = player_turn([cell("here")])
         purchase, result = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY).train(turn, training)
-        self.assertEqual(purchase, {"type": "purchase", "kind": kind.value, "id": talent.identity})
+        self.assertEqual(purchase, {"type": "purchase", "kind": kind.value, "id": talent.identity,
+                                    "hit_die": pool.hit_die, "pool": pool.identity})
         self.assertIs(result, training.confirm.return_value)
         training.preview.assert_called_once_with(pool, talent)
         training.options.assert_called_once_with(kind)

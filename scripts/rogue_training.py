@@ -34,6 +34,7 @@ def purchase_training(training: Training, starting_skills: tuple[str, ...]) -> t
                 continue
             raise
         if not preview.would_die:
-            purchase = {"type": "purchase", "kind": option.kind.value, "id": option.identity}
+            purchase = {"type": "purchase", "kind": option.kind.value, "id": option.identity,
+                        "hit_die": pool.hit_die, "pool": pool.identity}
             return purchase, training.confirm(preview)
     return None
