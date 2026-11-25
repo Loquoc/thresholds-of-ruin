@@ -1663,6 +1663,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 if not blocked:
                     self.assertEqual(action, Move(Direction.EAST))
 
+    def test_two_pursuers_sharing_one_doorway_need_a_second_open_approach(self):
+        from rogue_retreat import converging_pursuers
+
+        for west_open in (False, True):
+            with self.subTest(west_open=west_open):
+                cells = [cell("here"), cell("west", -1, wall=not west_open)]
+                cells.extend(cell(f"{x},{y}", x, y) for x in (-1, 0, 1) for y in (-2, -1))
+                foes = [{"id": str(x), "name": "orc", "position": {"x": x, "y": -2, "z": 0}} for x in (-1, 1)]
+                turn = player_turn(cells, actors=foes, hostiles=["-1", "1"])
+                distances = [(foe, turn.distance_to(foe)) for foe in turn.hostiles]
+                self.assertEqual(converging_pursuers(turn, distances), west_open)
+                self.assertFalse(converging_pursuers(turn, distances[:1]))
+
     def test_outnumbered_player_steps_onto_nearby_downstairs_then_descends(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         for on_stair in (False, True):
