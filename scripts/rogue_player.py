@@ -756,7 +756,6 @@ class Adventurer:
                 return response
             return rest_if_affordable(missing)
 
-        stairs = self.safe_stairs(turn, direction)
         danger = self.danger_until.keys()
         if turn.cell.key in danger:
             if action := route_to_recovery_shelter(turn, memory, danger):
@@ -765,14 +764,18 @@ class Adventurer:
         food_route = None
         if not returning and self.depth in self.food_scouts.by_floor:
             food_route = self.provision(turn, memory, returning)
-        action = food_route[0] if food_route else self.recovery_stair_step(turn, memory, stairs)
+        if food_route:
+            action = food_route[0]
+        else:
+            stairs = self.safe_stairs(turn, direction)
+            action = self.recovery_stair_step(turn, memory, stairs)
         if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
-            if cell.key not in self.danger_until:
+            if cell.key not in danger:
                 if food_route:
                     return food_route
                 if cell.key in memory.visited or cell.key in stairs:
                     return action, "recover_en_route"
-            elif turn.cell.key not in self.danger_until:
+            elif turn.cell.key not in danger:
                 # Stay in shelter while a single point of recovery is still affordable.
                 return rest_if_affordable(1)
         return rest_if_affordable(missing)

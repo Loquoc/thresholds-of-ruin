@@ -4775,7 +4775,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn(cells, tick=100, combat={"hp": 6}, stats=stats)
         player.observe(turn)
         player.maps[3].visited.update({"stairs", "passage"})
-        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "scout_for_food"))
+        with patch.object(player, "safe_stairs", side_effect=AssertionError("food route already supplies the step")):
+            self.assertEqual(player.choose(turn), (Move(Direction.EAST), "scout_for_food"))
         player.danger_until["passage"] = 900
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
 
