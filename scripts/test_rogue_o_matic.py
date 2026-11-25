@@ -5279,6 +5279,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(best_onward_escape(turn, [Direction.WEST, Direction.EAST], safety), Direction.EAST)
                 self.assertEqual(best_onward_escape(turn, [Direction.WEST], safety), Direction.WEST)
 
+    def test_retreat_prefers_a_clear_step_when_both_moves_break_contact(self):
+        foe = {"id": "hunter", "name": "hunter", "position": tile(1, 0)["position"]}
+        pit = {**tile(-1, 0), "trap": {"id": "pit", "family": "pit", "reachable": True}}
+        for side, expected in (([], Direction.WEST), ([tile(0, -1)], Direction.NORTH)):
+            with self.subTest(expected=expected):
+                turn = player_turn([tile(0, 0), tile(1, 0), pit, *side], actors=[foe],
+                                   hostiles=["hunter"], combat={"hp": 2})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                self.assertEqual(choose(player, turn), (Move(expected), "retreat"))
+
     def test_equal_escape_routes_avoid_a_trap_on_either_step(self):
         foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
         for trap_y, expected in ((-2, Direction.SOUTH), (-1, Direction.SOUTH), (1, Direction.NORTH), (2, Direction.NORTH)):

@@ -112,18 +112,24 @@ def choose_retreat_step(turn: Turn, damage_estimate: Callable[[Creature], int] |
         return -len(contacts_at(offset)), clearance
 
     current = safety((0, 0, 0))
-    best = max(safety(direction.offset) for direction in turn.walkable_directions)
-    if best < current:
-        return None
-    candidates = [direction for direction in turn.walkable_directions if safety(direction.offset) == best]
+    improving = {}
+    sidesteps = []
+    for direction in turn.walkable_directions:
+        score = safety(direction.offset)
+        if score > current:
+            contact_score, clearance = score
+            clear = turn.cell_at(direction.offset).trap is None
+            improving[direction] = contact_score, clear, clearance
+        elif score == current:
+            sidesteps.append(direction)
 
-    if best == current:
+    if not improving:
         # A sidestep earns its turn only when the next step improves safety.
-        onward = best_onward_escape(turn, candidates, safety)
+        onward = best_onward_escape(turn, sidesteps, safety)
         return RetreatStep(onward, improves_immediately=False) if onward else None
 
-    clear = [direction for direction in candidates if turn.cell_at(direction.offset).trap is None]
-    candidates = clear or candidates
+    best = max(improving.values())
+    candidates = [direction for direction, rank in improving.items() if rank == best]
     if damage_estimate is not None and best[0] < 0 and len(candidates) > 1:
         # Compare measured damage only when every remaining contact has an estimate.
         costs = {}
