@@ -649,7 +649,7 @@ class Adventurer:
                 if weapon := ready_weapon(turn, bow=nearest >= 5):
                     return weapon
 
-        if turn.tick == self.last_shot_tick:
+        if self.last_shot_tick is not None and turn.tick <= self.last_shot_tick:
             return None
         can_strike = any(turn.attack(foe) is not None for foe in adjacent)
         shot = choose_projectile(turn.ranged_attacks(max_distance=8, hostile_only=True), can_strike=can_strike)

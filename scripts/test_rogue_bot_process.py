@@ -519,7 +519,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         code = """
 import json, os, sys
 from rogue_player import Adventurer
-from tor_client_bot import ActivityPhase, Outcome, Session, Wait
+from tor_client_bot import ActivityPhase, Outcome, Session, Turn, Wait
 
 token = os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1], token, 3) as enemy:
@@ -533,6 +533,7 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         assert receipt.status is Outcome.CONFIRMED, receipt
         player.admitted(turn, action, receipt, reason=reason)
         if attempt == 0:
+            first_picture = turn.recording()
             assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
         following = game.wait_for_decision()
         if following.outcome_of(receipt) is ActivityPhase.FAILED:
@@ -550,6 +551,9 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         return [(item.identity, item.quantity) for item in picture.inventory]
     assert resources(following) == resources(turn)
     assert inventory(following) == inventory(turn)
+    earlier = Turn.replay(first_picture)
+    assert earlier.tick < following.tick
+    assert player.ranged_combat(earlier, []) is None
     player.observe(following)
     action, reason = player.choose(following)
     assert action is not None and reason not in {"throw_projectile", "launch_projectile"}, (action, reason)

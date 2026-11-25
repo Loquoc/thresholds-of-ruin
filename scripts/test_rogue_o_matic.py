@@ -1754,6 +1754,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             ((4, 5), 5, 10, False),
             ((4, 5), 4, 10, True),
             ((4,), 4, 10, False),
+            ((4,), 4, 9, False),
             ((4,), 4, 11, True),
         )
         for body, distance, tick, expected in cases:
