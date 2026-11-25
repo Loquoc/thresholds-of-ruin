@@ -3837,6 +3837,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.observe(failed)
                 self.assertIsNone(player.pending_stair)
 
+    def test_witnessed_arrival_resets_the_departure_cancellation_allowance(self):
+        from unittest.mock import Mock
+        from rogue_player import PendingStair, StairCrossings
+        from tor_client_bot import Result
+
+        origin = player_turn([cell("stairs", down=True)])
+        receipt = Result.from_reply({"status": "confirmed", "receipt": {
+            "type": "admitted", "actor": 1, "branch": "game", "intention": "down", "phase": "queued"}})
+        pending = PendingStair(origin.stair_attempt(Move(Direction.DOWN), receipt), ())
+        crossings = StairCrossings(pending=pending)
+        crossings.record_cancellation()
+        self.assertFalse(crossings.can_cancel(receipt))
+        landing = Mock(can_act=False, terminal=False)
+        landing.stair_arrival.return_value = True
+        self.assertIsNone(crossings.observe(landing))
+        self.assertFalse(crossings.can_cancel(receipt))
+        landing.can_act = True
+        self.assertIs(crossings.observe(landing), pending)
+        self.assertIsNone(crossings.observe(landing))
+        crossings.pending = pending
+        self.assertTrue(crossings.can_cancel(receipt))
+
     def test_terminal_depth_counts_only_a_witnessed_final_descent(self):
         from unittest.mock import Mock
         from rogue_runner import play
