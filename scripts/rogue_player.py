@@ -804,7 +804,7 @@ class Adventurer:
         here = turn.cell
         if not 3 <= self.depth < self.retrieval_depth or here is None or not here.stairs_down:
             return None
-        if here.key in self.danger_until or self.unsafe_stairs.get((here.key, Direction.DOWN), 0) > turn.tick:
+        if here.key in self.danger_until or not self.stair_is_safe(here.key, Direction.DOWN, turn.tick):
             return None
         if turn.holds or self.trapped(turn) or turn.has_condition("rogue.levitation"):
             return None

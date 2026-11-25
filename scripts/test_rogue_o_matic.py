@@ -225,6 +225,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 if should_sample:
                     player.admitted(turn, action, reason=reason)
 
+    def test_scroll_study_requires_a_stair_available_for_escape_after_retreat(self):
+        items = [{"id": kind, "class": kind, "name": kind, "quantity": 1, "identified": False}
+                 for kind in ("scroll", "ring")]
+        turn = player_turn([cell("landing", down=True)], inventory=items,
+                           interactions={"inventory": [{"item": "scroll", "readable": True}]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.recovery_landing = "landing"
+        self.assertIsNone(player.study_scroll_at_exit(turn))
+        player.recovery_landing = None
+        self.assertEqual(player.study_scroll_at_exit(turn)[1], "study_scroll_at_exit")
+
     def test_unknown_scroll_trial_uses_a_safe_outbound_stair_once_per_appearance(self):
         scroll = {"id": "scroll", "class": "scroll", "name": "runed scroll", "quantity": 2, "identified": False}
         ring = {"id": "ring", "class": "ring", "name": "opal ring", "quantity": 1, "identified": False}
