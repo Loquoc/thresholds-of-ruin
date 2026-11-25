@@ -3197,7 +3197,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertIsNone(player.recovery_action(scarce))
         player.ascent_ticks_by_floor.clear()
         player.unsafe_stairs["stairs", Direction.DOWN] = turn.tick
-        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "recover_en_route"))
+        from unittest.mock import patch
+        with patch.object(player, "recovery_budget", side_effect=AssertionError("walking needs no rest budget")):
+            self.assertEqual(player.choose(scarce), (Move(Direction.EAST), "recover_en_route"))
         player.danger_until["hall"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
         on_stairs = player_turn([cell("stairs", down=True)], combat={"hp": 6}, stats=stats)

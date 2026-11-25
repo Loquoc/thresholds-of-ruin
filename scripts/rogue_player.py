@@ -992,11 +992,7 @@ class Adventurer:
         returning = self.carrying_objective(turn)
         direction = Direction.UP if returning else Direction.DOWN
         stairs = self.safe_stairs(turn, direction)
-        rest_budget = self.recovery_budget(turn, memory, direction)
-
-        def can_afford_recovery(points: int) -> bool:
-            ticks = clock.ticks_to_regain(points)
-            return ticks is not None and (rest_budget is None or ticks < rest_budget)
+        points_to_rest = missing
 
         if not self.trapped(turn):
             if turn.cell.key in self.danger_until:
@@ -1013,11 +1009,13 @@ class Adventurer:
                         return food_route
                     if cell.key in memory.visited or cell.key in stairs:
                         return action, "recover_en_route"
-                if (cell.key in self.danger_until and turn.cell.key not in self.danger_until
-                        and can_afford_recovery(1)):
+                elif turn.cell.key not in self.danger_until:
                     # Stay in shelter while a single point of recovery is still affordable.
-                    return Wait(), "recover"
-        if can_afford_recovery(missing):
+                    points_to_rest = 1
+
+        ticks = clock.ticks_to_regain(points_to_rest)
+        rest_budget = self.recovery_budget(turn, memory, direction)
+        if ticks is not None and (rest_budget is None or ticks < rest_budget):
             return Wait(), "recover"
         return None
 
