@@ -587,6 +587,24 @@ assert get_type_hints(play)["player"] is Adventurer
                     self.assertEqual(progress["actions"], 1)
                     self.assertEqual(progress["max_depth"], 1)
 
+    def test_invalid_floor_rows_do_not_erase_progress_from_valid_observations(self):
+        import tempfile
+        from pathlib import Path
+        from rogue_o_matic_cohort import trace_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            path.write_text(
+                '{"floor":1,"action":{"type":"wait"}}\n'
+                '{"floor":true,"action":{"type":"wait"}}\n'
+                '{"floor":"2","cell":"bad","terminal":"death"}\n'
+                '{"floor":3,"cell":"end","terminal":"action_budget"}\n', encoding="utf-8")
+            terminal, progress = trace_report(path)
+        self.assertEqual(terminal["terminal"], "action_budget")
+        self.assertEqual((progress["actions"], progress["max_depth"]), (1, 3))
+        self.assertEqual(set(progress["floors"]), {"1", "3"})
+        self.assertEqual(progress["stair_transitions"], [])
+
     def test_partial_trace_preserves_depth_and_actions_when_the_last_row_is_incomplete(self):
         from pathlib import Path
         import tempfile

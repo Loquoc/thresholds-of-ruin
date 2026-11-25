@@ -203,11 +203,16 @@ def trace_rows(log):
             row = json.loads(line.decode("utf-8"))
         except ValueError:
             row = None
-        if isinstance(row, dict):
-            if "terminal" in row or (isinstance(row.get("action"), dict) and row.get("floor") is not None):
-                yield row
-                continue
-        yield None
+        if not isinstance(row, dict):
+            yield None
+            continue
+        floor = row.get("floor")
+        if floor is not None and type(floor) is not int:
+            yield None
+        elif "terminal" in row or (isinstance(row.get("action"), dict) and floor is not None):
+            yield row
+        else:
+            yield None
 
 
 def trace_report(path):
