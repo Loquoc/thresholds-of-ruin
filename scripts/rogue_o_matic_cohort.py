@@ -97,10 +97,16 @@ def campaign_inputs(server, scenario, actor, policy):
     return inputs
 
 
+def reported_max_depth(row: dict) -> int:
+    """Return a positive floor number, or zero when the report supplies no usable depth."""
+    depth = row.get("max_depth")
+    return depth if type(depth) is int and depth > 0 else 0
+
+
 def summarize(rows):
-    reached = Counter(row["max_depth"] for row in rows if row.get("max_depth", 0) > 0)
+    reached = Counter(map(reported_max_depth, rows))
+    unobserved = reached.pop(0, 0)
     distribution = {str(floor): reached[floor] for floor in sorted(reached)}
-    unobserved = len(rows) - reached.total()
     if unobserved:
         distribution["unobserved"] = unobserved
     victories = 0
@@ -354,9 +360,8 @@ def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth
         report, progress = trace_report(trace)
         if report is None or result.returncode != player_exit_code(report["terminal"]):
             return {"terminal": "client_error", "exit_code": result.returncode, **progress}
-        reported_depth = report.get("max_depth")
-        report = {**progress, **report, "amulet_acquired": progress["amulet_acquired"]}
-        report["max_depth"] = max(progress["max_depth"], reported_depth if type(reported_depth) is int else 0)
+        deepest = max(progress["max_depth"], reported_max_depth(report))
+        report = {**progress, **report, "max_depth": deepest, "amulet_acquired": progress["amulet_acquired"]}
         if report["terminal"] != "victory":
             return report
         try:
