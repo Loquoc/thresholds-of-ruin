@@ -4685,18 +4685,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_leaves_an_exposed_square_before_opening_a_door_to_recovery_shelter(self):
         from tor_client_bot import OpenDoor
 
-        tiles = [cell(str(x), x) for x in range(-3, 3)]
-        gate = next(tile for tile in tiles if tile["key"] == "1")
-        gate["door"] = {"id": "gate", "open": False, "reachable": True}
-        turn = player_turn(tiles, combat={"hp": 6}, stats={"health_recovery": {
-            "period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}})
-        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observe(turn)
-        player.danger_until["0"] = 1200
-        player.maps[1].visited.add("2")
-        self.assertEqual(player.choose(turn), (OpenDoor(turn.cell_at((1, 0, 0)).door), "reposition_to_recover"))
-        player.maps[1].visited.add("-3")
-        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "reposition_to_recover"))
+        for height in (0, 1):
+            with self.subTest(door_height=height):
+                tiles = [cell(str(x), x) for x in range(-3, 3)]
+                doorway = next(tile for tile in tiles if tile["key"] == "1")
+                if height:
+                    doorway = cell("upper-gate", 1)
+                    doorway["position"]["z"] = height
+                    tiles.append(doorway)
+                doorway["door"] = {"id": "gate", "open": False, "reachable": True}
+                body = {"id": "player", "name": "you", "position": {"x": 0, "y": 0, "z": 1}}
+                turn = player_turn(tiles, actors=[body], combat={"hp": 6}, stats={"health_recovery": {
+                    "period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                player.danger_until["0"] = 1200
+                player.maps[1].visited.add("2")
+                gate = turn.cell_at((1, 0, height)).door
+                self.assertEqual(player.choose(turn), (OpenDoor(gate), "reposition_to_recover"))
+                player.maps[1].visited.add("-3")
+                self.assertEqual(player.choose(turn), (Move(Direction.WEST), "reposition_to_recover"))
 
     def test_recovery_walks_a_familiar_stair_route_around_a_closed_door(self):
         tiles = [cell(str(x), x, down=x in (-3, 2)) for x in range(-3, 3)]
