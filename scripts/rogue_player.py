@@ -588,13 +588,6 @@ class Adventurer:
             if decision := self.evade(turn):
                 return decision
 
-        if turn.hostiles:
-            if zap := self.aim_combat_wand(turn, turn.hostiles, ELEMENTAL_WANDS, reflected_ray_range=ELEMENTAL_RAY_RANGE):
-                return zap, "elemental_ray"
-
-        if turn.hostiles and (trial := self.try_unknown_wand(turn)):
-            return trial, MemoryReason.TEST_UNKNOWN_DEVICE
-
         if decision := self.ranged_combat(turn, adjacent):
             return decision
 
@@ -637,6 +630,11 @@ class Adventurer:
     def ranged_combat(self, turn: Turn, adjacent: list[Creature]) -> tuple[Action, str] | None:
         if not turn.hostiles:
             return None
+        if zap := self.aim_combat_wand(turn, turn.hostiles, ELEMENTAL_WANDS, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+            return zap, "elemental_ray"
+        if trial := self.try_unknown_wand(turn):
+            return trial, MemoryReason.TEST_UNKNOWN_DEVICE
+
         if self.has_arrows(turn):
             nearest = min(turn.distance_to(foe) for foe in turn.hostiles)
             if nearest >= 5 or nearest <= 2:

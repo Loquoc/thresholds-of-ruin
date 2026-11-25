@@ -2202,6 +2202,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.admitted(turn, action, reason=reason)
                     self.assertNotEqual(player.choose(turn)[1], "elemental_ray")
 
+    def test_fires_a_charged_elemental_wand_before_switching_to_a_melee_weapon(self):
+        cells = [cell(str(i), i) for i in range(7)]
+        foe = {"id": "foe", "name": "hunter", "position": cells[2]["position"]}
+        inventory = [{"id": name, "name": name, "identity": f"item.weapon.{name}", "identified": True,
+                      "quantity": 1} for name in ("shortbow", "mace", "arrow")]
+        inventory.append({"id": "rod", "name": "rod", "class": "wand", "identity": "item.wand.wand-cold",
+                          "identified": True, "quantity": 1})
+        slot = {"id": "weapon", "name": "Weapon"}
+        for charges, expected in ((1, "elemental_ray"), (0, "change_weapon")):
+            with self.subTest(charges=charges):
+                offers = [{"item": "shortbow", "slot": slot, "equipped_slot": 0}, {"item": "mace", "slot": slot},
+                          {"item": "rod", "zappable": True, "device_activation": "direction", "charges": charges}]
+                turn = player_turn(cells, actors=[foe], hostiles=["foe"], inventory=inventory,
+                                   interactions={"slots": [slot], "inventory": offers})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
+
     def test_elemental_ray_prioritizes_the_foe_with_greater_observed_damage(self):
         cells = [cell(str(x), x) for x in range(-6, 7)]
         foes = [{"id": name, "name": name, "position": cell(name, x)["position"]}
