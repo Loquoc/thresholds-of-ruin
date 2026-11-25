@@ -1066,8 +1066,14 @@ class Adventurer:
                 continue
             boundary_walls = {cell.key for key in passages for cell in memory.adjacent(key) if cell.wall}
             for wall in boundary_walls:
-                sites.update(cell.key for cell in memory.adjacent(wall)
-                             if not cell.wall and cell.key not in passages and self.searches[cell.key] < 3)
+                for cell in memory.adjacent(wall):
+                    if cell.wall or cell.key in passages:
+                        continue
+                    if is_searchable_dead_end(cell, memory):
+                        if self.completed_end_searches[cell.key] < DEAD_END_SEARCHES:
+                            sites.add(cell.key)
+                    elif self.searches[cell.key] < 3:
+                        sites.add(cell.key)
         return sites
 
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,

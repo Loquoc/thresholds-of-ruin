@@ -3865,6 +3865,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(player.search_return_connection(turn, memory, memory.stairs(Direction.UP)),
                                  (Move(expected), "search"))
 
+    def test_return_route_keeps_a_sealed_boundary_until_six_searches_have_completed(self):
+        cells = [cell("hall"), cell("end", 1), cell("barrier", 2, wall=True), cell("stairs", 3, up=True),
+                 cell("north-wall", 1, -1, wall=True), cell("south-wall", 1, 1, wall=True)]
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                   "basic_attack": False, "reach": {"kind": "personal"}, "target_kind": "self"}
+        turn = player_turn(cells, abilities=[ability])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        memory = player.maps[player.depth]
+        player.searches["end"] = 7
+        for completed, expected in ((5, (Move(Direction.EAST), "search")), (6, None)):
+            with self.subTest(completed=completed):
+                player.completed_end_searches["end"] = completed
+                self.assertEqual(player.search_return_connection(turn, memory, {"stairs"}), expected)
+
     def test_return_search_traverses_a_shared_stair_passage_once(self):
         from unittest.mock import patch
 
