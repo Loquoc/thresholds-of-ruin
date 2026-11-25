@@ -70,6 +70,24 @@ class BotApiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             memory.stairs(Direction.EAST)
 
+    def test_remembered_diagonal_tracks_a_door_seen_without_the_rest_of_the_corner(self):
+        memory = FloorMap()
+        cells = [{"key": key, "position": {"x": x, "y": y, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False}
+                 for key, x, y in (("start", 0, 0), ("gate", 1, 0), ("hall", 0, 1), ("exit", 1, 1))]
+
+        def observe(visible):
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": visible, "ground_items": [], "interactions": {},
+            }}}))
+
+        observe(cells)
+        for opened, steps in ((False, 2), (True, 1)):
+            with self.subTest(opened=opened):
+                observe([{**cells[1], "door": {"id": "door", "reachable": True, "open": opened}}])
+                self.assertEqual(memory.distance("start", {"exit"}), steps)
+                self.assertEqual(memory.distance("exit", {"start"}), steps)
+
     def test_revealed_door_reconnects_both_remembered_sides_outside_the_current_view(self):
         cells = [{"key": key, "position": {"x": x, "y": 0, "z": 0}, "wall": key == "door",
                   "stairs_up": False, "stairs_down": False} for x, key in enumerate(("west", "door", "east"))]

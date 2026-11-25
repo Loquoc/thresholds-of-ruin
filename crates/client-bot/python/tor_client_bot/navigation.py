@@ -19,6 +19,7 @@ class RememberedCell:
     stairs_up: bool
     stairs_down: bool
     trapped: bool
+    closed_door: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,12 @@ class RememberedItem:
 CARDINAL = (Direction.WEST, Direction.EAST, Direction.NORTH, Direction.SOUTH)
 
 
+@dataclass(frozen=True, slots=True)
+class _Link:
+    destination: str
+    corners: tuple[str, ...] = ()
+
+
 class FloorMap:
     """Memory for one floor. The policy decides when it has changed floors."""
 
@@ -43,7 +50,7 @@ class FloorMap:
         self.items: dict[str, tuple[RememberedItem, ...]] = {}
         self._neighbors: dict[str, dict[Direction, str]] = {}
         self._traps: set[str] = set()
-        self._links: dict[str, dict[Direction, str]] = {}
+        self._links: dict[str, dict[Direction, _Link]] = {}
 
     def observe(self, turn: Turn) -> None:
         if turn.cell:
@@ -67,7 +74,8 @@ class FloorMap:
             else:
                 self._traps.discard(cell.key)
             self.cells[cell.key] = RememberedCell(
-                cell.key, cell.wall, cell.stairs_up, cell.stairs_down, cell.trap is not None
+                cell.key, cell.wall, cell.stairs_up, cell.stairs_down, cell.trap is not None,
+                cell.door is not None and not cell.door.open,
             )
             links = self._links.setdefault(cell.key, {})
             neighbors = self._neighbors.setdefault(cell.key, {})
@@ -85,16 +93,14 @@ class FloorMap:
                 if direction in CARDINAL:
                     neighbors[direction] = neighbor.key
                     # Remember the edge even if a wall currently conceals a door.
-                    links[direction] = neighbor.key
+                    links[direction] = _Link(neighbor.key)
                     continue
-                corners = (plane.get((x + dx, y)), plane.get((x, y + dy)))
-                if any(c is None or c.wall or (c.door and not c.door.open) for c in corners):
-                    links.pop(direction, None)
-                    continue
-                if cell.wall or neighbor.wall:
+                horizontal = plane.get((x + dx, y))
+                vertical = plane.get((x, y + dy))
+                if horizontal is None or vertical is None:
                     links.pop(direction, None)
                 else:
-                    links[direction] = neighbor.key
+                    links[direction] = _Link(neighbor.key, (horizontal.key, vertical.key))
 
     @property
     def frontier(self) -> set[str]:
@@ -130,10 +136,13 @@ class FloorMap:
         return sum(self.cells[neighbor].wall for neighbor in sides.values()) == 3
 
     def _passages_from(self, key: str) -> Iterator[tuple[Direction, str]]:
-        """Follow remembered links using each destination's latest terrain."""
-        for direction, neighbor in self._links.get(key, {}).items():
-            if not self.cells[neighbor].wall:
-                yield direction, neighbor
+        """Use current terrain for both the destination and any diagonal corners."""
+        for direction, link in self._links.get(key, {}).items():
+            if self.cells[link.destination].wall:
+                continue
+            if link.corners and any(self.cells[k].wall or self.cells[k].closed_door for k in link.corners):
+                continue
+            yield direction, link.destination
 
     def reachable(self, start: str, *, avoid: Set[str] = frozenset()) -> Iterator[tuple[RememberedCell, int]]:
         """Traverse known floor from start by distance, without entering any excluded cell."""
