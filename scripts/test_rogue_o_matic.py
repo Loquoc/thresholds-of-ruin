@@ -1215,9 +1215,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         from unittest.mock import Mock
         from tor_client_bot import ProjectileRange, Shot
 
-        cells = [cell(str(x), x) for x in range(5)]
-        foes = [{"id": name, "name": name, "position": cells[x]["position"]}
-                for name, x in (("far", 4), ("near", 2))]
+        near = cell("near", 2)
+        far = {**cell("far"), "position": {"x": 1, "y": 0, "z": -4}}
+        cells = [cell("here"), cell("lane", 1), near, far]
+        foes = [{"id": tile["key"], "name": tile["key"], "position": tile["position"]} for tile in (far, near)]
         ability = {"id": "shoot", "name": "shoot", "target_kind": "directional_projectile",
                    "reach": {"kind": "projectile"}, "cooldown_remaining": "0", "basic_attack": False, "cost": None}
         pack = [{"id": name, "name": name, "class": "weapon", "quantity": 1, "identified": False} for name in ("dart", "bow")]
@@ -1225,10 +1226,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         dart, bow = turn.inventory
         for launcher, reason in ((bow, "launch_projectile"), (None, "throw_projectile")):
             with self.subTest(reason=reason):
-                shots = [Shot(turn.abilities[0], foe, (turn.distance_to(foe), 0, 0), dart, launcher, 0,
-                              range=ProjectileRange(2, 4)) for foe in turn.hostiles]
-                shots.sort(key=lambda shot: shot.offset, reverse=True)
-                for offers, expected in ((shots, shots[1]), (shots[:1], shots[0])):
+                shots = {foe.target: Shot(turn.abilities[0], foe, foe.cells[0], dart, launcher, 0,
+                                          range=ProjectileRange(2, 4)) for foe in turn.hostiles}
+                near_shot, far_shot = shots["near"], shots["far"]
+                for offers, expected in (([far_shot, near_shot], near_shot), ([near_shot, far_shot], near_shot),
+                                         ([far_shot], far_shot)):
                     turn.ranged_attacks = Mock(return_value=iter(offers))
                     self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), (expected, reason))
 
