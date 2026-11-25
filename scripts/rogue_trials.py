@@ -15,6 +15,13 @@ def stack_is_intact(turn: Turn, original: Item) -> bool:
     return any(item.target == original.target and item.quantity == original.quantity for item in turn.inventory)
 
 
+def resolved_or_history_expired(turn: Turn, phase: ActivityPhase | None, submitted_at: int | None) -> bool:
+    """Release a trial on resolution or when a later ready turn has lost its history."""
+    return phase is ActivityPhase.RESOLVED or (
+        phase is None and submitted_at is not None and turn.tick > submitted_at and turn.can_act
+    )
+
+
 @dataclass(frozen=True)
 class PendingScrollTrial:
     floor: int
@@ -31,7 +38,7 @@ class PotionTrials:
     submitted_at: int | None = None
 
     def choose(self, turn: Turn) -> Item | None:
-        if self.pending is not None or turn.tick == self.submitted_at:
+        if self.pending is not None or (self.submitted_at is not None and turn.tick <= self.submitted_at):
             return None
         return next((item for item in turn.inventory
                      if item.identity is None and ItemUse.DRINK in item.uses
@@ -52,10 +59,8 @@ class PotionTrials:
         if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
             if stack_is_intact(turn, potion):
                 self.sampled.discard(trial_appearance(potion))
-        else:
-            history_missing = phase is None and turn.can_act and turn.tick != self.submitted_at
-            if phase is not ActivityPhase.RESOLVED and not history_missing:
-                return
+        elif not resolved_or_history_expired(turn, phase, self.submitted_at):
+            return
         self.pending = None
 
 
@@ -98,8 +103,7 @@ class ScrollTrials:
         if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
             self.interrupted(turn)
             return
-        history_missing = phase is None and turn.can_act and turn.tick > trial.submitted_at
-        if phase is ActivityPhase.RESOLVED or history_missing:
+        if resolved_or_history_expired(turn, phase, trial.submitted_at):
             self.tried_in_encounter = True
             self.pending = None
 
