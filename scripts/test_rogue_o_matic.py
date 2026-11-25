@@ -2757,6 +2757,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn(tiles, ground=ground, tick=tick)
                 self.assertEqual(choose(player, turn), (Move(expected), "seek_objective"))
 
+    def test_guarded_supply_fallback_keeps_combat_sites_excluded_from_objective_pursuit(self):
+        corridor = [cell("here"), cell("guarded", 1), cell("combat", 2), cell("goal", 3)]
+        relic = {"id": "relic", "name": AMULET, "class": "amulet", "quantity": 1,
+                 "identified": True, "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        turn = player_turn(corridor, ground=[{**corridor[-1], "item": relic, "reachable": False}])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        player.supplies_guarded_until["guarded"] = 100
+        player.danger_until["combat"] = 200
+        self.assertIsNone(player.step_toward_objective(turn, player.maps[player.depth]))
+
     def test_retrieves_amulet_and_returns_through_known_stairs(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         item = {"identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET, "id": "disclosed-amulet",

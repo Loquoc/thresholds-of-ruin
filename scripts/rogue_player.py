@@ -820,6 +820,17 @@ class Adventurer:
             return None
         return self.ready_search(turn)
 
+    def step_toward_objective(self, turn: Turn, memory: FloorMap) -> Action | None:
+        """Avoid combat sites and prefer routes that also bypass recently guarded supplies."""
+        goals = memory.cells_with_item(lambda item: item.identity == self.objective)
+        if not goals:
+            return None
+        danger = self.danger_until.keys()
+        guarded = self.supplies_guarded_until.keys()
+        if guarded and (step := memory.toward(turn, goals, avoid=danger | guarded)):
+            return step
+        return memory.toward(turn, goals, avoid=danger)
+
     def follow_stairs(self, turn: Turn, memory: FloorMap, *, returning: bool) -> tuple[Action, str] | None:
         """Descend toward the retrieval floor or follow upstairs with the objective."""
         if turn.cell is None or (not returning and self.depth >= self.retrieval_depth):
@@ -1029,14 +1040,8 @@ class Adventurer:
         if item := self.choose_pickup(turn, ground_items, returning=returning):
             return Pickup(item), "take"
         if not returning and not hovering and not turn.hostiles and not trapped:
-            objective_cells = memory.cells_with_item(lambda item: item.identity == self.objective)
-            if objective_cells:
-                danger = self.danger_until.keys()
-                guarded = self.supplies_guarded_until.keys()
-                if guarded and (step := memory.toward(turn, objective_cells, avoid=danger | guarded)):
-                    return step, "seek_objective"
-                if step := memory.toward(turn, objective_cells, avoid=danger):
-                    return step, "seek_objective"
+            if step := self.step_toward_objective(turn, memory):
+                return step, "seek_objective"
         if not turn.hostiles and (decision := self.prepare(turn)):
             return decision
         if trapped:
