@@ -454,6 +454,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(player, turn)
         self.assertEqual((describe_action(action)["type"], reason), ("drink", "reveal_attacker"))
 
+    def test_quiet_stair_turn_skips_visible_opponent_tactics(self):
+        turn = player_turn([cell("stairs", down=True)])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        with patch.object(player, "respond_to_pursuit", side_effect=AssertionError("no pursuers")), \
+                patch.object(player, "melee_attack", side_effect=AssertionError("no melee targets")):
+            self.assertEqual(choose(player, turn), (Move(Direction.DOWN), "descend"))
+
     def test_unseen_attack_delays_descent_only_during_its_evasion_window(self):
         for tick, expected in ((99, "descend"), (100, "evade_unseen_attack"),
                                (499, "evade_unseen_attack"), (500, "descend")):

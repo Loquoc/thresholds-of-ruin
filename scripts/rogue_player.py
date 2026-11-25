@@ -533,11 +533,22 @@ class Adventurer:
         return None
 
     def combat(self, turn: Turn) -> tuple[Action, str] | None:
-        health = turn.health
         exposure = self.melee_exposure(turn)
         if decision := self.survival_consumable(turn, exposure):
             return decision
 
+        if turn.hostiles:
+            if decision := self.fight_visible_hostiles(turn, exposure):
+                return decision
+        elif decision := self.respond_to_unseen_attack(turn):
+            return decision
+
+        if turn.holds:
+            return Escape(turn.holds[0]), "escape_hold"
+        return None
+
+    def fight_visible_hostiles(self, turn: Turn, exposure: MeleeExposure) -> tuple[Action, str] | None:
+        health = turn.health
         adjacent = exposure.foes
         surrounded = len(adjacent) >= 2
         injured = below_half_health(health)
@@ -554,18 +565,9 @@ class Adventurer:
                                               two_hit_threat=two_hit_threat):
             return decision
 
-        if (
-            turn.hostiles
-            and (
-                injured
-                or self.recovering_from_pursuit
-                or surrounded
-                or two_hit_threat
-                or any(self.nearby_drainer(turn, foe) for foe in turn.hostiles)
-            )
-            and not self.trapped(turn)
-            and not turn.holds
-        ):
+        needs_distance = (injured or self.recovering_from_pursuit or surrounded or two_hit_threat
+                          or any(self.nearby_drainer(turn, foe) for foe in turn.hostiles))
+        if needs_distance and not self.trapped(turn) and not turn.holds:
             if decision := self.evade(turn):
                 return decision
 
@@ -576,18 +578,12 @@ class Adventurer:
             if trial := self.scroll_trial(turn):
                 return trial
 
-        if turn.hostiles and not (self.has_arrows(turn) and can_wield_shortbow(turn)):
+        if not (self.has_arrows(turn) and can_wield_shortbow(turn)):
             if decision := ready_weapon(turn, bow=False):
                 return decision
 
         if attack := self.melee_attack(turn, make_space=surrounded or two_hit_threat):
             return attack, "melee"
-
-        if decision := self.respond_to_unseen_attack(turn):
-            return decision
-
-        if turn.holds:
-            return Escape(turn.holds[0]), "escape_hold"
 
         return None
 
