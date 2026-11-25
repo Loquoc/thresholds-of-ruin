@@ -496,6 +496,15 @@ assert get_type_hints(play)["player"] is Adventurer
         rows = [{"terminal": "action_budget", "amulet_acquired": value} for value in (True, False, "false", None)]
         self.assertEqual(summarize(rows)["amulets_acquired"], 1)
 
+    def test_verified_victories_in_older_reports_count_as_one_acquisition_each(self):
+        verified = {"terminal": "victory", "victory_verified": True}
+        rows = [verified, {**verified, "amulet_acquired": False}, {**verified, "amulet_acquired": True},
+                {"terminal": "victory"}, {"terminal": "client_error", "victory_verified": True},
+                {"terminal": "death", "amulet_acquired": True}]
+        summary = summarize(rows)
+        self.assertEqual((summary["victories"], summary["amulets_acquired"]), (3, 4))
+        self.assertNotIn("amulet_acquired", verified)
+
     def test_unverified_claim_does_not_count_as_a_victory(self):
         self.assertEqual(summarize([{"terminal": "victory"}])["victories"], 0)
 

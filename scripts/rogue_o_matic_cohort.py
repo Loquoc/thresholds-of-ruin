@@ -103,11 +103,16 @@ def summarize(rows):
     unobserved = len(rows) - reached.total()
     if unobserved:
         distribution["unobserved"] = unobserved
+    victories = 0
+    acquisitions = 0
+    for row in rows:
+        verified = row["terminal"] == "victory" and row.get("victory_verified") is True
+        victories += verified
+        acquisitions += verified or row.get("amulet_acquired") is True
     return {
         "runs": len(rows),
-        "victories": sum(row["terminal"] == "victory" and row.get("victory_verified") is True
-                         for row in rows),
-        "amulets_acquired": sum(row.get("amulet_acquired") is True for row in rows),
+        "victories": victories,
+        "amulets_acquired": acquisitions,
         "max_depth": max(reached, default=0),
         "runs_by_max_depth": distribution,
         "deaths_by_cause": dict(sorted(Counter(
