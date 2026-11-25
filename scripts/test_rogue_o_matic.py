@@ -2684,7 +2684,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_recent_guard_suppresses_weapon_and_coin_detours_until_expiry(self):
         hall = [cell("here"), cell("stash", 1), cell("guard", 2)]
         guard = {"id": "guard", "name": "orc", "position": hall[2]["position"]}
-        for category, identity in (("weapon", "item.weapon.dagger"), ("coin", "item.coin.gold")):
+        for category, identity in (("weapon", "item.weapon.dagger"), ("weapon", "item.weapon.dart"),
+                                   ("weapon", "item.weapon.spear"), ("coin", "item.coin.gold")):
             with self.subTest(identity=identity):
                 item = {"id": "loot", "class": category, "identity": identity, "name": identity,
                         "quantity": 1, "identified": True}
@@ -2695,8 +2696,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     turn = player_turn(hall, ground=ground, tick=tick)
                     player.observe(turn)
                     goals = player.loot_goals(turn, turn.ground_items, returning=False)
+                    weapon_detour = identity in {"item.weapon.dart", "item.weapon.spear"}
+                    self.assertEqual("stash" in goals.wanted, tick == 1200 and weapon_detour)
                     self.assertEqual("stash" in goals.nearby, tick == 1200)
-                    self.assertEqual("stash" in goals.supplies, tick == 1200 and category == "weapon")
+                    melee_supply = identity in {"item.weapon.dagger", "item.weapon.spear"}
+                    self.assertEqual("stash" in goals.supplies, tick == 1200 and melee_supply)
 
     def test_repeat_guard_sighting_refreshes_local_danger_without_extending_a_stair_warning(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)

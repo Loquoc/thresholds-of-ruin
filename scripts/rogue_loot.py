@@ -117,17 +117,18 @@ class LootGoals:
 
 
 def worth_long_detour(objective: str, item: Item, carried: Counter[str | None], *, returning: bool,
-                      needs_return_arrows: bool) -> bool:
+                      needs_return_arrows: bool, guarded: bool) -> bool:
     """Items worth routing to beyond the short supply-detour radius."""
     identity = item.identity
     if identity in HEALING_POTIONS:
         return healing_reserve_gain(item, carried) > 0
-    if item.category == "food":
+    if item.category == "food" or (not returning and identity == objective):
         return True
+    if guarded:
+        return False
     if returning:
         return identity == "item.weapon.arrow" and needs_return_arrows
-    return (identity == objective
-            or (identity == "item.weapon.dart" and carried[identity] < 12)
+    return ((identity == "item.weapon.dart" and carried[identity] < 12)
             or (identity == "item.weapon.spear" and carried[identity] == 0))
 
 
@@ -147,7 +148,7 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
         item = ground.item
         key = ground.cell.key
         if worth_long_detour(objective, item, carried.by_identity, returning=returning,
-                             needs_return_arrows=needs_return_arrows and key not in guarded):
+                             needs_return_arrows=needs_return_arrows, guarded=key in guarded):
             goals.wanted.add(key)
         if returning or turn.hostiles or key in guarded or item.identity in HEALING_POTIONS:
             continue
