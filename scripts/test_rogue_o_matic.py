@@ -3850,6 +3850,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.danger_until["-1"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
 
+    def test_timed_bear_trap_keeps_recovery_in_place_and_preserves_the_travel_reserve(self):
+        trap = {"condition": {"id": "rogue.bear_trap", "name": "Bear trap"}, "phase": "active",
+                "remaining_ticks": "100"}
+        tiles = [cell("here"), cell("stairs", 1, down=True)]
+        for reserve, expected in ((32, "recover"), (31, "wait_for_restraint")):
+            with self.subTest(reserve=reserve):
+                turn = player_turn(tiles, combat={"hp": 5, "max_hp": 10}, stats={
+                    "conditions": [trap], "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
+                                                             "reset_percent": 100, "stopped": False},
+                    "nutrition": {"kind": "required", "reserve": reserve, "maximum": 100,
+                                  "unit_ticks": 100, "elapsed": 0, "hunger": "nourished"}})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.ascent_ticks_by_floor[1] = 100
+                self.assertEqual(choose(player, turn), (Wait(), expected))
+
     def test_partial_recovery_before_reentering_recent_danger_has_a_food_limit(self):
         room = [cell("shelter"), cell("hall", 1), cell("exit", 2, down=True)]
         for reserve, travel_ticks, expected in [

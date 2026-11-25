@@ -932,34 +932,37 @@ class Adventurer:
         memory = self.maps[self.depth]
         returning = self.carrying_objective(turn)
         direction = Direction.UP if returning else Direction.DOWN
+
+        def rest_if_affordable(points: int) -> tuple[Wait, str] | None:
+            ticks = clock.ticks_to_regain(points)
+            rest_budget = self.recovery_budget(turn, memory, direction)
+            if ticks is not None and (rest_budget is None or ticks < rest_budget):
+                return Wait(), "recover"
+            return None
+
+        if self.trapped(turn):
+            return rest_if_affordable(missing)
+
         stairs = self.safe_stairs(turn, direction)
-        points_to_rest = missing
-
-        if not self.trapped(turn):
-            danger = self.danger_until.keys()
-            if turn.cell.key in danger:
-                if action := route_to_recovery_shelter(turn, memory, danger):
-                    return action, "reposition_to_recover"
-            # Recover along the food route while scouting away from the stairs.
-            food_route = None
-            if not returning and self.depth in self.food_scouts:
-                food_route = self.provision(turn, memory, returning)
-            action = food_route[0] if food_route else self.recovery_stair_step(turn, memory, stairs)
-            if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
-                if cell.key not in self.danger_until:
-                    if food_route:
-                        return food_route
-                    if cell.key in memory.visited or cell.key in stairs:
-                        return action, "recover_en_route"
-                elif turn.cell.key not in self.danger_until:
-                    # Stay in shelter while a single point of recovery is still affordable.
-                    points_to_rest = 1
-
-        ticks = clock.ticks_to_regain(points_to_rest)
-        rest_budget = self.recovery_budget(turn, memory, direction)
-        if ticks is not None and (rest_budget is None or ticks < rest_budget):
-            return Wait(), "recover"
-        return None
+        danger = self.danger_until.keys()
+        if turn.cell.key in danger:
+            if action := route_to_recovery_shelter(turn, memory, danger):
+                return action, "reposition_to_recover"
+        # Recover along the food route while scouting away from the stairs.
+        food_route = None
+        if not returning and self.depth in self.food_scouts:
+            food_route = self.provision(turn, memory, returning)
+        action = food_route[0] if food_route else self.recovery_stair_step(turn, memory, stairs)
+        if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
+            if cell.key not in self.danger_until:
+                if food_route:
+                    return food_route
+                if cell.key in memory.visited or cell.key in stairs:
+                    return action, "recover_en_route"
+            elif turn.cell.key not in self.danger_until:
+                # Stay in shelter while a single point of recovery is still affordable.
+                return rest_if_affordable(1)
+        return rest_if_affordable(missing)
 
     def prepare(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.restorable_losses and turn.restorable_losses.strength:
