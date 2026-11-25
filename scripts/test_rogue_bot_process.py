@@ -3286,6 +3286,40 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_bot_restores_sight_while_healing_a_minor_injury(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        add_injury_potion(manifest, damage=1)
+        character, = manifest["characters"]
+        character.update(loadout=[{"archetype": name, "quantity": 1} for name in
+                                  ("rogue.extra_healing", "rogue.healing", "rogue.blindness", "injury")],
+                         known_identities=["item.potion.extra-healing", "item.potion.healing",
+                                           "item.potion.blindness", "item.potion.fixture.injury"])
+        contents["regions"][0]["actors"] = []
+        self.check_policy_scenario(contents, "minor-injury-blindness", """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import ItemUse, Outcome, Session, UseItem
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    for identity in ("item.potion.fixture.injury", "item.potion.blindness"):
+        dose = next(item for item in turn.inventory if item.identity == identity)
+        assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
+    assert turn.has_condition("rogue.blindness") and turn.health.current < turn.health.maximum <= 2 * turn.health.current
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    action, reason = player.choose(turn)
+    assert reason == "heal" and action.item.identity == "item.potion.healing", (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    assert not after.has_condition("rogue.blindness") and after.health.current > turn.health.current
+    assert any(item.identity == "item.potion.extra-healing" for item in after.inventory)
+""")
+
     def test_injured_bot_cures_hallucination_with_extra_healing(self):
         from utility_potions_package import fixture
 

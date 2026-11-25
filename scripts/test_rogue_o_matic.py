@@ -4143,6 +4143,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
         self.assertEqual((action.item.target, reason), ("first", "heal"))
 
+    def test_injured_blind_player_uses_ordinary_healing_above_half_health(self):
+        doses = healing_potions()
+        blindness = {"condition": {"id": "rogue.blindness", "name": "Blindness"},
+                     "phase": "active", "remaining_ticks": 100}
+        offers = [{"item": item["id"], "drinkable": True} for item in doses]
+        for hp, expected in ((8, True), (10, False)):
+            with self.subTest(hp=hp):
+                turn = player_turn([cell("here", down=True)], inventory=doses[::-1], combat={"hp": hp, "max_hp": 10},
+                                   stats={"conditions": [blindness]}, interactions={"inventory": offers})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason == "heal", expected)
+                if expected:
+                    self.assertEqual(action.item.identity, "item.potion.healing")
+
     def test_healing_while_hallucinating_prefers_a_dose_that_also_cures_the_condition(self):
         condition = {"condition": {"id": "rogue.hallucinating", "name": "Hallucinating"},
                      "phase": "active"}
