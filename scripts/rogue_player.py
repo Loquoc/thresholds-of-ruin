@@ -103,6 +103,14 @@ CONTROL_DEVICES = (
 HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
 
 
+def choose_healing_potion(turn: Turn, *, lethal: bool) -> Item | None:
+    """Prefer the larger healing roll when nearby enemies could kill the player."""
+    doses = (item for item in turn.inventory if item.identity in HEALING_POTIONS and ItemUse.DRINK in item.uses)
+    if lethal:
+        return max(doses, key=lambda item: item.identity == "item.potion.extra-healing", default=None)
+    return next(doses, None)
+
+
 def recovery_deficit(health: Health) -> int:
     """Hit points needed to reach four fifths of maximum health, rounded up."""
     target = (4 * health.maximum + 4) // 5
@@ -573,12 +581,8 @@ class Adventurer:
         lethal = health is not None and exposure >= health.current
         two_hit_threat = health is not None and exposure * 2 >= health.current
         if injured or lethal or (surrounded and health and health.current * 4 < health.maximum * 3):
-            for item in turn.inventory:
-                if ItemUse.DRINK in item.uses and item.identity in {
-                    "item.potion.healing",
-                    "item.potion.extra-healing",
-                }:
-                    return UseItem(item, ItemUse.DRINK), "heal"
+            if potion := choose_healing_potion(turn, lethal=lethal):
+                return UseItem(potion, ItemUse.DRINK), "heal"
 
         if turn.hostiles and not lethal and turn.hunger in {"weak", "empty"}:
             if meal := choose_meal(turn, self.food_value):

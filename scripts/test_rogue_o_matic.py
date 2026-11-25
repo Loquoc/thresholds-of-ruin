@@ -2529,6 +2529,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(policy, turn)[1], expected)
                 self.assertEqual(policy.observed_loss["foe"], loss)
 
+    def test_known_lethal_hit_prioritizes_extra_healing_in_either_inventory_order(self):
+        foe = {"id": "foe", "name": "troll", "position": cell("east", 1)["position"]}
+        potions = [{"id": name, "name": name, "identity": "item.potion." + name,
+                    "class": "potion", "identified": True, "quantity": 1} for name in ("healing", "extra-healing")]
+        for inventory in (potions, potions[::-1]):
+            with self.subTest(first=inventory[0]["id"]):
+                turn = player_turn([cell("here"), cell("east", 1)], actors=[foe], hostiles=["foe"],
+                                   inventory=inventory, combat={"hp": 6, "max_hp": 10},
+                                   interactions={"inventory": [{"item": p["id"], "drinkable": True} for p in inventory]})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss["foe"] = 6
+                action, reason = choose(player, turn)
+                self.assertEqual((action.item.target, reason), ("extra-healing", "heal"))
+
     def test_selects_emergency_consumables_by_identity_and_server_offer(self):
         renamed = {"id": "real", "name": "Greater restoration", "identified": True,
                    "identity": "item.potion.extra-healing", "quantity": 1}

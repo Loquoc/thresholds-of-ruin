@@ -2784,7 +2784,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
 
         contents = fixture()
         manifest = contents["manifest"]
-        manifest["archetypes"]["rogue.healing"]["name"] = "Restorative draught"
+        manifest["archetypes"]["rogue.extra_healing"]["name"] = "Restorative draught"
         manifest["archetypes"]["injury"] = {
             "class": "potion", "identity": "item.potion.fixture.injury", "name": "injury potion",
             "consumable": {"effects": [{"kind": "damage", "damage": {"kind": "components",
@@ -2792,9 +2792,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             }}]},
         }
         character, = manifest["characters"]
-        gear = ("rogue.enchant_armor", "rogue.protect_armor") if unknown_scrolls else ("rogue.healing",)
+        gear = ("rogue.enchant_armor", "rogue.protect_armor") if unknown_scrolls else ("rogue.healing", "rogue.extra_healing")
         character["loadout"] = [{"archetype": name, "quantity": 1} for name in ("injury", *gear)]
-        character["known_identities"].extend(("item.potion.fixture.injury", "item.potion.healing"))
+        character["known_identities"].extend(("item.potion.fixture.injury", "item.potion.healing", "item.potion.extra-healing"))
         region, = contents["regions"]
         region.update(walls=[[x, y, z] for x, y in ((0, 2), (1, 1), (1, 3)) for z in range(2)],
                       actors=[{"archetype": "rogue.hobgoblin", "id": 3, "controller": "external",
@@ -2835,7 +2835,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         assert player.wait_for_decision().tick > turn.tick
     else:
         assert isinstance(action, UseItem) and action.use is ItemUse.DRINK and reason == "heal"
-        assert action.item.name == "Restorative draught" and action.item.identity == "item.potion.healing"
+        assert action.item.name == "Restorative draught" and action.item.identity == "item.potion.extra-healing"
         assert turn.submit(action).status is Outcome.CONFIRMED
         assert player.wait_for_decision().health.current > hp
 """
