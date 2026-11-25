@@ -2706,6 +2706,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 1, rows.append)
                 self.assertEqual(json.loads(json.dumps(rows[0]["result"])), expected)
 
+    def test_equipment_history_counts_the_items_in_admitted_shots(self):
+        from rogue_gear import EquipmentHistory
+        from tor_client_bot import Shot
+
+        target = cell("east", 1)
+        foe = {"id": "foe", "name": "orc", "position": target["position"]}
+        ability = {"id": "shoot", "name": "shoot", "target_kind": "directional_projectile",
+                   "reach": {"kind": "projectile"}, "cooldown_remaining": "0", "basic_attack": False, "cost": None}
+        items = [{"id": name, "name": name, "class": "weapon", "quantity": 1, "identified": False}
+                 for name in ("dart", "arrow", "bow")]
+        turn = player_turn([cell("here"), target], actors=[foe], hostiles=["foe"], abilities=[ability], inventory=items)
+        dart, arrow, bow = turn.inventory
+        history = EquipmentHistory()
+        for projectile, launcher in ((dart, None), (arrow, bow), (arrow, bow)):
+            history.admitted(Shot(turn.abilities[0], turn.hostiles[0], (1, 0, 0), projectile, launcher, 0))
+        self.assertEqual(history.counts(), {"weapon": {"projectile_admitted": 2, "launcher_admitted": 1}})
+
     def test_equipment_report_counts_distinct_items_and_retains_last_device_offers(self):
         from rogue_gear import EquipmentHistory
 

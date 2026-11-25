@@ -3,7 +3,7 @@
 from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable
 
-from tor_client_bot import Action, Item, ItemUse, Turn, Unequip, UseItem, Zap
+from tor_client_bot import Action, Item, ItemUse, Shot, Turn, Unequip, UseItem, Zap
 
 
 MELEE_WEAPONS = {"item.weapon.mace", "item.weapon.dagger", "item.weapon.long-sword",
@@ -259,6 +259,10 @@ class EquipmentHistory:
             self.record(action.device.item, "activation_admitted")
         elif isinstance(action, UseItem):
             self.record(action.item, "use_admitted")
+        elif isinstance(action, Shot):
+            self.record(action.projectile, "projectile_admitted")
+            if action.launcher is not None:
+                self.record(action.launcher, "launcher_admitted")
 
     def observe(self, turn: Turn) -> None:
         if not turn.terminal:
