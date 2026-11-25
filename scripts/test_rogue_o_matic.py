@@ -4949,7 +4949,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             "period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observe(turn)
-        player.maps[1].visited.update(("-1", "-2", "1"))
+        player.maps[1].visited.update(("-1", "-2"))
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "recover_en_route"))
+        player.maps[1].visited.add("1")
         player.danger_until["1"] = 1200
         self.assertEqual(player.choose(turn), (Move(Direction.WEST), "recover_en_route"))
         player.danger_until["-1"] = 1200

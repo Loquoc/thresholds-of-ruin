@@ -3112,6 +3112,13 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             assert sheltered.cell.key == turn.cell.key and hall not in player.danger_until
             turn = sheltered
             player.travel_times.ascent.clear()
+            # Replay the decision with the alternate passage remembered as the familiar one.
+            alternate = turn.cell_at(safe_step.direction.offset).key
+            memory.visited.remove(hall)
+            memory.visited.add(alternate)
+            assert player.choose(turn) == (safe_step, "recover_en_route")
+            memory.visited.remove(alternate)
+            memory.visited.add(hall)
         for _ in range(2):
             if not limited:
                 assert player.choose(turn) == (east, "recover_en_route")
