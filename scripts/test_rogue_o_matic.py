@@ -1877,8 +1877,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(player, turn)
                 self.assertEqual(reason, "polymorph_threat")
                 player.admitted(turn, action, reason=reason)
+                player.admitted(turn, action, reason=reason)
                 report = CombatReport("player", ({**own_cast, **fields},))
                 player.observe(turn, report)
+                player.observe(turn, report)  # The same resistance still permits exactly one retry.
                 action, reason = player.choose(turn)
                 self.assertEqual(reason == "polymorph_threat", retry)
                 if retry:
@@ -1894,7 +1896,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offer = {"item": "fresh", "zappable": True, "device_activation": "direction"}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observed_loss_by_name["griffin"] = 10
-        player.resisted_polymorph.add("hunter")
+        from rogue_player import PolymorphState
+        player.polymorph_by_target["hunter"] = PolymorphState.RESISTED
         for charges, retry in ((None, False), (0, False), (1, True)):
             with self.subTest(charges=charges):
                 turn = player_turn(cells, actors=[foe], inventory=[wand],

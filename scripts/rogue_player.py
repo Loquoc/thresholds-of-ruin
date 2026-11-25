@@ -71,6 +71,12 @@ ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand
 ELEMENTAL_RAY_RANGE = 6
 
 
+class PolymorphState(StrEnum):
+    ATTEMPTED = "attempted"
+    RESISTED = "resisted"
+    RETRIED = "retried"
+
+
 class MemoryReason(StrEnum):
     """Trace reasons that also govern memory updates on admission."""
 
@@ -256,8 +262,7 @@ class Adventurer:
     supplies_guarded_until: dict[str, int] = field(default_factory=dict)
     tried_unmeasured_devices: set[str] = field(default_factory=set)
     attempted_slow: set[str] = field(default_factory=set)
-    attempted_polymorph: set[str] = field(default_factory=set)
-    resisted_polymorph: set[str] = field(default_factory=set)
+    polymorph_by_target: dict[str, PolymorphState] = field(default_factory=dict)
     attempted_room_light: set[int] = field(default_factory=set)
     previous_losses: RestorableLosses | None = None
     draining_creatures: set[str] = field(default_factory=set)
@@ -349,10 +354,9 @@ class Adventurer:
         self.previous_health = health.current if health else None
         for effect in report.outgoing:
             target = effect.target
-            if (target is not None and target in self.attempted_polymorph and target not in self.resisted_polymorph
+            if (target is not None and self.polymorph_by_target.get(target) is PolymorphState.ATTEMPTED
                     and effect.ability == "rogue.wand_polymorph" and effect.outcome is AbilityOutcome.UNAFFECTED):
-                self.attempted_polymorph.remove(target)
-                self.resisted_polymorph.add(target)
+                self.polymorph_by_target[target] = PolymorphState.RESISTED
         incoming = report.incoming
         self.record_injury(turn, incoming, loss)
         if self.danger_until:
@@ -547,7 +551,11 @@ class Adventurer:
             if reason == MemoryReason.SLOW_APPROACH:
                 self.attempted_slow.update(targets)
             elif reason == MemoryReason.POLYMORPH_THREAT:
-                self.attempted_polymorph.update(targets)
+                for target in targets:
+                    if self.polymorph_by_target.get(target) is PolymorphState.RESISTED:
+                        self.polymorph_by_target[target] = PolymorphState.RETRIED
+                    else:
+                        self.polymorph_by_target.setdefault(target, PolymorphState.ATTEMPTED)
 
     def carrying_objective(self, turn: Turn) -> bool:
         return any(item.identity == self.objective for item in turn.inventory)
@@ -822,10 +830,13 @@ class Adventurer:
         return sorted(targets, key=lambda target: target[1], reverse=True)
 
     def can_polymorph(self, turn: Turn, foe: Creature, device: Device, lethal: bool) -> bool:
-        if not lethal or foe.injury is not Injury.HEALTHY or foe.target in self.attempted_polymorph:
+        if not lethal or foe.injury is not Injury.HEALTHY:
             return False
-        if foe.target not in self.resisted_polymorph:
+        state = self.polymorph_by_target.get(foe.target)
+        if state is None:
             return True
+        if state is not PolymorphState.RESISTED:
+            return False
         # A witnessed resistance permits one retry with a measured charge and no other foe in contact.
         return device.charges is not None and not any(
             other.target != foe.target and turn.in_contact(other) for other in turn.hostiles
