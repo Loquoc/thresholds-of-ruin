@@ -436,7 +436,8 @@ class Adventurer:
             if decision := self.evade(turn):
                 return decision
 
-        if decision := self.ranged_combat(turn, adjacent):
+        make_space = surrounded or two_hit_threat
+        if decision := self.ranged_combat(turn, adjacent, make_space=make_space):
             return decision
 
         if exposure.threatens(health, rounds=1) and not self.scroll_trials.tried_in_encounter:
@@ -447,7 +448,7 @@ class Adventurer:
             if decision := ready_weapon(turn, bow=False):
                 return decision
 
-        if attack := self.melee_attack(turn, make_space=surrounded or two_hit_threat):
+        if attack := self.melee_attack(turn, make_space=make_space):
             return attack, "melee"
 
         return None
@@ -492,7 +493,7 @@ class Adventurer:
             return None
         return ready_weapon(turn, bow=False) or (attack, "melee")
 
-    def ranged_combat(self, turn: Turn, adjacent: list[Creature]) -> tuple[Action, str] | None:
+    def ranged_combat(self, turn: Turn, adjacent: list[Creature], *, make_space: bool = False) -> tuple[Action, str] | None:
         if not turn.hostiles:
             return None
         if zap := self.aim_combat_wand(turn, turn.hostiles, ELEMENTAL_WANDS, reflected_ray_range=ELEMENTAL_RAY_RANGE):
@@ -512,7 +513,7 @@ class Adventurer:
             return None
         if shot.launcher is not None:
             return shot, "launch_projectile"
-        if any(turn.attack(foe) is not None for foe in adjacent):
+        if choose_melee_attack(turn, adjacent, make_space=make_space) is not None:
             return None
         return shot, "throw_projectile"
 

@@ -2860,6 +2860,8 @@ with ExitStack() as stack:
                 build["hit_dice"][-1]["purchases"].append(
                     {"pool": "advancement", "selection": {"kind": "talent", "talent": expected}})
         manifest["characters"][0]["loadout"] = [{"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0}]
+        if expected == "rattling_blow":
+            manifest["characters"][0]["loadout"].append({"archetype": "rogue.dart", "quantity": 3})
         upper, lower = ("2/landing", "1/guarded") if returning else ("1/guarded", "2/landing")
         manifest["stair_pairs"] = {"exit": {"upper": upper, "lower": lower}}
         region, = contents["regions"]
@@ -2900,6 +2902,8 @@ with ExitStack() as clients:
     game, west, east = [clients.enter_context(Session.connect(os.environ["BOT_TEST_ADDRESS"],
                         os.environ["TOR_SERVER_TOKEN"], i)) for i in (1, 3, 4)]
     turn = game.wait_for_decision()
+    if os.environ["EXPECTED_MELEE"] == "rattling_blow":
+        assert any(shot.launcher is None for shot in turn.ranged_attacks(max_distance=4, hostile_only=True))
     assert len(turn.hostiles) == 2 and not turn.walkable_directions
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)

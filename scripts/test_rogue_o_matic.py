@@ -2263,13 +2263,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                  "reach": {"kind": "projectile"}}
         dart = {"id": "d", "name": "dart", "identity": "item.weapon.dart", "identified": True,
                 "quantity": 12, "class": "weapon"}
-        turn = player_turn([cell("here"), cell("enemy", 1)], actors=[foe], hostiles=["emu"],
-                           abilities=[melee, throw], inventory=[dart])
-        target, = turn.hostiles
-        shot = Shot(turn.abilities[1], target, (1, 0, 0), turn.inventory[0], None, 0)
-        turn.ranged_attacks = Mock(return_value=[shot])
-        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
-                         (turn.attack(target), "melee"))
+        for technique in ("basic_melee", "rattling_blow"):
+            with self.subTest(technique=technique):
+                strike = {**melee, "id": technique, "basic_attack": technique == "basic_melee"}
+                turn = player_turn([cell("here"), cell("enemy", 1)], actors=[foe], hostiles=["emu"],
+                                   abilities=[strike, throw], inventory=[dart])
+                target, = turn.hostiles
+                shot = Shot(turn.abilities[1], target, (1, 0, 0), turn.inventory[0], None, 0)
+                turn.ranged_attacks = Mock(return_value=[shot])
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason, "melee")
+                self.assertEqual((action.ability.identity, action.target), (technique, target))
 
     def test_uses_a_loaded_launcher_even_if_a_carried_throw_is_offered_first(self):
         from unittest.mock import Mock
@@ -2319,7 +2323,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     patch.object(turn, "attack") as strike:
                 self.assertEqual(player.ranged_combat(turn, [target]), expected)
                 if offers == [throw]:
-                    strike.assert_called_once_with(target)
+                    strike.assert_called_once_with(target, technique="rattling_blow")
                 else:
                     strike.assert_not_called()
 
