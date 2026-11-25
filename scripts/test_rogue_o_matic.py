@@ -4176,6 +4176,39 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.item.target, reason), ("stack", "identify"))
 
+    def test_weapon_identification_checks_the_worn_weapon_before_an_unmeasured_spare(self):
+        slot = {"id": "weapon", "name": "Weapon"}
+        spare = {"id": "spare", "identity": "item.weapon.dagger", "name": "dagger",
+                 "class": "weapon", "identified": True, "quantity": 1}
+        worn = {**spare, "id": "worn", "identity": "item.weapon.shortbow", "name": "shortbow"}
+        for measured, expected in ((False, "worn"), (True, "spare")):
+            with self.subTest(measured=measured):
+                offer = {"item": "worn", "slot": slot, "equipped_slot": 0}
+                if measured:
+                    offer["known_equipment"] = {"enchantment": 0}
+                turn = player_turn([cell("here")], inventory=[spare, worn], interactions={
+                    "slots": [slot], "inventory": [offer, {"item": "spare", "slot": slot}],
+                    "identification": {"choice": "lore", "classes": ["weapon"], "items": ["spare", "worn"]}})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.item.target, reason), (expected, "identify"))
+
+    def test_mixed_identification_prompt_weighs_stack_size_before_worn_status(self):
+        slot = {"id": "weapon", "name": "Weapon"}
+        mace = {"id": "mace", "identity": "item.weapon.mace", "class": "weapon",
+                "name": "mace", "identified": True, "quantity": 1}
+        potion = {"id": "flask", "class": "potion", "name": "flask", "identified": False}
+        interactions = {
+            "slots": [slot],
+            "inventory": [{"item": "mace", "slot": slot, "equipped_slot": 0}],
+            "identification": {"choice": "lore", "classes": ["potion", "weapon"], "items": ["flask", "mace"]},
+        }
+        for quantity, expected in ((1, "mace"), (2, "flask")):
+            with self.subTest(quantity=quantity):
+                turn = player_turn([cell("here")], inventory=[dict(potion, quantity=quantity), mace],
+                                   interactions=interactions)
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.item.target, reason), (expected, "identify"))
+
     def test_equally_useful_identification_targets_follow_inventory_order(self):
         potion = {"class": "potion", "identified": False, "quantity": 2}
         blue = {**potion, "id": "blue", "name": "blue flask"}

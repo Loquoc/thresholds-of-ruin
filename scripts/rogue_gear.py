@@ -52,14 +52,17 @@ def needs_identification(item: Item, turn: Turn) -> bool:
 
 
 def identification_target(turn: Turn, candidates: Iterable[Item]) -> Item | None:
-    """Prefer a larger unknown consumable stack. Equal scores keep candidate order."""
-    def revealed_units(item: Item) -> int:
+    """Break ties in revealed units by preferring worn gear, then candidate order."""
+    worn = {slot.occupant.target for slot in turn.equipment if slot.occupant}
+
+    def rank(item: Item) -> tuple[int, bool]:
+        units = 1
         if item.identity is None and item.category in {"potion", "scroll", "food"}:
-            return item.quantity
-        return 1
+            units = item.quantity
+        return units, item.target in worn
 
     eligible = (item for item in candidates if needs_identification(item, turn))
-    return max(eligible, key=revealed_units, default=None)
+    return max(eligible, key=rank, default=None)
 
 
 def identification_categories(scroll: Item) -> Collection[str]:

@@ -2059,8 +2059,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         identity = "item.weapon.fixture-blade"
         manifest["archetypes"]["rogue.long_sword"]["identity"] = identity
         character, = manifest["characters"]
-        character.update(known_identities=[identity, "item.scroll.identify-weapon", "item.scroll.enchant-weapon"],
-                         loadout=[{"archetype": "rogue.long_sword", "quantity": 1, "equipped_slot": 0},
+        character.update(known_identities=[identity, "item.weapon.dagger",
+                                           "item.scroll.identify-weapon", "item.scroll.enchant-weapon"],
+                         loadout=[{"archetype": "rogue.dagger", "quantity": 1},
+                                  {"archetype": "rogue.long_sword", "quantity": 1, "equipped_slot": 0},
                                   {"archetype": "rogue.identify_weapon", "quantity": 1},
                                   {"archetype": "rogue.enchant_weapon", "quantity": 1}])
         contents["regions"][0].update(actors=[], items=[])
@@ -2076,6 +2078,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         player.observe(turn)
         action, reason = player.choose(turn)
         assert reason == expected, (action, reason)
+        if expected == "identify":
+            offered = [item.identity for item in turn.identification.items]
+            assert offered == ["item.weapon.dagger", "item.weapon.fixture-blade"], offered
+            assert action.item.identity == "item.weapon.fixture-blade", action
         assert turn.submit(action).status is Outcome.CONFIRMED
         turn = game.wait_for_decision()
     def attack(turn):
