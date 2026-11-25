@@ -356,7 +356,7 @@ def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth
             return report
         try:
             if verify_victory(address, token, actor, objective_identity):
-                return {**report, "victory_verified": True}
+                return {**report, "victory_verified": True, "amulet_acquired": True}
             message = "Fresh player observation did not confirm victory with the retrieval item"
         except RuntimeError as error:
             message = str(error)

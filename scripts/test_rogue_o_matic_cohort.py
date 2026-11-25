@@ -233,6 +233,26 @@ assert get_type_hints(play)["player"] is Adventurer
                                             cwd=directory, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_verified_victory_counts_the_objective_even_if_the_client_omits_acquisition(self):
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import Mock, patch
+        from rogue_o_matic_cohort import play_on_server
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = root / "client.py"
+            terminal = json.dumps({"terminal": "victory"})
+            client.write_text(f"print({terminal!r})", encoding="utf-8")
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            for verified in (True, False):
+                with self.subTest(verified=verified), patch("rogue_o_matic_cohort.verify_victory", return_value=verified):
+                    result = play_on_server(server, "token", 1, 1, 15, root / "turns.jsonl", 26, "amulet", client, False)
+                    self.assertIs(result["amulet_acquired"], verified)
+                    summary = summarize([result])
+                    self.assertEqual((summary["victories"], summary["amulets_acquired"]), (int(verified), int(verified)))
+
     def test_fresh_victory_verification_requires_the_configured_identity(self):
         from types import SimpleNamespace
         from unittest.mock import patch
