@@ -3,7 +3,7 @@
 from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable
 
-from tor_client_bot import Action, Item, ItemUse, Shot, Turn, Unequip, UseItem, Zap
+from tor_client_bot import Action, EquipmentSlot, Item, ItemUse, Shot, Turn, Unequip, UseItem, Zap
 
 
 MELEE_WEAPONS = {"item.weapon.mace", "item.weapon.dagger", "item.weapon.long-sword",
@@ -196,6 +196,10 @@ def choose_ring(turn: Turn) -> tuple[Action, str] | None:
     return best, "conserve_food" if best.item.identity == "item.ring.ring-slow-digestion" else "upgrade_equipment"
 
 
+def primary_weapon_slot(turn: Turn) -> EquipmentSlot | None:
+    return next((slot for slot in turn.equipment if slot.kind == "weapon"), None)
+
+
 def improve_worn_gear(turn: Turn) -> tuple[Action, str] | None:
     armor = next((s.occupant for s in turn.equipment if s.kind == "body_armor" and s.occupant), None)
     if armor:
@@ -204,8 +208,8 @@ def improve_worn_gear(turn: Turn) -> tuple[Action, str] | None:
                 return protect, "protect_armor"
         if enchant := offered_item_use(turn, "item.scroll.enchant-armor", ItemUse.READ):
             return enchant, "enchant_armor"
-    primary = next((s.occupant for s in turn.equipment if s.kind == "weapon"), None)
-    if primary is None or melee_score(primary) < 0:
+    slot = primary_weapon_slot(turn)
+    if slot is None or slot.occupant is None or melee_score(slot.occupant) < 0:
         return None
     if scroll := offered_item_use(turn, "item.scroll.enchant-weapon", ItemUse.READ):
         if upgrade := ready_weapon(turn, bow=False):
@@ -228,7 +232,7 @@ def melee_score(item: Item) -> float:
 
 
 def can_wield_shortbow(turn: Turn) -> bool:
-    slot = next((slot for slot in turn.equipment if slot.kind == "weapon"), None)
+    slot = primary_weapon_slot(turn)
     if slot and slot.occupant and slot.occupant.identity == "item.weapon.shortbow":
         return True
     if slot and slot.removal_blocked:
@@ -246,7 +250,7 @@ def ready_weapon_for_range(turn: Turn, nearest: int) -> tuple[Action, str] | Non
 
 
 def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
-    slot = next((s for s in turn.equipment if s.kind == "weapon"), None)
+    slot = primary_weapon_slot(turn)
     if slot is None or (slot.removal_blocked and turn.hostiles):
         return None
     worn = slot.occupant

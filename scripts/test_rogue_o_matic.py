@@ -681,6 +681,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     self.assertEqual(evade_unseen_attacker(turn, "0", memory), expected)
                 self.assertEqual(visited, ["0", "1", "2", "3"] if expected else [])
 
+    def test_primary_weapon_slot_is_selected_by_kind_and_keeps_its_position_when_empty(self):
+        from rogue_gear import primary_weapon_slot
+
+        armor = {"id": "body_armor", "name": "Armor"}
+        weapon = {"id": "weapon", "name": "Weapon"}
+        for slots, expected in (([armor], None), ([armor, weapon, weapon], 1)):
+            with self.subTest(slots=slots):
+                turn = player_turn([cell("here")], interactions={"slots": slots})
+                slot = primary_weapon_slot(turn)
+                self.assertEqual(slot.index if slot else None, expected)
+
     def test_recognized_melee_weapon_can_fill_an_empty_slot_before_its_stats_are_known(self):
         slot = {"id": "weapon", "name": "Weapon"}
         items = [{"id": name, "name": name, "identity": f"item.weapon.{name}", "identified": True,

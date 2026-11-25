@@ -8,7 +8,7 @@ from functools import cached_property
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
 from rogue_combat import recovery_deficit
-from rogue_gear import can_wield_shortbow, melee_score, remove_curse_scroll, ring_upgrades
+from rogue_gear import can_wield_shortbow, melee_score, primary_weapon_slot, remove_curse_scroll, ring_upgrades
 from rogue_retreat import route_around_danger
 
 
@@ -48,7 +48,7 @@ class CarriedLoot:
         self.by_identity: Counter[str | None] = Counter()
         self.by_category: Counter[str] = Counter()
         self.usable_gear: set[str] = set()
-        weapon_slot = next((slot for slot in turn.equipment if slot.kind == "weapon"), None)
+        weapon_slot = primary_weapon_slot(turn)
         self.needs_melee_weapon = True
         if weapon_slot and weapon_slot.removal_blocked:
             # A locked melee weapon still serves in combat. A locked bow needs a cure before switching.
