@@ -334,6 +334,19 @@ assert get_type_hints(play)["player"] is Adventurer
         attack.update(outcome="applied", target="other")
         self.assertEqual(death_cause(report), "injury")
 
+    def test_anonymous_effect_between_an_attack_and_death_preserves_the_reported_injury(self):
+        from rogue_o_matic_cohort import death_cause
+
+        events = [
+            {"type": "ability", "caster": "snake", "target": "hero", "outcome": "applied",
+             "ability": {"id": "rogue.venomous_bite"}},
+            {"type": "anonymous_ability", "caster": "mage", "target": "hero", "outcome": "applied"},
+            {"type": "died", "actor": "hero", "cause": "injury"},
+        ]
+        report = {"self_target": "hero", "last_combat_events": events,
+                  "last_nutrition": {"kind": "required", "reserve": -3, "starve_at": -3}}
+        self.assertEqual(death_cause(report), "injury")
+
     def test_reports_starvation_instead_of_the_last_self_targeted_search(self):
         events = [{"type": "ability", "caster": "player", "target": "player",
                    "outcome": "applied", "ability": {"id": "rogue.search"}},

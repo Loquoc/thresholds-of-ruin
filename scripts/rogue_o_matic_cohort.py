@@ -52,25 +52,28 @@ def preceding_attack(events_before_death, actor):
     return None
 
 
-def death_cause(report):
-    history = report.get("last_combat_events", [])
-    player = report.get("self_target")
+def combat_death_cause(history, player):
+    """Use the player's death event and its immediately preceding combat evidence."""
     if player is None:
-        # Older reports omit the player target. Their events are usable only for a single victim.
+        # Older reports omit the player target. A single victim makes it unambiguous.
         victims = {event["actor"] for event in history if event["type"] == "died"}
-        if len(victims) == 1:
-            player = victims.pop()
+        if len(victims) != 1:
+            return None
+        player = victims.pop()
+
     events = reversed(history)
     for event in events:
-        if event["type"] != "died" or player is None or event["actor"] != player:
-            continue
-        if event.get("cause") == "starvation":
-            return "starvation"
-        if attack := preceding_attack(events, event["actor"]):
-            return attack
-        if event.get("cause") == "injury":
-            return "injury"
-        break
+        if event["type"] == "died" and event["actor"] == player:
+            cause = event.get("cause")
+            if cause == "starvation":
+                return cause
+            return preceding_attack(events, player) or cause
+    return None
+
+
+def death_cause(report):
+    if cause := combat_death_cause(report.get("last_combat_events", []), report.get("self_target")):
+        return cause
     nutrition = report.get("last_nutrition")
     if isinstance(nutrition, dict) and nutrition.get("kind") == "required":
         reserve = nutrition.get("reserve")
