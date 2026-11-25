@@ -642,6 +642,12 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         self.check_safe_stair_route(diagonal=False)
 
     def test_outnumbered_bot_takes_nearby_downstairs(self):
+        self.check_outnumbered_descent([(2, 3), (3, 3)])
+
+    def test_bot_steps_onto_stairs_before_two_foes_close_from_separate_directions(self):
+        self.check_outnumbered_descent([(2, 0), (2, 4)])
+
+    def check_outnumbered_descent(self, positions):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -651,9 +657,9 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         room, = contents["regions"]
         room["anchors"].update(start=[2, 2, 0], down=[3, 2, 0])
         room["actors"] = [
-            {"archetype": species, "id": number, "at": [x, 3, 0],
+            {"archetype": species, "id": number, "at": [x, y, 0],
              "controller": "external", "turn_ticks": 1000000}
-            for number, x, species in ((3, 2, "rogue.emu"), (4, 3, "rogue.hobgoblin"))
+            for (number, species), (x, y) in zip(((3, "rogue.emu"), (4, "rogue.hobgoblin")), positions)
         ]
         contents["regions"].append({"id": 2, "name": "Landing", "size": [5, 5, 2],
                                     "chamber": True, "anchors": {"up": [2, 2, 0]}})

@@ -50,7 +50,7 @@ from rogue_loot import (
 from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
 from rogue_retreat import (
-    approach_visible_exit, best_onward_escape, evade_unseen_attacker, route_around_danger, take_corridor,
+    approach_visible_exit, best_onward_escape, converging_pursuers, evade_unseen_attacker, route_around_danger, take_corridor,
 )
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
@@ -561,7 +561,8 @@ class Adventurer:
             return decision
         distances = [(foe, turn.distance_to(foe)) for foe in turn.hostiles]
         close_pursuit = bool(adjacent) and sum(distance <= 2 for _, distance in distances) >= 2
-        if escape := self.retreat_to_stairs(turn, pressed=injured or close_pursuit or two_hit_threat):
+        pressed = injured or close_pursuit or two_hit_threat or (not adjacent and converging_pursuers(turn, distances))
+        if escape := self.retreat_to_stairs(turn, pressed=pressed):
             return escape
         pursuers = [(foe, distance) for foe, distance in distances if distance <= 3]
         approaching_group = not adjacent and len(pursuers) >= 2

@@ -1647,6 +1647,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observed_loss.update({"-1": 3, "1": 3, safer: 1})
                 self.assertEqual(choose(player, turn), (Move(direction), "retreat_to_stairs"))
 
+    def test_steps_onto_escape_stairs_before_two_open_approaches_reach_melee(self):
+        for blocked, expected in ((False, "retreat_to_stairs"), (True, "combat_haste")):
+            with self.subTest(blocked=blocked):
+                cells = [cell("here"), cell("exit", 1, down=True), cell("north", y=-1),
+                         cell("south", y=1, wall=blocked), cell("orc", y=-2), cell("bat", y=2)]
+                foes = [{"id": tile["key"], "name": tile["key"], "position": tile["position"]} for tile in cells[-2:]]
+                haste = {"id": "haste", "identity": "item.potion.haste", "class": "potion", "quantity": 1,
+                         "identified": True, "name": "haste"}
+                turn = player_turn(cells, actors=foes, hostiles=["orc", "bat"], inventory=[haste],
+                                   interactions={"inventory": [{"item": "haste", "drinkable": True}]})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                action, reason = choose(player, turn)
+                self.assertEqual(reason, expected)
+                if not blocked:
+                    self.assertEqual(action, Move(Direction.EAST))
+
     def test_outnumbered_player_steps_onto_nearby_downstairs_then_descends(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         for on_stair in (False, True):

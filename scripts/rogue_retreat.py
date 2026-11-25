@@ -63,6 +63,37 @@ def _flanked_by_walls(turn: Turn, x: int, y: int, direction: Direction) -> bool:
     return left is not None and left.wall and right is not None and right.wall
 
 
+def converging_pursuers(turn: Turn, distances: list[tuple[Creature, int]]) -> bool:
+    """Can two foes enter melee through different open squares in one horizontal step?"""
+    close = [foe for foe, distance in distances if distance == 2]
+    if len(close) < 2 or any(x or y for x, y, _ in turn.body):
+        return False
+    occupied = {cell for creature in turn.creatures for cell in creature.cells}
+    first_approaches = set()
+    for foe in close:
+        columns = {(x, y) for x, y, _ in foe.cells}
+        if len(columns) != 1:
+            continue
+        fx, fy = next(iter(columns))
+        approaches = set()
+        for direction in turn.walkable_directions:
+            x, y, _ = direction.offset
+            if max(abs(fx - x), abs(fy - y)) != 1 or not turn.in_contact(foe, from_offset=direction.offset):
+                continue
+            # Check the closing step at every visible height, including both diagonal corners.
+            crossed = {(x, y)}
+            if fx != x and fy != y:
+                crossed.update(((fx, y), (x, fy)))
+            sweep = ((cx, cy, z) for _, _, z in foe.cells for cx, cy in crossed)
+            if all(at not in occupied and (cell := turn.cell_at(at)) and not cell.wall
+                   and (cell.door is None or cell.door.open) for at in sweep):
+                approaches.add(direction)
+        if approaches and first_approaches and len(first_approaches | approaches) > 1:
+            return True
+        first_approaches.update(approaches)
+    return False
+
+
 def take_corridor(turn: Turn, pursuers: list[tuple[Creature, int]]) -> Move | None:
     """Enter a narrow passage with a clear retreat and the pursuers on the far side."""
     for direction in turn.walkable_directions:
