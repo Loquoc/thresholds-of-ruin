@@ -5300,7 +5300,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         from unittest.mock import patch
 
         cells = [cell("here"), {**cell("wall", 1), "wall": True},
-                 cell("first", 2, up=True), cell("second", 3, up=True)]
+                 cell("first", 2, up=True), cell("second", 3, up=True),
+                 cell("other-wall", 4, wall=True), cell("isolated", 5)]
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "personal"}, "target_kind": "self"}
         turn = player_turn(cells, abilities=[ability])

@@ -102,17 +102,19 @@ class SearchHistory:
         return max(0, DEAD_END_SEARCHES - self.completed_end_searches[site.key])
 
     def return_connection_sites(self, memory: FloorMap, origin: str, upstairs: set[str]) -> set[str]:
-        """Find unexhausted search squares across a wall from a disconnected stair passage."""
+        """Prefer searching here, then consider reachable sites across a wall from a stair passage."""
         sites: set[str] = set()
         for cell in squares_across_stair_walls(memory, origin, upstairs):
             remaining = self.remaining_dead_end_searches(cell, memory)
             if remaining is None:
                 remaining = ORDINARY_WALL_SEARCHES - self.attempts_at(cell.key)
             if remaining > 0:
+                if cell.key == origin:
+                    return {origin}
                 sites.add(cell.key)
-        if sites - {origin}:
-            return {cell.key for cell, _ in memory.reachable(origin) if cell.key in sites}
-        return sites
+        if not sites:
+            return set()
+        return {cell.key for cell, _ in memory.reachable(origin) if cell.key in sites}
 
     def ranked_search_sites(self, turn: Turn, memory: FloorMap, *, returning: bool,
                            allow_unseen: bool, wall_limit: int) -> Iterator[set[str]]:
