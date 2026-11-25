@@ -178,6 +178,13 @@ class SearchRank(NamedTuple):
     negative_distance: int
 
 
+@dataclass(frozen=True)
+class PendingSearch:
+    receipt: Result
+    walls: frozenset[str]
+    dead_end: str | None
+
+
 @dataclass
 class Adventurer:
     retrieval_depth: int
@@ -189,7 +196,7 @@ class Adventurer:
     last_shot_tick: int | None = None
     searches: Counter[str] = field(default_factory=Counter)
     completed_end_searches: Counter[str] = field(default_factory=Counter)
-    pending_end_search: tuple[str, Result] | None = None
+    pending_search: PendingSearch | None = None
     wall_searches: Counter[str] = field(default_factory=Counter)
     ascent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
     descent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
@@ -249,7 +256,7 @@ class Adventurer:
             entrance, until = self.corridor_stand
             if here.key != entrance or turn.tick >= until:
                 self.corridor_stand = None
-        self.observe_end_search(turn)
+        self.observe_search(turn)
         self.potion_trials.observe(turn)
         self.scroll_trials.observe(turn)
         self.expire_danger_warnings(turn.tick)
@@ -440,27 +447,28 @@ class Adventurer:
             self.food_value[meal.identity] = min(gain, self.food_value.get(meal.identity, gain))
         self.pending_meal = None
 
-    def observe_end_search(self, turn: Turn) -> None:
-        """Only a completed search spends one of the attempts budgeted for a dead end."""
-        if self.pending_end_search is None:
+    def observe_search(self, turn: Turn) -> None:
+        search = self.pending_search
+        if search is None:
             return
-        origin, receipt = self.pending_end_search
-        phase = turn.outcome_of(receipt)
+        phase = turn.outcome_of(search.receipt)
         if phase is ActivityPhase.RESOLVED:
-            self.completed_end_searches[origin] += 1
+            self.wall_searches.update(search.walls)
+            if search.dead_end is not None:
+                self.completed_end_searches[search.dead_end] += 1
         elif phase not in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
             return
-        self.pending_end_search = None
+        self.pending_search = None
 
     def remember_search(self, turn: Turn, origin: Cell, receipt: Result | None) -> None:
         self.searches[origin.key] += 1
-        if receipt and is_searchable_dead_end(origin, self.maps[self.depth]):
-            self.pending_end_search = origin.key, receipt
-        # Credit each visible wall once in the near and middle search bands.
-        self.wall_searches.update({
-            cell.key for cell in turn.visible_cells
-            if cell.wall and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 3
-        })
+        walls = frozenset(cell.key for cell in turn.visible_cells
+                          if cell.wall and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 3)
+        if receipt is None or receipt.activity is None:
+            self.wall_searches.update(walls)
+            return
+        dead_end = origin.key if is_searchable_dead_end(origin, self.maps[self.depth]) else None
+        self.pending_search = PendingSearch(receipt, walls, dead_end)
 
     def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
         if turn.cell is None:

@@ -1190,6 +1190,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(dict(player.searches), {"here": 1, "other": 1})
         self.assertEqual(dict(player.wall_searches), {"diagonal": 2, "middle": 1})
 
+    def test_wall_coverage_counts_only_resolved_search_receipts_and_uses_the_original_picture(self):
+        from tor_client_bot import Result
+
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,
+                   "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
+        turn = player_turn([cell("start"), cell("original-wall", 1, wall=True)], abilities=[ability])
+        activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": "search", "phase": "queued"}
+        receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
+        later = player_turn([cell("other"), cell("new-wall", 1, wall=True)])
+        for phase in ("cancelled", "failed", "resolved"):
+            with self.subTest(phase=phase):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                player.admitted(turn, UseAbility(turn.abilities[0]), receipt)
+                player.observe(turn)
+                self.assertFalse(player.wall_searches)
+                final = Turn({**json.loads(later.recording()), "finished_intentions": [dict(activity, phase=phase)]})
+                player.observe(final)
+                player.observe(final)
+                self.assertEqual(dict(player.wall_searches), {"original-wall": 1} if phase == "resolved" else {})
+                self.assertEqual(player.searches["start"], 1)
+
     def test_equivalent_search_sites_are_ranked_independently_of_opaque_cell_keys(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
