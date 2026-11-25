@@ -1,18 +1,14 @@
-# cargo-deny policy, checked in CI (see docs/testing.md).
+# cargo-deny policy, checked in CI (see docs/development/ci-usage.md).
 # Run locally with `cargo deny check`.
 
 [graph]
 all-features = true
 
 [advisories]
-# Vulnerable and unsound crates are always errors. Yanked releases too.
+# Keep checking both direct and transitive crates for unmaintained advisories.
+# cargo-deny 0.22 defaults to direct workspace dependencies only.
+unmaintained = "all"
 yanked = "deny"
-ignore = [
-    # `instant` is unmaintained (not vulnerable). It comes only through
-    # `minifb` 0.28, the latest release, used by the native ASCII client.
-    # Remove this once minifb drops it.
-    { id = "RUSTSEC-2024-0384", reason = "unmaintained transitive dependency of minifb; no maintained release avoids it" },
-]
 
 [licenses]
 # Every license here must be compatible with this project's GPL-3.0-only
