@@ -2756,6 +2756,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
         self.assertEqual((action.item.target, reason), ("meal", "eat"))
 
+    def test_hungry_bot_eats_a_carried_meal_before_picking_up_another(self):
+        here = cell("here")
+        meal = {"id": "packed", "name": "meal", "class": "food", "quantity": 1, "identified": False}
+        turn = player_turn([here], inventory=[meal],
+                           ground=[{**here, "item": {**meal, "id": "spare"}, "reachable": True}],
+                           stats={"nutrition": {"hunger": "hungry"}},
+                           interactions={"inventory": [{"item": "packed", "edible": True}]})
+        action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+        self.assertEqual((action.item.target, reason), ("packed", "eat"))
+
     def test_collects_visible_food_before_descending_even_when_stocked(self):
         here = cell("stairs", down=True)
         meal = {"id": "meal", "name": "food ration", "class": "food", "quantity": 1, "identified": False,

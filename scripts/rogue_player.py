@@ -1120,6 +1120,19 @@ class Adventurer:
         typical_round_trip = median_low(round_trips[floor] for floor in deepest_floors)
         return measured_ticks + unmeasured_floors * typical_round_trip
 
+    def respond_to_hunger(self, turn: Turn, memory: FloorMap, ground_items: tuple[GroundItem, ...],
+                          *, can_forage: bool) -> tuple[Action, str] | None:
+        if turn.hunger not in {"hungry", "weak", "empty"}:
+            return None
+        if meal := choose_meal(turn, self.food_value):
+            return UseItem(meal, ItemUse.EAT), "eat"
+        for ground in ground_items:
+            if ground.reachable and ground.item.category == "food":
+                return Pickup(ground.item), "take"
+        if can_forage and (step := self.route_to_food(turn, memory)):
+            return step, "forage"
+        return None
+
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
         food_cells = {key for key, items in memory.items.items() if any(item.category == "food" for item in items)}
         return self.food_route(turn, memory, food_cells)
@@ -1312,14 +1325,8 @@ class Adventurer:
         trapped = self.trapped(turn)
         hovering = turn.has_condition("rogue.levitation")
         ground_items = () if hovering else turn.ground_items
-        if turn.hunger in {"hungry", "weak", "empty"}:
-            if meal := choose_meal(turn, self.food_value):
-                return UseItem(meal, ItemUse.EAT), "eat"
-            for ground in ground_items:
-                if ground.reachable and ground.item.category == "food":
-                    return Pickup(ground.item), "take"
-            if not hovering and not trapped and (step := self.route_to_food(turn, memory)):
-                return step, "forage"
+        if decision := self.respond_to_hunger(turn, memory, ground_items, can_forage=not hovering and not trapped):
+            return decision
 
         returning = self.carrying_objective(turn)
         if item := self.choose_pickup(turn, ground_items):
