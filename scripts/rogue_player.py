@@ -318,6 +318,8 @@ class Adventurer:
                 self.wait_after_cancel = False
 
         match action:
+            case Pickup() if action.item.category == "food":
+                self.food_scouts.before_food_pickup(self.depth, turn)
             case Zap():
                 self.remember_zap(turn, action, reason)
             case Move():

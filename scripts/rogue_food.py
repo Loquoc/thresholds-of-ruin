@@ -111,12 +111,12 @@ class FoodEstimate:
 @dataclass(frozen=True)
 class FoodScout:
     deadline: int
-    starting_meals: int
+    meal_baseline: int
 
     def finished(self, turn: Turn) -> bool:
         if turn.tick >= self.deadline:
             return True
-        return carried_meal_count(turn) > self.starting_meals
+        return carried_meal_count(turn) > self.meal_baseline
 
 
 @dataclass
@@ -134,6 +134,14 @@ class FoodScoutHistory:
         if scout is not None and scout.finished(turn):
             self.finish(floor)
 
+    def before_food_pickup(self, floor: int, turn: Turn) -> None:
+        scout = self.by_floor.get(floor)
+        if scout is not None:
+            # An acquired portion still counts when it replaces one eaten during the detour.
+            carried = carried_meal_count(turn)
+            if carried < scout.meal_baseline:
+                self.by_floor[floor] = FoodScout(scout.deadline, meal_baseline=carried)
+
     def can_explore(self, floor: int, turn: Turn, *, ticks_until_empty: int) -> bool:
         if floor not in self.by_floor:
             return turn.cell is not None and turn.cell.stairs_down and ticks_until_empty // 4 > 0
@@ -144,7 +152,7 @@ class FoodScoutHistory:
         if floor not in self.by_floor and turn.nutrition is not None:
             self.by_floor[floor] = FoodScout(
                 deadline=turn.tick + turn.nutrition.ticks_until_empty // 4,
-                starting_meals=carried_meal_count(turn),
+                meal_baseline=carried_meal_count(turn),
             )
 
 
