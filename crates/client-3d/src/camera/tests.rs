@@ -183,6 +183,7 @@ fn the_camera_follows_the_walking_body_not_the_cell_ahead_of_it() {
         end: 101.0,
         span: (0, 0),
         skips: 0,
+        own_frame: None,
     });
     let presented = Vec3::new(1.5, -0.5, 0.0);
     let body = app

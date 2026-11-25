@@ -96,6 +96,7 @@ pub(super) fn receive(
     net: Res<Net>,
     mut game: ResMut<Game>,
     mut bodies: Query<&mut ActorBody>,
+    transforms: Query<&Transform, With<ActorBody>>,
     effects: Query<Entity, TransientEffects>,
     assets: SceneAssets,
     mut pursuit: Option<ResMut<interact::Pursuit>>,
@@ -269,9 +270,16 @@ pub(super) fn receive(
                     &mut meshes,
                     &view,
                     &mut bodies,
+                    &transforms,
                     &died,
                 );
-                crate::playback::start_walks(&game, timed, &walking, &mut bodies);
+                crate::playback::start_walks(
+                    &game,
+                    view.picture_sequence,
+                    timed,
+                    &walking,
+                    &mut bodies,
+                );
                 let actors_ms = actors_started.map(|time| time.elapsed().as_secs_f64() * 1000.0);
                 let items_started = profile_started.map(|_| Instant::now());
                 build_items(&mut commands, &mut game, &mut library, &mut meshes, &view);
@@ -654,6 +662,7 @@ fn build_actors(
     meshes: &mut Assets<Mesh>,
     view: &View,
     bodies: &mut Query<&mut ActorBody>,
+    transforms: &Query<&Transform, With<ActorBody>>,
     died: &HashSet<ActorTarget>,
 ) {
     let present: HashSet<ActorTarget> = view.actors.iter().map(|a| a.id).collect();
@@ -727,6 +736,8 @@ fn build_actors(
                 .filter(|other| other.id == actor.id)
                 .all(|other| lighting::at(view, other.position)),
         );
+        let mut at = goal;
+        let mut walk = crate::playback::Walk::default();
         if let Some(entity) = game.actors.get(&actor.id).copied() {
             commands.entity(entity).insert((
                 lit,
@@ -754,6 +765,14 @@ fn build_actors(
                         .entity(body.ring)
                         .insert(ring_visibility(actor.hostile));
                     continue;
+                }
+                // The recipe changed, not the actor. Keep its position and
+                // disclosed path; contacts and poses belong to the old rig.
+                if body.own == actor.is_self && (body.goal == goal || body.walk.walking()) {
+                    if let Ok(current) = transforms.get(entity) {
+                        at = current.translation;
+                        walk = std::mem::take(&mut body.walk);
+                    }
                 }
                 commands.entity(body.label).despawn();
                 game.labels.remove(&body.label);
@@ -806,15 +825,15 @@ fn build_actors(
                     wearing: actor.wearing,
                     hostile: actor.hostile,
                     goal,
-                    walk: default(),
+                    walk,
                     own: actor.is_self,
                     label,
                     ring,
                     name: actor.name.clone(),
                     height: look.height(),
                 },
-                Anim::new(individual, goal),
-                Transform::from_translation(goal),
+                Anim::new(individual, at),
+                Transform::from_translation(at),
                 Visibility::default(),
             ))
             .add_child(ring)
@@ -942,10 +961,15 @@ pub(super) fn react(
                 );
                 // Anyone standing on a disclosed cell of this flight is struck
                 // when it arrives there; a later hurt or death waits for it.
-                let legs = tor_client_3d_model::playback::flight_legs(
+                let mut legs = tor_client_3d_model::playback::flight_legs(
                     &segments,
                     creatures::MISSILE_CELLS_PER_SECOND,
                 );
+                if !creatures::is_authoritative_missile(delivery, presentation.form) {
+                    // Stationary effects keep their existing timing; only
+                    // missile fragments schedule a delayed point fade.
+                    legs.retain(|leg| !leg.is_point());
+                }
                 let struck: Vec<_> = game
                     .actors
                     .iter()
@@ -963,7 +987,7 @@ pub(super) fn react(
                     game.playback.strike_at(id, delay);
                 }
                 if let Some(key) = key {
-                    flights.insert(key, (segments, launch));
+                    flights.insert(key, (segments, legs, launch));
                 }
             }
             Happening::Hurt(id) => {
@@ -978,12 +1002,12 @@ pub(super) fn react(
                 }
             }
             Happening::Died(id) => {
-                // A death never plays before the blow or missile that caused it.
+                // Prefer the applied ability's arrival, as for Hurt. A later
+                // flight through this cell alone can only provide a fallback.
                 let delay = arrivals
                     .get(&id)
                     .copied()
-                    .unwrap_or(0.0)
-                    .max(game.playback.until_struck(id));
+                    .unwrap_or_else(|| game.playback.until_struck(id));
                 if let Some(entity) = find(&game, Some(id)) {
                     if let Ok((body, mut anim)) = bodies.get_mut(entity) {
                         if anim.die(true, delay) {
@@ -1024,19 +1048,16 @@ pub(super) fn react(
                         }
                     }
                 }
-                let reaction = if let Some((segments, launch)) = flights.get(&(caster, id.clone()))
+                let reaction = if let Some((segments, legs, launch)) =
+                    flights.get(&(caster, id.clone()))
                 {
                     // Authoritative geometry wins over canned endpoint-only visuals.
                     // The target reacts when the flight reaches its disclosed cell,
                     // or at launch when its cell was not part of the disclosure.
                     let cell = to.map(|(at, _)| body_cell(at));
-                    let legs = tor_client_3d_model::playback::flight_legs(
-                        segments,
-                        creatures::MISSILE_CELLS_PER_SECOND,
-                    );
                     let travel = cell
                         .and_then(|cell| {
-                            tor_client_3d_model::playback::arrival(segments, &legs, cell)
+                            tor_client_3d_model::playback::arrival(segments, legs, cell)
                         })
                         .unwrap_or(0.0);
                     Some(*launch + travel as f32)

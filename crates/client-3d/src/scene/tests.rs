@@ -156,6 +156,7 @@ fn project(
     mut meshes: ResMut<Assets<Mesh>>,
     view: Res<Fixture>,
     mut bodies: Query<&mut ActorBody>,
+    transforms: Query<&Transform, With<ActorBody>>,
 ) {
     align(&mut commands, &mut game, &view.0);
     let died = view
@@ -175,6 +176,7 @@ fn project(
         &mut meshes,
         &view.0,
         &mut bodies,
+        &transforms,
         &died,
     );
     game.pending.extend(view.0.events.iter().cloned());
@@ -947,6 +949,68 @@ fn live_sword_swaps_align_handles_and_clear_unequipped_meshes() {
     update(&mut app);
     assert!(app.world().resource::<Game>().held.is_empty());
     assert!(app.world().get_entity(previous.unwrap()).is_err());
+}
+
+#[test]
+fn worn_gear_changes_do_not_snap_a_walking_body_to_its_goal() {
+    use crate::playback::{Path, Pose};
+
+    let mut app = app(CreatureModel::Human);
+    app.world_mut()
+        .insert_resource(creatures::loading::ModelLoading::blocked_for_tests());
+    app.update();
+    let world = app.world_mut();
+    let id = world.resource::<Fixture>().0.actors[0].id;
+    let old = world.resource::<Game>().actors[&id];
+    let from = stand(IVec3::X);
+    let goal = stand(IVec3::X * 2);
+    let mut body = world.get_mut::<ActorBody>(old).unwrap();
+    body.goal = goal;
+    body.walk.push(Path {
+        from,
+        to: goal,
+        start: 1.0,
+        end: 2.0,
+        span: (0, 0),
+        skips: 0,
+        own_frame: None,
+    });
+    let mid = from.lerp(goal, 0.5);
+    assert_eq!(body.walk.at(1.5, 0), Pose::At(mid));
+    world.get_mut::<Transform>(old).unwrap().translation = mid;
+    {
+        let mut fixture = world.resource_mut::<Fixture>();
+        fixture.0.actors[0].position.x = 2;
+        fixture.0.actors[0].wearing.body = Some(ItemModel::RingMail);
+    }
+
+    app.update();
+    let world = app.world_mut();
+    let fresh = world.resource::<Game>().actors[&id];
+    assert_ne!(
+        fresh, old,
+        "the disclosed outfit must still replace the rig"
+    );
+    assert_eq!(world.get::<ActorBody>(fresh).unwrap().goal, goal);
+    assert_eq!(
+        world.get::<Transform>(fresh).unwrap().translation,
+        mid,
+        "replacing worn equipment must not move the body ahead of playback"
+    );
+    assert_eq!(
+        world.get_mut::<ActorBody>(fresh).unwrap().walk.at(1.75, 0),
+        Pose::At(from.lerp(goal, 0.75)),
+        "the replacement rig must continue the already accepted leg"
+    );
+
+    // A new stream epoch has no claim on the previous presentation path.
+    world.resource_mut::<Fixture>().0.context.epoch += 1;
+    app.update();
+    let world = app.world();
+    let reset = world.resource::<Game>().actors[&id];
+    assert_ne!(reset, fresh);
+    assert_eq!(world.get::<Transform>(reset).unwrap().translation, goal);
+    assert!(!world.get::<ActorBody>(reset).unwrap().walk.walking());
 }
 
 #[test]

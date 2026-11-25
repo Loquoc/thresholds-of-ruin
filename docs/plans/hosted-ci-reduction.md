@@ -7,17 +7,19 @@ existing cost evidence. The local candidate removes two diagnostic workflows,
 corrects campaign/encounter ownership and local prerequisites, gates draft
 qualification, groups minor/patch dependency updates, bounds 3D log retention,
 and replaces recurring hosted scans with explicit advisory dispatch.
-Selected proof reuse and a single Linux debug 3D smoke job are implemented locally. Domain-specific selection remains proposed. Hosted savings are unmeasured.
-The [testing policy](../development/testing.md) still owns qualification.
+The hosted setup now supports full and selected exact-tree proof reuse with
+fresh main integration and one Linux debug 3D smoke lane. Domain-specific
+selection remains proposed. The [testing policy](../development/testing.md)
+owns qualification; [sample run timings](../development/ci-cost-baseline.md#november-25-hosted-reuse-sample)
+are observations, not forecast savings.
 
-## Current migration boundary
+## Historical migration boundary
 
-The migration copy retains the source Git history, modified tracked files and
-untracked files. The original checkout is preserved. The new repository is empty
-and Actions is disabled at the repository level. No push, release, workflow run,
-credential upload or repository transfer is part of this preparation. Do not
-enable Actions as part of uploading source. Resolve account restrictions with
-GitHub Support before deciding to resume hosted execution.
+During preparation, the migration copy retained source Git history, modified
+tracked files and untracked files. The original checkout was preserved. The
+destination repository was initially empty, and Actions was disabled while the
+account restrictions and usage review were resolved. This described the initial
+migration, not the current hosted configuration.
 
 Removing a workflow from the working tree does not remove its historical Git
 versions. Do not dispatch an old revision after re-enabling Actions. Any later
@@ -49,7 +51,7 @@ matrix on main can double the configured opportunity for work.
 | `selected_rust` / `selected_linux` | Application producer and fresh selected Linux tests; compatible binaries shared. | Current semantic Rust changes still select all ordinary process tests on Linux. Map smaller contract sets with independent witnesses. |
 | `selected_windows` / `selected_release` | Platform witnesses/tooling and optimized sentinels/affected contracts. | Pure tooling is repeated across Linux and Windows; some source domains expand Windows to all ordinary process tests. Separate portable checks from actual platform behavior after review. |
 | `selected_consumer` | One Linux debug 3D build and native smoke check. | The job uses the same recipe for selected and exhaustive core plans. |
-| `postmerge` / qualification producers / `check` | Distinct exact-tree full/selected PR proof, fresh main integration, independent receipts and required platform aggregates. | Full and selected seals retain normal fresh fallback. New-repo proof is initially unavailable; hosted acceptance and fallback rates remain unmeasured. |
+| `postmerge` / qualification producers / `check` | Distinct exact-tree full/selected PR proof, fresh main integration, independent receipts and required platform aggregates. | Full and selected seals retain normal fresh fallback. Both routes have succeeded on the destination repository; acceptance and fallback rates remain unmeasured. |
 
 ### Permissions, dependencies and external activity
 
@@ -81,9 +83,10 @@ The [existing measured baseline](../development/ci-cost-baseline.md) is from bef
 the current risk-based regime: a representative full core run used 4.3925 runner
 hours; Windows was 61%, and Cargo build messages accounted for about 2.09 hours.
 Some sampled PRs consumed 9–21.5 runner-hours over revisions and main runs.
-Those observations identify likely bottlenecks; they do not measure this copy,
-the new account or the benefit of already implemented sharing/selection.
-Fresh hosted measurements are intentionally deferred while Actions is disabled.
+Those observations identify likely bottlenecks in the old setup. The
+[November 25 sample](../development/ci-cost-baseline.md#november-25-hosted-reuse-sample)
+records completed full and selected proof-reuse pairs on the destination
+repository. It does not establish average savings or fallback rates.
 
 ### Confirmed owner-classification gap
 
@@ -182,11 +185,10 @@ direct pushes and squash/rebase histories retain normal fresh coverage. Partial
 attempts do not qualify the new proofs. Workflow/control changes still escalate
 the import. Fresh workers derive Git selection without late proof queries.
 
-A new repository has no qualified prior run history; importing source does not
-import Actions proof. The local process/fixture tests do not measure hosted
-acceptance or cost. After a separately authorized bounded pilot, measure proof
-acceptance and fallback reasons for full and selected modes. Global
-compiler updates and measured rollout remain separate changes.
+Importing source does not import Actions proof. The current repository now has
+verified hosted examples of both exact-tree proof routes. Measure acceptance and
+fallback frequency before proposing further cadence changes. Global compiler
+updates remain a separate change.
 
 ### 3. Remove duplicate compilation and narrow real owners
 

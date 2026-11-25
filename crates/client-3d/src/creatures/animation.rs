@@ -122,7 +122,7 @@ pub fn animate(
     (time, pace): (Res<Time>, Option<Res<crate::playback::Pace>>),
     bored: Option<Res<Boredom>>,
     mut profile: Option<ResMut<MotionProfile>>,
-    mut rigs: Query<(&mut Rig, &mut Anim, &Transform)>,
+    mut rigs: Query<(&mut Rig, &mut Anim, &Transform, Option<&crate::ActorBody>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut joints: Query<&mut Transform, Without<Rig>>,
     mut scheduling: HairScheduling,
@@ -155,21 +155,24 @@ pub fn animate(
     // distance from the camera; solved together once every pose is set.
     let mut wearers = Vec::new();
     let mut cloaked = 0;
-    for (mut rig, mut anim, root) in &mut rigs {
+    for (mut rig, mut anim, root, body) in &mut rigs {
         // Actor roots are unparented. Their current Transform already includes
         // this Update's interpolation; GlobalTransform still describes last frame.
         let at = root.translation;
         let first = anim.time == 0.0;
-        let delta = at - anim.last;
+        let last = anim.last;
+        let delta = at - last;
         let moved = delta.with_y(0.0);
+        let distance = moved.length();
         anim.last = at;
-        // The dead lie still, and a body just placed hasn't moved at all.
-        // A jump of more than half a cell in one frame is a placement, not a walk.
-        let placed = first || moved.length() > 0.5;
+        // An abrupt displacement clears footing, unless both samples are
+        // accounted for by the same continuous timed walk.
+        let placed = first
+            || (distance > 0.5 && !body.is_some_and(|body| body.walk.continues_between(last, at)));
         let step = if placed || anim.dead.is_some() {
             0.0
         } else {
-            moved.length()
+            distance
         };
         let target_speed = (step / dt.max(1e-4) / (4.0 * rig.scale.max(0.2))).clamp(0.0, 1.0);
         anim.speed += (target_speed - anim.speed) * (1.0 - (-dt * 10.0).exp());

@@ -142,3 +142,29 @@ fn flight_legs_stay_on_disclosed_cells_and_wait_across_hidden_gaps() {
         "never toward an undisclosed target"
     );
 }
+
+#[test]
+fn one_cell_fragments_own_their_arrivals_even_near_another_run() {
+    for segments in [
+        vec![
+            vec![at(0, 0), at(1, 0), at(2, 0), at(3, 0), at(4, 0)],
+            vec![at(8, 0)],
+        ],
+        // A different fragment lies within straightening tolerance of this run.
+        vec![vec![at(0, 0), at(1, 1), at(2, 1)], vec![at(1, 0)]],
+    ] {
+        let legs = flight_legs(&segments, 12.5);
+        let first = legs.first().unwrap();
+        let endpoint = segments[1][0];
+        let expected = first.duration
+            + if endpoint == at(8, 0) {
+                0.32
+            } else {
+                2_f64.sqrt() / 12.5
+            };
+        assert!(close(
+            arrival(&segments, &legs, endpoint).unwrap_or(-1.0),
+            expected
+        ));
+    }
+}

@@ -143,13 +143,19 @@ pub(super) fn rig_camera(
     framing: crate::inventory::Framing,
 ) {
     let dt = time.delta_secs();
-    // While the player's own body walks its timed steps, the view follows the
-    // body rather than the authoritative cell, which runs ahead of playback.
-    let walking = bodies
+    // Follow timed movement, including its endpoint if the picture is late.
+    let presented = bodies
         .iter()
-        .find(|(body, _)| body.own && body.walk.walking())
-        .map(|(_, transform)| transform.translation);
-    let player = walking.unwrap_or_else(|| stand(game.feet_world)) + Vec3::Y * 0.65;
+        .filter(|(body, _)| body.own)
+        .find_map(|(body, transform)| {
+            if body.walk.walking() {
+                Some(transform.translation)
+            } else {
+                body.walk
+                    .awaiting_picture(game.view.as_ref()?.picture_sequence)
+            }
+        });
+    let player = presented.unwrap_or_else(|| stand(game.feet_world)) + Vec3::Y * 0.65;
     let smooth = 1.0 - (-dt * 7.0).exp();
     if game.snap_camera {
         rig.focus = player;
@@ -243,7 +249,13 @@ pub(super) fn follow_actors(
         return;
     };
     // Offline reviews and tests run without a game: nothing walks a path there.
-    let (now, skips) = game.map_or((0.0, 0), |game| (game.playback.now, game.playback.skips));
+    let (now, skips) = game
+        .as_ref()
+        .map_or((0.0, 0), |game| (game.playback.now, game.playback.skips));
+    let picture = game
+        .as_ref()
+        .and_then(|game| game.view.as_ref())
+        .map(|view| view.picture_sequence);
     for (mut body, mut transform) in &mut bodies {
         // Disclosed steps walk their timed legs back to back at a steady pace;
         // anything else (a snap, a teleport, a finished walk) eases to the goal.
@@ -252,8 +264,14 @@ pub(super) fn follow_actors(
             crate::playback::Pose::At(at) => transform.translation = at,
             crate::playback::Pose::Hold => {}
             crate::playback::Pose::Free => {
-                let step = body.goal - transform.translation;
-                transform.translation += step * smooth;
+                if let Some(endpoint) =
+                    picture.and_then(|sequence| body.walk.awaiting_picture(sequence))
+                {
+                    transform.translation = endpoint;
+                } else {
+                    let step = body.goal - transform.translation;
+                    transform.translation += step * smooth;
+                }
             }
         }
         if let Ok((mut node, mut visibility)) = labels.get_mut(body.label) {

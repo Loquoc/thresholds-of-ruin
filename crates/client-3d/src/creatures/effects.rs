@@ -578,12 +578,22 @@ pub fn public_effect(
 /// Cosmetic missile speed, in cells per second. Never derived from server data.
 pub const MISSILE_CELLS_PER_SECOND: f64 = 12.5;
 
+pub(crate) fn is_authoritative_missile(
+    delivery: tor_protocol::EffectDelivery,
+    form: tor_protocol::EffectAppearance,
+) -> bool {
+    use tor_protocol::{EffectAppearance, EffectDelivery};
+    matches!(delivery, EffectDelivery::Ray | EffectDelivery::Projectile)
+        && matches!(form, EffectAppearance::Bolt | EffectAppearance::Missile)
+}
+
 /// Present a server-resolved instant. Finite playback is cosmetic, not effect lifetime.
 /// Present only server-disclosed cell paths. Within a segment a missile flies
 /// straight along each run of its disclosed cells; it never extends past a
 /// segment, never crosses a hidden gap (the gap only delays the next segment),
 /// and never flies toward an undisclosed cell. Styling and speed are cosmetic,
-/// and no impact flash is invented. `launch` delays the whole flight.
+/// and no impact flash is invented. `launch` delays the flight or a disclosed
+/// target-local impact flash until the caster's contact frame.
 #[expect(
     clippy::too_many_arguments,
     reason = "authoritative descriptor and geometry are independent inputs"
@@ -608,44 +618,49 @@ pub fn stage_authoritative(
         return;
     }
     let accent = effect_accent(presentation.visual);
-    let path = matches!(delivery, EffectDelivery::Ray | EffectDelivery::Projectile)
-        && matches!(
-            appearance,
-            EffectAppearance::Bolt | EffectAppearance::Missile
-        );
-    for segment in segments {
-        if !path || segment.len() == 1 {
-            for point in segment {
-                let model = effect_form(library, meshes, appearance, accent);
-                let size = if appearance == EffectAppearance::Cloud {
-                    0.4
-                } else {
-                    0.18
-                };
-                commands
-                    .spawn((
-                        Fade {
-                            t: 0.0,
-                            life: 0.3,
-                            grow: size,
-                            base: size * 0.2,
-                        },
-                        Transform::from_translation(*point).with_scale(Vec3::ZERO),
-                        Visibility::default(),
-                    ))
-                    .with_children(|p| model.attach(p));
-            }
+    let size = if appearance == EffectAppearance::Cloud {
+        0.4
+    } else {
+        0.18
+    };
+    let mut point_fade = |at, delay: Duration| {
+        let model = effect_form(library, meshes, appearance, accent);
+        commands
+            .spawn((
+                Fade {
+                    t: -delay.as_secs_f32(),
+                    life: 0.3,
+                    grow: size,
+                    base: size * 0.2,
+                },
+                Transform::from_translation(at).with_scale(Vec3::ZERO),
+                Visibility::default(),
+            ))
+            .with_children(|p| model.attach(p));
+    };
+    if !is_authoritative_missile(delivery, appearance) {
+        let delay = if delivery == EffectDelivery::Target && appearance == EffectAppearance::Flash {
+            launch
+        } else {
+            Duration::ZERO
+        };
+        for &point in segments.iter().flatten() {
+            point_fade(point, delay);
         }
-    }
-    // Paths fly as straight runs, timed across every segment and gap.
-    if !path {
         return;
     }
     let cells: Vec<Vec<[f32; 3]>> = segments
         .iter()
         .map(|segment| segment.iter().map(|point| point.to_array()).collect())
         .collect();
-    for leg in tor_client_3d_model::playback::flight_legs(&cells, MISSILE_CELLS_PER_SECOND) {
+    let legs = tor_client_3d_model::playback::flight_legs(&cells, MISSILE_CELLS_PER_SECOND);
+    for leg in legs.iter().filter(|leg| leg.is_point()) {
+        point_fade(
+            Vec3::from_array(leg.from),
+            launch + Duration::from_secs_f64(leg.delay),
+        );
+    }
+    for leg in legs.into_iter().filter(|leg| !leg.is_point()) {
         let model = match object_model {
             Some(kind) => library.item(kind, meshes),
             None => effect_form(library, meshes, appearance, accent),
