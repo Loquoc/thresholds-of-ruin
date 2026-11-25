@@ -23,6 +23,14 @@ BASE_PROTECTION = {
 }
 
 
+def offered_item_use(turn: Turn, identity: str, use: ItemUse) -> UseItem | None:
+    """Use the first recognized copy for which the player has this action."""
+    for item in turn.inventory:
+        if item.identity == identity and use in item.uses:
+            return UseItem(item, use)
+    return None
+
+
 def needs_identification(item: Item, turn: Turn) -> bool:
     if item.identity is None:
         return True
@@ -111,10 +119,7 @@ def reveal_unseen_attacker(turn: Turn) -> Action | None:
     for choice in turn.equip_choices():
         if choice.item.identity == sight_ring and not choice.item.known_cursed and choice.slot.occupant is None:
             return choice
-    for item in turn.inventory:
-        if item.identity == "item.potion.see-invisible" and ItemUse.DRINK in item.uses:
-            return UseItem(item, ItemUse.DRINK)
-    return None
+    return offered_item_use(turn, "item.potion.see-invisible", ItemUse.DRINK)
 
 
 def _ring_ranks(*preferred: str) -> dict[str, int]:
@@ -219,9 +224,8 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     if upgrade is None:
         return None
     if slot.removal_blocked:
-        for item in turn.inventory:
-            if item.identity == "item.scroll.remove-curse" and ItemUse.READ in item.uses:
-                return UseItem(item, ItemUse.READ), "remove_weapon_curse"
+        if cure := offered_item_use(turn, "item.scroll.remove-curse", ItemUse.READ):
+            return cure, "remove_weapon_curse"
         return None
     if worn:
         return Unequip(slot), "change_weapon"

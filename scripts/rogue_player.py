@@ -55,7 +55,7 @@ from rogue_food import (
 )
 from rogue_gear import (
     can_identify_carried_item, choose_armor, choose_ring, improve_worn_gear,
-    identification_target, ready_weapon, reveal_unseen_attacker, ring_upgrades,
+    identification_target, offered_item_use, ready_weapon, reveal_unseen_attacker, ring_upgrades,
 )
 
 
@@ -108,14 +108,6 @@ CONTROL_DEVICES = (
 
 
 HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
-
-
-def offered_item_use(turn: Turn, identity: str, use: ItemUse) -> UseItem | None:
-    """Use the first recognized copy for which the player has this action."""
-    for item in turn.inventory:
-        if item.identity == identity and use in item.uses:
-            return UseItem(item, use)
-    return None
 
 
 def choose_healing_potion(turn: Turn, *, lethal: bool) -> Item | None:

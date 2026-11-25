@@ -1332,17 +1332,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         mace = {**bow, "id": "mace", "name": "mace", "identity": "item.weapon.mace"}
         scroll = {**bow, "id": "cure", "class": "scroll", "identity": "item.scroll.remove-curse"}
         foe = {"id": "snake", "name": "snake", "position": cell("enemy", 3)["position"]}
-        for upgrade, hostiles, use_scroll in ((True, [], True), (False, [], False), (True, [foe], False)):
-            with self.subTest(upgrade=upgrade, in_combat=bool(hostiles)):
-                offers = [{"item": "bow", "slot": slot, "equipped_slot": 0}, {"item": "cure", "readable": True}]
+        for upgrade, hostiles, readable, use_scroll in (
+            (True, [], True, True), (False, [], True, False), (True, [foe], True, False), (True, [], False, False),
+        ):
+            with self.subTest(upgrade=upgrade, in_combat=bool(hostiles), readable=readable):
+                offers = [{"item": "bow", "slot": slot, "equipped_slot": 0}, {"item": "cure", "readable": readable}]
                 if upgrade:
                     offers.append({"item": "mace", "slot": slot})
                 turn = player_turn([cell("here", down=True)], inventory=[bow, mace, scroll], actors=hostiles,
                                    hostiles=[enemy["id"] for enemy in hostiles],
                                    interactions={"slots": [slot], "inventory": offers, "curse_blocked": ["bow"]})
                 decision = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
-                self.assertEqual(decision == (UseItem(turn.inventory[2], ItemUse.READ), "remove_weapon_curse"),
-                                 use_scroll)
+                if use_scroll:
+                    self.assertEqual(decision, (UseItem(turn.inventory[2], ItemUse.READ), "remove_weapon_curse"))
+                else:
+                    self.assertNotEqual(decision[1], "remove_weapon_curse")
 
     def test_readies_a_melee_weapon_when_a_foe_closes_even_with_arrows_left(self):
         from tor_client_bot import Unequip
