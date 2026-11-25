@@ -330,14 +330,16 @@ class Adventurer:
             self.descent_ticks_by_floor.setdefault(floor, arrival_tick - self.entered_floor_at)
 
     def observe_stair(self, turn: Turn) -> None:
-        """Resolve a pending stair from a ready or terminal picture with landing evidence."""
+        """Retire a failed attempt immediately. Confirm arrival on a ready or terminal picture."""
         attempt = self.pending_stair
-        if attempt is None or turn.cell is None or not (turn.can_act or turn.terminal):
+        if attempt is None:
             return
         arrived = turn.stair_arrival(attempt)
         if arrived is None:
             return
         if arrived:
+            if not (turn.can_act or turn.terminal):
+                return
             self.record_stair_arrival(turn, attempt, attempt.landing or turn.cell.key)
         self.pending_stair = None
         self.stair_pursuers = ()

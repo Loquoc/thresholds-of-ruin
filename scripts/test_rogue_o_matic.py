@@ -1123,6 +1123,41 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         refused = Result.from_reply({"status": "rejected"})
         self.assertIs(after.stair_arrival(before.stair_attempt(Move(Direction.DOWN), refused)), False)
 
+    def test_failed_stair_is_retired_before_its_receipt_leaves_history(self):
+        from tor_client_bot import Result
+
+        origin = player_turn([cell("origin", down=True)])
+        receipt = {"actor": 1, "branch": "game", "intention": "down", "phase": "queued", "type": "admitted"}
+        accepted = Result.from_reply({"status": "confirmed", "receipt": receipt})
+        for phase in ("failed", "cancelled"):
+            with self.subTest(phase=phase):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(origin)
+                player.admitted(origin, Move(Direction.DOWN), accepted)
+                picture = json.loads(player_turn([], tick=10).recording())
+                picture["readiness"] = {"admission": False}
+                picture["finished_intentions"] = [dict(receipt, phase=phase)]
+                player.observe(Turn(picture))
+                self.assertIsNone(player.pending_stair)
+                player.observe(player_turn([cell("unrelated", up=True)], tick=100))
+                self.assertEqual(player.depth, 1)
+
+    def test_visible_landing_is_counted_once_the_player_is_ready(self):
+        origin = player_turn([cell("above", down=True)])
+        landing = player_turn([cell("below", up=True)], tick=100)
+        picture = json.loads(landing.recording())
+        picture["readiness"] = {"admission": False}
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(origin)
+        player.admitted(origin, Move(Direction.DOWN))
+        player.observe(Turn(picture))
+        self.assertIsNotNone(player.pending_stair)
+        self.assertEqual(player.depth, 1)
+        player.observe(landing)
+        self.assertIsNone(player.pending_stair)
+        self.assertEqual(player.depth, 2)
+
     def test_ready_picture_at_the_origin_cannot_discard_a_pending_stair(self):
         import json
         from tor_client_bot import Result
