@@ -717,17 +717,16 @@ class Adventurer:
         reason = MemoryReason.RETREAT if step.improves_immediately else MemoryReason.BREAK_CONTACT
         return Move(step.direction), reason
 
-    def recovery_budget(self, turn: Turn, memory: FloorMap, direction: Direction) -> int | None:
-        """Ticks available for rest after reserving travel, or None without a food clock."""
+    def can_afford_wait(self, turn: Turn, memory: FloorMap, direction: Direction, ticks: int) -> bool:
+        """Leave enough food for the wait and the estimated travel through remembered stairs."""
         nutrition = turn.nutrition
         if nutrition is None:
-            return None
-        # Even a temporarily guarded stair will cost food to return through.
+            return True
         if not memory.stairs(direction):
-            return nutrition.ticks_until_empty
+            return ticks < nutrition.ticks_until_empty
         travel = self.travel_times.return_ticks(through_floor=self.depth if direction is Direction.UP else None)
         packed = estimate_carried_food(edible_items(turn), self.meals.gains)
-        return packed.spare_ticks_after_travel(nutrition, travel)
+        return ticks < packed.spare_ticks_after_travel(nutrition, travel)
 
     def recovery_stair_step(self, turn: Turn, memory: FloorMap, stairs: set[str]) -> Action | None:
         """Detour around recent danger when recovery can continue on familiar ground."""
@@ -755,8 +754,7 @@ class Adventurer:
 
         def rest_if_affordable(points: int) -> tuple[Wait, str] | None:
             ticks = clock.ticks_to_regain(points)
-            rest_budget = self.recovery_budget(turn, memory, direction)
-            if ticks is not None and (rest_budget is None or ticks < rest_budget):
+            if ticks is not None and self.can_afford_wait(turn, memory, direction, ticks):
                 return Wait(), "recover"
             return None
 
@@ -845,9 +843,10 @@ class Adventurer:
         stairs = self.safe_stairs(turn, direction)
         if not stairs:
             # A temporary warning on the only exit can expire while we wait on this side.
-            if (returning and turn.cell.stairs_up and not turn.hostiles and turn.cell.key not in self.danger_until
-                    and self.unsafe_stairs.get((turn.cell.key, Direction.UP), 0) > turn.tick):
-                return Wait(), "wait_for_safe_ascent"
+            if returning and turn.cell.stairs_up and not turn.hostiles and turn.cell.key not in self.danger_until:
+                wait_ticks = self.unsafe_stairs.get((turn.cell.key, Direction.UP), 0) - turn.tick
+                if wait_ticks > 0 and self.can_afford_wait(turn, memory, direction, wait_ticks):
+                    return Wait(), "wait_for_safe_ascent"
             return None
         if turn.cell.key in stairs:
             if turn.has_condition("rogue.levitation"):

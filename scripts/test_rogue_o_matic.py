@@ -4310,7 +4310,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.travel_times.ascent.clear()
         player.unsafe_stairs["stairs", Direction.DOWN] = turn.tick
         from unittest.mock import patch
-        with patch.object(player, "recovery_budget", side_effect=AssertionError("walking needs no rest budget")):
+        with patch.object(player, "can_afford_wait", side_effect=AssertionError("walking needs no rest budget")):
             self.assertEqual(player.choose(scarce), (Move(Direction.EAST), "recover_en_route"))
         player.danger_until["hall"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
@@ -4785,6 +4785,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(tick=tick):
                 turn = player_turn([cell("here", up=True)], tick=tick, inventory=items,
                                    interactions={"inventory": [{"item": "scroll", "readable": True}]})
+                self.assertEqual(choose(player, turn), expected)
+
+    def test_waiting_for_safe_ascent_reserves_food_for_the_return_trip(self):
+        amulet = {"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
+                  "quantity": 1, "identified": True}
+        for elapsed, expected in ((0, (Wait(), "wait_for_safe_ascent")), (1, (Move(Direction.EAST), "explore"))):
+            with self.subTest(elapsed=elapsed):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+                player.unsafe_stairs["stairs", Direction.UP] = 99
+                player.travel_times.ascent[1] = 100
+                nutrition = {"kind": "required", "reserve": 2, "maximum": 20, "unit_ticks": 100,
+                             "elapsed": elapsed, "hunger": "nourished"}
+                turn = player_turn([cell("stairs", up=True), cell("passage", 1)],
+                                   inventory=[amulet], stats={"nutrition": nutrition})
                 self.assertEqual(choose(player, turn), expected)
 
     def test_uses_known_teleportation_when_the_remembered_return_route_is_disconnected(self):
