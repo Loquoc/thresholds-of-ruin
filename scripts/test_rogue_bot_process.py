@@ -3910,10 +3910,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     turn = game.wait_for_decision()
     player.observe(turn)
 
-    def advance(turn, action):
+    def advance(turn, action, reason=None):
         result = turn.submit(action)
         assert result.status is Outcome.CONFIRMED, result
-        player.admitted(turn, action, result)
+        player.admitted(turn, action, result, reason=reason)
         following = game.wait_for_decision()
         assert following.tick > turn.tick
         player.observe(following)
@@ -3923,7 +3923,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     if scouting:
         action, reason = player.choose(turn)
         assert isinstance(action, UseItem) and action.use is ItemUse.EAT, (action, reason)
-        turn = advance(turn, action)
+        turn = advance(turn, action, reason)
     for _ in range(9 if scouting else 28):
         turn = advance(turn, Move(Direction.EAST))
     if scouting:
@@ -3938,8 +3938,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         player.travel_times.descent[2] = 110000
     action, reason = player.choose(turn)
     assert isinstance(action, Move) and action.direction.offset[0] == (1 if scouting else -1), (action, reason)
+    if scouting:
+        assert player.depth not in player.food_scouts.by_floor
     destination = turn.cell_at(action.direction.offset).key
-    turn = advance(turn, action)
+    turn = advance(turn, action, reason)
     assert turn.cell.key == destination
     if scouting:
         dose = next(item for item in turn.inventory if ItemUse.DRINK in item.uses)
@@ -3951,12 +3953,12 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         step, why = player.choose(turn)
         assert isinstance(step, Move) and why == "scout_for_food", (step, why)
         assert turn.cell_at(step.direction.offset).key in player.maps[player.depth].visited
-        turn = advance(turn, step)
+        turn = advance(turn, step, why)
         player.travel_times.ascent[2] = return_estimate
     for _ in range(45):
         action, reason = player.choose(turn)
         assert reason in {"scout_for_food", "forage", "seek_item", "take"}, (action, reason)
-        turn = advance(turn, action)
+        turn = advance(turn, action, reason)
         if sum(item.quantity for item in turn.inventory if item.identity == "item.food.ration") == (2 if scouting else 1):
             break
     else:

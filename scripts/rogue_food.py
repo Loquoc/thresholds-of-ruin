@@ -15,6 +15,10 @@ def edible_items(turn: Turn) -> Iterator[Item]:
     return (item for item in turn.inventory if ItemUse.EAT in item.uses)
 
 
+def carried_meal_count(turn: Turn) -> int:
+    return sum(item.quantity for item in edible_items(turn))
+
+
 def choose_meal(turn: Turn, food_value: Mapping[str, int], *, candidates: Iterable[Item] | None = None) -> Item | None:
     """Prefer the greatest usable gain, then the meal that wastes less food."""
     nutrition = turn.nutrition
@@ -96,7 +100,6 @@ class MealHistory:
 class FoodEstimate:
     known_reserve: int
     has_unmeasured_meals: bool
-    meal_count: int
 
     def spare_ticks_after_travel(self, nutrition: Nutrition, travel_ticks: int) -> int:
         """Current food-clock ticks free for rest. A negative result is a journey shortfall."""
@@ -113,8 +116,7 @@ class FoodScout:
     def finished(self, turn: Turn) -> bool:
         if turn.tick >= self.deadline:
             return True
-        carried_meals = sum(item.quantity for item in edible_items(turn))
-        return carried_meals > self.starting_meals
+        return carried_meal_count(turn) > self.starting_meals
 
 
 @dataclass
@@ -138,22 +140,23 @@ class FoodScoutHistory:
         scout = self.by_floor[floor]
         return scout is not None and turn.tick < scout.deadline
 
-    def start_if_new(self, floor: int, tick: int, *, ticks_until_empty: int, carried_meals: int) -> None:
-        if floor not in self.by_floor:
-            self.by_floor[floor] = FoodScout(deadline=tick + ticks_until_empty // 4, starting_meals=carried_meals)
+    def start_if_new(self, floor: int, turn: Turn) -> None:
+        if floor not in self.by_floor and turn.nutrition is not None:
+            self.by_floor[floor] = FoodScout(
+                deadline=turn.tick + turn.nutrition.ticks_until_empty // 4,
+                starting_meals=carried_meal_count(turn),
+            )
 
 
 def estimate_carried_food(meals: Iterable[Item], food_value: Mapping[str, int]) -> FoodEstimate:
     known_reserve = 0
     has_unmeasured_meals = False
-    meal_count = 0
     for meal in meals:
-        meal_count += meal.quantity
         if meal.identity is None or meal.identity not in food_value:
             has_unmeasured_meals = True
         else:
             known_reserve += food_value[meal.identity] * meal.quantity
-    return FoodEstimate(known_reserve, has_unmeasured_meals, meal_count)
+    return FoodEstimate(known_reserve, has_unmeasured_meals)
 
 
 def estimate_round_trip_ticks(depth: int, retrieval_depth: int, descent: Mapping[int, int],

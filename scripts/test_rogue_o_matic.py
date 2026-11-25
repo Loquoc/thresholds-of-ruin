@@ -4669,8 +4669,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.meals.gains[ration["identity"]] = gain
                 turn = player_turn(cells, stats={"nutrition": dict(nutrition, elapsed=elapsed)}, inventory=[ration],
                                    interactions={"inventory": [{"item": "meal", "edible": True}]})
-                self.assertEqual(choose(player, turn)[1], reason)
+                action, actual_reason = choose(player, turn)
+                self.assertEqual(actual_reason, reason)
                 if reason == "scout_for_food":
+                    player.admitted(turn, action, reason=actual_reason)
                     self.assertEqual(player.food_scouts.by_floor[3].starting_meals, 2)
 
     def test_food_scout_prefers_a_clear_frontier_over_a_recent_threat(self):
@@ -4699,7 +4701,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.travel_times.ascent[2] = 50000
                 player.observe(turn)
                 player.maps[3].visited.add("passage")
-                self.assertEqual(player.choose(turn), expected)
+                action, reason = player.choose(turn)
+                self.assertEqual((action, reason), expected)
+                self.assertNotIn(3, player.food_scouts.by_floor)
+                player.admitted(turn, action, reason=reason)
                 self.assertEqual(3 in player.food_scouts.by_floor, trap is None)
 
     def test_injured_food_scout_keeps_moving_until_the_scouting_budget_expires(self):
@@ -4727,8 +4732,6 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         scouts.finish(3)
         self.assertTrue(scouts.can_explore(3, stairs, ticks_until_empty=400))
         self.assertNotIn(3, scouts.by_floor)
-        scouts.start_if_new(3, stairs.tick, ticks_until_empty=400, carried_meals=0)
-        self.assertEqual(scouts.by_floor[3], FoodScout(deadline=300, starting_meals=0))
 
     def test_food_scout_counts_edible_portions_in_a_stack(self):
         scout = FoodScout(deadline=100, starting_meals=2)
@@ -4748,7 +4751,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
         ration = {"id": "ration", "name": "ration", "class": "food", "quantity": 1, "identified": False}
         before = player_turn(cells, stats=stats)
-        self.assertEqual(choose(player, before), (Move(Direction.EAST), "scout_for_food"))
+        action, reason = choose(player, before)
+        self.assertEqual((action, reason), (Move(Direction.EAST), "scout_for_food"))
+        player.admitted(before, action, reason=reason)
         stocked = player_turn(cells, stats=stats, tick=100, inventory=[ration],
                               interactions={"inventory": [{"item": "ration", "edible": True}]})
         player.observe(stocked)
@@ -4792,6 +4797,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(turn)
                 decision = player.provision(turn, player.maps[3], returning=False)
                 self.assertEqual(decision, (Move(Direction.EAST), reason) if reason else None)
+                if decision:
+                    player.admitted(turn, decision[0], reason=decision[1])
 
     def test_food_scout_finishes_once_the_bot_heads_back_to_the_stairs(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
@@ -5108,7 +5115,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         from tor_client_bot import Nutrition
 
         nutrition = Nutrition(hunger="nourished", reserve=8, maximum=12, ticks_per_unit=100, elapsed_ticks=60)
-        packed = FoodEstimate(known_reserve=3, has_unmeasured_meals=True, meal_count=2)
+        packed = FoodEstimate(known_reserve=3, has_unmeasured_meals=True)
         for travel, spare in ((0, 740), (299, 740), (300, 740), (301, 739), (1040, 0), (1041, -1)):
             with self.subTest(travel=travel):
                 self.assertEqual(packed.spare_ticks_after_travel(nutrition, travel), spare)

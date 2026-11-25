@@ -82,6 +82,7 @@ class MemoryReason(StrEnum):
     LIGHT_ROOM = "light_room"
     SLOW_APPROACH = "slow_approach"
     POLYMORPH_THREAT = "polymorph_threat"
+    SCOUT_FOR_FOOD = "scout_for_food"
     SEEK_STAIRS = "seek_stairs"
     EXPLORE = "explore"
     TAKE_CORRIDOR = "take_corridor"
@@ -303,6 +304,8 @@ class Adventurer:
                  *, reason: str | None = None) -> None:
         """Record the policy decision and the admitted action, which can both change memory."""
         match reason:
+            case MemoryReason.SCOUT_FOR_FOOD:
+                self.food_scouts.start_if_new(self.depth, turn)
             case MemoryReason.SEEK_STAIRS:
                 self.food_scouts.finish(self.depth)
             case MemoryReason.CANCEL_STALLED_SCROLL:
@@ -918,9 +921,7 @@ class Adventurer:
         if not self.food_scouts.can_explore(self.depth, turn, ticks_until_empty=nutrition.ticks_until_empty):
             return None
         if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys(), avoid_traps=True):
-            self.food_scouts.start_if_new(self.depth, turn.tick, ticks_until_empty=nutrition.ticks_until_empty,
-                                          carried_meals=packed.meal_count)
-            return step, "scout_for_food"
+            return step, MemoryReason.SCOUT_FOR_FOOD
         return None
 
     def scroll_trial(self, turn: Turn, *, at_exit: bool = False) -> tuple[UseItem, MemoryReason] | None:
