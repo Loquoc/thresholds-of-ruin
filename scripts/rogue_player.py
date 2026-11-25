@@ -645,11 +645,14 @@ class Adventurer:
 
         if self.last_shot_tick is not None and turn.tick <= self.last_shot_tick:
             return None
-        can_strike = any(turn.attack(foe) is not None for foe in adjacent)
-        shot = choose_projectile(turn.ranged_attacks(max_distance=8, hostile_only=True), can_strike=can_strike)
+        shot = choose_projectile(turn.ranged_attacks(max_distance=8, hostile_only=True))
         if shot is None:
             return None
-        return shot, "launch_projectile" if shot.launcher else "throw_projectile"
+        if shot.launcher is not None:
+            return shot, "launch_projectile"
+        if any(turn.attack(foe) is not None for foe in adjacent):
+            return None
+        return shot, "throw_projectile"
 
     def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
         returning = self.carrying_objective(turn)

@@ -1859,6 +1859,30 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (launch, "launch_projectile"))
 
+    def test_only_a_selected_throw_needs_to_compete_with_melee(self):
+        from tor_client_bot import Shot
+
+        here, adjacent = cell("here"), cell("near", 1)
+        foe = {"id": "emu", "name": "emu", "position": adjacent["position"]}
+        items = [{"id": name, "name": name, "class": "weapon", "quantity": 1, "identified": False}
+                 for name in ("dart", "bow")]
+        ability = {"id": "shoot", "name": "shoot", "target_kind": "directional_projectile",
+                   "basic_attack": False, "reach": {"kind": "projectile"}, "cost": None, "cooldown_remaining": 0}
+        turn = player_turn([here, adjacent], actors=[foe], hostiles=["emu"], inventory=items, abilities=[ability])
+        target, = turn.hostiles
+        dart, bow = turn.inventory
+        launch = Shot(turn.abilities[0], target, (1, 0, 0), dart, bow, 0)
+        throw = Shot(turn.abilities[0], target, (1, 0, 0), dart, None, 0)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for offers, expected in (([], None), ([throw, launch], (launch, "launch_projectile")), ([throw], None)):
+            with self.subTest(offers=offers), patch.object(turn, "ranged_attacks", return_value=offers), \
+                    patch.object(turn, "attack") as strike:
+                self.assertEqual(player.ranged_combat(turn, [target]), expected)
+                if offers == [throw]:
+                    strike.assert_called_once_with(target)
+                else:
+                    strike.assert_not_called()
+
     def test_nearby_bystander_does_not_trigger_projectile_queries_for_a_distant_foe(self):
         from unittest.mock import patch
 

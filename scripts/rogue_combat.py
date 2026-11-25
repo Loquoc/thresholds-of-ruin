@@ -122,7 +122,7 @@ def has_push_space(turn: Turn, foe: Creature) -> bool:
     return all(landing.isdisjoint(creature.cells) for creature in turn.creatures if creature.target != foe.target)
 
 
-def choose_projectile(shots: Iterable[Shot], *, can_strike: bool) -> Shot | None:
+def choose_projectile(shots: Iterable[Shot]) -> Shot | None:
     """Prefer launched shots, then short range, preserving offer order on ties."""
     best_shot = None
     best_rank = None
@@ -131,7 +131,7 @@ def choose_projectile(shots: Iterable[Shot], *, can_strike: bool) -> Shot | None
             continue
         distance = max(map(abs, shot.offset))
         launched = shot.launcher is not None
-        if not launched and (can_strike or shot.equipped_throw or distance > 4):
+        if not launched and (shot.equipped_throw or distance > 4):
             continue
         in_normal_range = shot.range is None or distance <= shot.range.short_cells
         if launched and in_normal_range:
