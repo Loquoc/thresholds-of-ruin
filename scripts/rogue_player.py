@@ -59,7 +59,7 @@ from rogue_search import (
     ORDINARY_WALL_SEARCHES, SearchHistory, SearchRank, squares_across_stair_walls,
 )
 from rogue_food import (
-    MEAL_HUNGER, URGENT_HUNGER, FoodScout, MealHistory, PendingMeal, choose_meal, edible_items, estimate_carried_food,
+    MEAL_HUNGER, URGENT_HUNGER, FoodScoutHistory, MealHistory, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     FloorTravelTimes,
 )
 from rogue_gear import (
@@ -160,8 +160,7 @@ class Adventurer:
     search_history: SearchHistory = field(default_factory=SearchHistory)
     travel_times: FloorTravelTimes = field(default_factory=FloorTravelTimes)
     meals: MealHistory = field(default_factory=MealHistory)
-    # A missing floor can start a detour. None records a finished detour.
-    food_scouts: dict[int, FoodScout | None] = field(default_factory=dict)
+    food_scouts: FoodScoutHistory = field(default_factory=FoodScoutHistory)
     pending_stair: StairAttempt | None = None
     stair_pursuers: tuple[str, ...] = ()
     last_guarded_landing: tuple[str, str] | None = None
@@ -227,9 +226,7 @@ class Adventurer:
         self.observe_stair(turn)
         if self.pending_stair:
             return
-        scout = self.food_scouts.get(self.depth)
-        if scout is not None and scout.finished(turn):
-            self.finish_food_scout()
+        self.food_scouts.observe(self.depth, turn)
         if self.depth not in self.maps:
             self.maps[self.depth] = FloorMap()
         self.maps[self.depth].observe(turn)
@@ -313,7 +310,7 @@ class Adventurer:
             reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
             self.unsafe_stairs[landing, reverse] = self.danger_until.get(
                 attempt.origin, turn.tick)
-        self.finish_food_scout()
+        self.food_scouts.finish(self.depth)
         self.cancelled_stairs.clear()
         if attempt.direction is Direction.DOWN:
             self.travel_times.record_descent(self.depth, self.maps[self.depth], attempt, turn.tick)
@@ -336,7 +333,7 @@ class Adventurer:
         """Record the policy decision and the admitted action, which can both change memory."""
         match reason:
             case MemoryReason.SEEK_STAIRS:
-                self.finish_food_scout()
+                self.food_scouts.finish(self.depth)
             case MemoryReason.CANCEL_STALLED_SCROLL:
                 self.scroll_trials.interrupted(turn)
             case MemoryReason.CANCEL_STALLED_STAIR if self.pending_stair:
@@ -822,7 +819,7 @@ class Adventurer:
                 return action, "reposition_to_recover"
         # Recover along the food route while scouting away from the stairs.
         food_route = None
-        if not returning and self.depth in self.food_scouts:
+        if not returning and self.depth in self.food_scouts.by_floor:
             food_route = self.provision(turn, memory, returning)
         action = food_route[0] if food_route else self.recovery_stair_step(turn, memory, stairs)
         if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
@@ -1014,11 +1011,6 @@ class Adventurer:
         food_cells = memory.cells_with_item(lambda item: item.category == "food")
         return route_around_danger(turn, memory, food_cells, self.danger_until.keys())
 
-    def finish_food_scout(self) -> None:
-        """A completed scout stays closed on later visits to the same floor."""
-        if self.depth in self.food_scouts:
-            self.food_scouts[self.depth] = None
-
     def provision(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[Action, str] | None:
         nutrition = turn.nutrition
         if nutrition is None or turn.has_condition("rogue.levitation"):
@@ -1035,21 +1027,8 @@ class Adventurer:
             return step, "forage"
         if returning or self.depth >= self.retrieval_depth:
             return None
-        return self.scout_for_food(turn, memory, ticks_until_empty=nutrition.ticks_until_empty,
-                                   carried_meals=packed.meal_count)
-
-    def scout_for_food(self, turn: Turn, memory: FloorMap, *, ticks_until_empty: int,
-                       carried_meals: int) -> tuple[Action, str] | None:
-        """Start one search per floor at the down stairs and explore within its original deadline."""
-        if self.depth not in self.food_scouts:
-            if turn.cell is None or not turn.cell.stairs_down:
-                return None
-            self.food_scouts[self.depth] = FoodScout(
-                deadline=turn.tick + ticks_until_empty // 4,
-                starting_meals=carried_meals,
-            )
-        scout = self.food_scouts[self.depth]
-        if scout is None or turn.tick >= scout.deadline:
+        if not self.food_scouts.can_explore(self.depth, turn, ticks_until_empty=nutrition.ticks_until_empty,
+                                           carried_meals=packed.meal_count):
             return None
         if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys()):
             return step, "scout_for_food"

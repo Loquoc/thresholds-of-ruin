@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 # The public policy and model can be tested from source without loading the native extension.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "crates/client-bot/python"))
-from rogue_player import Adventurer, FoodScout
+from rogue_food import FoodScout, FoodScoutHistory
+from rogue_player import Adventurer
 from tor_client_bot import Direction, Move, Pickup, Turn, UseAbility, Wait
 
 from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY
@@ -4368,7 +4369,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    interactions={"inventory": [{"item": "meal", "edible": True}]})
                 self.assertEqual(choose(player, turn)[1], reason)
                 if reason == "scout_for_food":
-                    self.assertEqual(player.food_scouts[3].starting_meals, 2)
+                    self.assertEqual(player.food_scouts.by_floor[3].starting_meals, 2)
 
     def test_food_scout_prefers_a_clear_frontier_over_a_recent_threat(self):
         cells = [cell("stairs", down=True), cell("near", -1), cell("hall", 1), cell("far", 2)]
@@ -4392,7 +4393,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                  "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
                                "hunger": "nourished", "elapsed": 0}}
         player.travel_times.ascent[2] = 50000
-        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        player.food_scouts.by_floor[3] = FoodScout(deadline=1000, starting_meals=0)
         for tick, expected in [(100, (Move(Direction.EAST), "scout_for_food")),
                                (1000, (Move(Direction.WEST), "recover_en_route"))]:
             with self.subTest(tick=tick):
@@ -4400,6 +4401,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(turn)
                 player.maps[3].visited.add("stairs")
                 self.assertEqual(player.choose(turn), expected)
+
+    def test_leaving_an_unscouted_floor_preserves_its_first_detour(self):
+        scouts = FoodScoutHistory()
+        hall = player_turn([cell("hall")], tick=100)
+        stairs = player_turn([cell("stairs", down=True)], tick=200)
+        self.assertFalse(scouts.can_explore(3, hall, ticks_until_empty=400, carried_meals=0))
+        scouts.finish(3)
+        self.assertTrue(scouts.can_explore(3, stairs, ticks_until_empty=400, carried_meals=0))
+        self.assertEqual(scouts.by_floor[3], FoodScout(deadline=300, starting_meals=0))
 
     def test_food_scout_counts_edible_portions_in_a_stack(self):
         scout = FoodScout(deadline=100, starting_meals=2)
@@ -4429,19 +4439,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_a_stair_round_trip_does_not_revive_the_departed_floors_food_scout(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.travel_times.ascent[2] = 50000
-        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        player.food_scouts.by_floor[3] = FoodScout(deadline=1000, starting_meals=0)
         stairs = [cell("stairs", down=True), cell("passage", 1)]
         origin = player_turn(stairs)
         down, reason = choose(player, origin)
         self.assertEqual((down, reason), (Move(Direction.DOWN), "descend"))
         player.admitted(origin, down, reason=reason)
         player.observe(origin)
-        self.assertIsInstance(player.food_scouts[3], FoodScout)
+        self.assertIsInstance(player.food_scouts.by_floor[3], FoodScout)
 
         below = player_turn([cell("below", up=True)], tick=100)
         player.observe(below)
         self.assertEqual(player.depth, 4)
-        self.assertNotIn(4, player.food_scouts)
+        self.assertNotIn(4, player.food_scouts.by_floor)
         player.admitted(below, Move(Direction.UP), reason="retreat_upstairs")
         revisit = player_turn(stairs, tick=200, stats={"nutrition": {
             "kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
@@ -4467,7 +4477,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_food_scout_finishes_once_the_bot_heads_back_to_the_stairs(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.travel_times.ascent[2] = 50000
-        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        player.food_scouts.by_floor[3] = FoodScout(deadline=1000, starting_meals=0)
         cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]
         turn = player_turn(cells, tick=100, stats={"nutrition": {
             "kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
@@ -4484,7 +4494,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         from tor_client_bot import OpenDoor
 
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        player.food_scouts.by_floor[3] = FoodScout(deadline=1000, starting_meals=0)
         player.travel_times.ascent[2] = 50000
         door = {"id": "gate", "open": False, "reachable": True}
         cells = [cell("stairs", -2, down=True), {**cell("gate", -1), "door": door}, cell("hall"), cell("frontier", 1)]
@@ -4508,7 +4518,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                  "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000,
                                "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
         player.travel_times.descent[2] = 50000
-        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        player.food_scouts.by_floor[3] = FoodScout(deadline=1000, starting_meals=0)
         turn = player_turn(cells, tick=100, combat={"hp": 6}, stats=stats)
         player.observe(turn)
         player.maps[3].visited.update({"stairs", "passage"})
@@ -4519,7 +4529,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_injured_scout_resumes_its_food_route_after_levitation_expires(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.travel_times.descent[2] = 50000
-        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        player.food_scouts.by_floor[3] = FoodScout(deadline=1000, starting_meals=0)
         cells = [cell("hall"), cell("stairs", -1, down=True), cell("passage", 1), cell("frontier", 2)]
         recovery = {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}
         nutrition = {"kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,

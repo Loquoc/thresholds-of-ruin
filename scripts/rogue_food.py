@@ -117,6 +117,33 @@ class FoodScout:
         return carried_meals > self.starting_meals
 
 
+@dataclass
+class FoodScoutHistory:
+    """Each floor gets one detour. A finished entry keeps it closed on revisits."""
+
+    by_floor: dict[int, FoodScout | None] = field(default_factory=dict)
+
+    def finish(self, floor: int) -> None:
+        if floor in self.by_floor:
+            self.by_floor[floor] = None
+
+    def observe(self, floor: int, turn: Turn) -> None:
+        scout = self.by_floor.get(floor)
+        if scout is not None and scout.finished(turn):
+            self.finish(floor)
+
+    def can_explore(self, floor: int, turn: Turn, *, ticks_until_empty: int, carried_meals: int) -> bool:
+        if floor not in self.by_floor:
+            if turn.cell is None or not turn.cell.stairs_down:
+                return False
+            self.by_floor[floor] = FoodScout(
+                deadline=turn.tick + ticks_until_empty // 4,
+                starting_meals=carried_meals,
+            )
+        scout = self.by_floor[floor]
+        return scout is not None and turn.tick < scout.deadline
+
+
 def estimate_carried_food(meals: Iterable[Item], food_value: Mapping[str, int]) -> FoodEstimate:
     known_reserve = 0
     has_unmeasured_meals = False
