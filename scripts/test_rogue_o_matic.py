@@ -2971,6 +2971,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
         self.assertEqual((action.item.target, reason), ("meal", "eat"))
 
+    def test_only_urgent_hunger_interrupts_a_corridor_stand_for_a_meal(self):
+        meal = {"id": "packed", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        for hunger, reason in (("nourished", "hold_corridor"), ("hungry", "hold_corridor"),
+                               ("weak", "eat"), ("empty", "eat")):
+            with self.subTest(hunger=hunger):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, corridor_stand=("here", 100))
+                turn = player_turn([cell("here")], inventory=[meal], stats={"nutrition": {"hunger": hunger}},
+                                   interactions={"inventory": [{"item": "packed", "edible": True}]})
+                self.assertEqual(choose(player, turn)[1], reason)
+
     def test_hungry_bot_eats_a_carried_meal_before_picking_up_another(self):
         here = cell("here")
         meal = {"id": "packed", "name": "meal", "class": "food", "quantity": 1, "identified": False}

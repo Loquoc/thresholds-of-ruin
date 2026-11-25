@@ -7,6 +7,10 @@ from statistics import median_low
 from tor_client_bot import Item, ItemUse, Nutrition, Turn
 
 
+URGENT_HUNGER = frozenset({"weak", "empty"})
+MEAL_HUNGER = URGENT_HUNGER | {"hungry"}
+
+
 def edible_items(turn: Turn) -> Iterator[Item]:
     return (item for item in turn.inventory if ItemUse.EAT in item.uses)
 

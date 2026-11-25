@@ -50,7 +50,7 @@ from tor_client_bot import (
 
 from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_corridor
 from rogue_food import (
-    FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
+    MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     estimate_round_trip_ticks,
 )
 from rogue_gear import (
@@ -616,7 +616,7 @@ class Adventurer:
             if potion := choose_healing_potion(turn, lethal=lethal):
                 return UseItem(potion, ItemUse.DRINK), "heal"
 
-        if turn.hostiles and not lethal and turn.hunger in {"weak", "empty"}:
+        if turn.hostiles and not lethal and turn.hunger in URGENT_HUNGER:
             if meal := choose_meal(turn, self.food_value):
                 return UseItem(meal, ItemUse.EAT), "eat"
 
@@ -1208,7 +1208,7 @@ class Adventurer:
 
     def respond_to_hunger(self, turn: Turn, memory: FloorMap, ground_items: tuple[GroundItem, ...],
                           *, can_forage: bool) -> tuple[Action, str] | None:
-        if turn.hunger not in {"hungry", "weak", "empty"}:
+        if turn.hunger not in MEAL_HUNGER:
             return None
         if meal := choose_meal(turn, self.food_value):
             return UseItem(meal, ItemUse.EAT), "eat"
@@ -1423,7 +1423,7 @@ class Adventurer:
         if decision := self.combat(turn):
             return decision
 
-        if self.corridor_stand and turn.hunger not in {"weak", "empty"}:
+        if self.corridor_stand and turn.hunger not in URGENT_HUNGER:
             entrance, until = self.corridor_stand
             if turn.cell.key == entrance and turn.tick < until:
                 return Wait(), "hold_corridor"
