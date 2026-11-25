@@ -2834,6 +2834,59 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_injured_bot_cures_hallucination_with_extra_healing(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        character, = manifest["characters"]
+        injury = "item.potion.fixture.injury"
+        manifest["archetypes"]["injury"] = {
+            "class": "potion", "identity": injury, "name": "injury potion", "stackable": True,
+            "consumable": {"effects": [{"kind": "damage", "damage": {"kind": "components",
+                "components": [{"category": "vital", "amount": {"kind": "fixed", "amount": 2}}],
+            }}]},
+        }
+        character["loadout"] = [{"archetype": name, "quantity": quantity} for name, quantity in (
+            ("rogue.healing", 1), ("rogue.extra_healing", 1), ("rogue.hallucination", 1), ("injury", 20))]
+        character["known_identities"].extend((injury, "item.potion.healing", "item.potion.extra-healing",
+                                              "item.potion.hallucination"))
+        contents["regions"][0]["actors"] = []
+        server = self.server(scenario=write_package(self, contents, "rogue-bot-hallucination-healing"))
+        self.install_bot_extension()
+        code = """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import ItemUse, Outcome, Session, UseItem
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as player:
+    def drink(turn, identity):
+        dose = next(item for item in turn.inventory if item.identity == identity)
+        assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+        return player.wait_for_decision()
+
+    turn = drink(player.wait_for_decision(), "item.potion.hallucination")
+    while turn.health.current * 2 >= turn.health.maximum:
+        turn = drink(turn, "item.potion.fixture.injury")
+    assert turn.has_condition("rogue.hallucinating") and not turn.hostiles
+    assert any(item.identity == "item.potion.healing" and ItemUse.DRINK in item.uses for item in turn.inventory)
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
+    policy.observe(turn)
+    action, reason = policy.choose(turn)
+    assert reason == "heal" and action.item.identity == "item.potion.extra-healing", (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    after = player.wait_for_decision()
+    assert after.health.current > turn.health.current and not after.has_condition("rogue.hallucinating")
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code], cwd=self.directory,
+            env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
+                 "BOT_TEST_ADDRESS": self.address}, text=True, capture_output=True, timeout=55,
+        )
+        server.stop(save=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_bot_heals_above_half_health_when_cornered_by_a_lethal_threat(self):
         self.check_cornered_policy(unknown_scrolls=False)
 
