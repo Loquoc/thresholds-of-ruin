@@ -140,6 +140,16 @@ class AdmittedMove:
     tick: int
     reserve: int | None
 
+    @classmethod
+    def from_trace(cls, row: dict, origin: TraceSite):
+        result = row.get("result", {})
+        if row.get("action", {}).get("type") != "move" or result.get("status") != "confirmed":
+            return None
+        receipt = result.get("receipt") or {}
+        if intention := receipt.get("intention"):
+            return cls(intention, origin, row.get("reason"), row["tick"], row.get("nutrition_reserve"))
+        return None
+
     def resolved_at(self, row, site: TraceSite) -> bool:
         return (row.get("previous_intention_id") == self.intention
                 and row.get("previous_intention_phase") == "resolved"
@@ -233,11 +243,7 @@ def trace_report(path):
                             detours["reserve_spent"] += max(0, last_move.reserve - row["nutrition_reserve"])
                 else:
                     previous_origin = None
-                last_move = None
-                result = row.get("result", {})
-                intention = result.get("receipt", {}).get("intention")
-                if row.get("action", {}).get("type") == "move" and result.get("status") == "confirmed" and intention:
-                    last_move = AdmittedMove(intention, site, row.get("reason"), row["tick"], row.get("nutrition_reserve"))
+                last_move = AdmittedMove.from_trace(row, site)
             else:
                 last_move = previous_origin = None
             visits.resolve_search(row)
