@@ -146,7 +146,8 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
             continue
         item = ground.item
         key = ground.cell.key
-        if worth_long_detour(objective, item, carried.by_identity, returning=returning, needs_return_arrows=needs_return_arrows):
+        if worth_long_detour(objective, item, carried.by_identity, returning=returning,
+                             needs_return_arrows=needs_return_arrows and key not in guarded):
             goals.wanted.add(key)
         if returning or turn.hostiles or key in guarded or item.identity in HEALING_POTIONS:
             continue

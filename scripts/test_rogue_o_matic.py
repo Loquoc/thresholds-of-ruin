@@ -2014,6 +2014,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (Move(direction), reason))
 
+    def test_returning_archer_leaves_guarded_arrows_until_the_warning_expires(self):
+        hall = [cell(str(x), x, up=x == 0) for x in range(6)]
+        bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
+                       "class": "weapon", "identified": True, "quantity": 1} for name in ("shortbow", "arrow")]
+        relic = {"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                 "class": "amulet", "identified": True, "quantity": 1}
+        guard = {"id": "guard", "name": "orc", "position": hall[5]["position"]}
+        ground = [{**hall[4], "item": arrow, "reachable": False}]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        player.observe(player_turn(hall, ground=ground, actors=[guard], hostiles=["guard"]))
+        for tick, expected in ((1199, (Move(Direction.UP), "ascend")), (1200, (Move(Direction.EAST), "seek_item"))):
+            with self.subTest(tick=tick):
+                turn = player_turn(hall, inventory=[bow, relic], ground=ground, tick=tick)
+                self.assertEqual(choose(player, turn), expected)
+
     def test_remembered_arrow_detour_respects_guard_warning_until_expiry(self):
         hall = [cell(str(x), x, down=x == 0) for x in range(6)]
         bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
