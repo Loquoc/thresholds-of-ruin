@@ -656,11 +656,13 @@ class Adventurer:
         return shot, "launch_projectile" if shot.launcher else "throw_projectile"
 
     def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
-        can_descend = self.depth < self.retrieval_depth and not self.carrying_objective(turn)
+        returning = self.carrying_objective(turn)
+        can_ascend = returning or self.depth > 1
+        can_descend = not returning and self.depth < self.retrieval_depth
 
         def attack_order(foe: Creature) -> MeleeRank:
             opens_exit = any(
-                (cell.stairs_up and self.depth > 1 and self.stair_is_safe(cell.key, Direction.UP, turn.tick))
+                (cell.stairs_up and can_ascend and self.stair_is_safe(cell.key, Direction.UP, turn.tick))
                 or (cell.stairs_down and can_descend and self.stair_is_safe(cell.key, Direction.DOWN, turn.tick))
                 for cell in turn.cells_of(foe)
             )

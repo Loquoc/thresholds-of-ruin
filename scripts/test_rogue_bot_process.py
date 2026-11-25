@@ -2534,7 +2534,10 @@ with ExitStack() as stack:
     def test_pinned_bot_pushes_an_opponent_off_the_exit(self):
         self.pinned_melee("dislocating_strike")
 
-    def pinned_melee(self, expected):
+    def test_pinned_carrier_clears_the_upstairs_on_its_first_floor(self):
+        self.pinned_melee("basic_melee", returning=True)
+
+    def pinned_melee(self, expected, *, returning=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -2549,14 +2552,19 @@ with ExitStack() as stack:
                 build["hit_dice"][-1]["purchases"].append(
                     {"pool": "advancement", "selection": {"kind": "talent", "talent": expected}})
         manifest["characters"][0]["loadout"] = [{"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0}]
-        manifest["stair_pairs"] = {"exit": {"upper": "1/down", "lower": "2/up"}}
+        upper, lower = ("2/landing", "1/guarded") if returning else ("1/guarded", "2/landing")
+        manifest["stair_pairs"] = {"exit": {"upper": upper, "lower": lower}}
         region, = contents["regions"]
         width = 4 if expected == "dislocating_strike" else 3
-        region.update(size=[width, 1, 2], anchors={"start": [1, 0, 0], "down": [2, 0, 0]},
+        region.update(size=[width, 1, 2], anchors={"start": [1, 0, 0], "guarded": [2, 0, 0]},
                       actors=[{"archetype": "rogue.hobgoblin", "id": i, "at": [x, 0, 0],
                                "controller": "external", "turn_ticks": 1000000} for i, x in [(3, 0), (4, 2)]])
         contents["regions"].append({"id": 2, "name": "Landing", "size": [3, 3, 2],
-                                    "chamber": True, "anchors": {"up": [1, 1, 0]}})
+                                    "chamber": True, "anchors": {"landing": [1, 1, 0]}})
+        if returning:
+            character, = manifest["characters"]
+            character["loadout"].append({"archetype": "rogue.amulet_of_yendor", "quantity": 1})
+            character["known_identities"].append("item.amulet.amulet-of-yendor")
         # Seed 43 lands the strike, allowing the following frame to verify the push.
         self.server(scenario=write_package(self, contents, "stair-blocker"),
                     seed=43 if expected == "dislocating_strike" else 42)
@@ -2574,22 +2582,27 @@ with ExitStack() as clients:
     assert len(turn.hostiles) == 2 and not turn.walkable_directions
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
-    # At retrieval depth the down stair has no tactical value. Prefer the harder hitter.
-    at_goal = Adventurer(26, "item.amulet.amulet-of-yendor", depth=26)
-    at_goal.observe(turn)
-    harder = turn.hostiles[1]
-    at_goal.observed_loss[harder.target] = 3
-    attack_at_goal, why = at_goal.choose(turn)
-    assert why == "melee" and attack_at_goal.target == harder, (attack_at_goal, why)
+    returning = player.carrying_objective(turn)
+    assert returning == (os.environ["RETURNING"] == "1")
+    direction = Direction.UP if returning else Direction.DOWN
+    if not returning:
+        # At retrieval depth the down stair has no tactical value. Prefer the harder hitter.
+        at_goal = Adventurer(26, "item.amulet.amulet-of-yendor", depth=26)
+        at_goal.observe(turn)
+        harder = turn.hostiles[1]
+        at_goal.observed_loss[harder.target] = 3
+        attack_at_goal, why = at_goal.choose(turn)
+        assert why == "melee" and attack_at_goal.target == harder, (attack_at_goal, why)
     exit_cell = turn.cell_at((1, 0, 0))
     other = next(foe for foe in turn.hostiles if exit_cell not in turn.cells_of(foe))
     player.observed_loss[other.target] = 3
-    player.unsafe_stairs[exit_cell.key, Direction.DOWN] = turn.tick + 1
+    player.unsafe_stairs[exit_cell.key, direction] = turn.tick + 1
     guarded_attack, why = player.choose(turn)
     assert why == "melee" and guarded_attack.target == other, (guarded_attack, why)
-    player.unsafe_stairs[exit_cell.key, Direction.DOWN] = turn.tick
+    player.unsafe_stairs[exit_cell.key, direction] = turn.tick
     action, reason = player.choose(turn)
-    assert reason == "melee" and any(c.stairs_down for c in turn.cells_of(action.target))
+    assert (exit_cell.stairs_up if returning else exit_cell.stairs_down)
+    assert reason == "melee" and exit_cell in turn.cells_of(action.target)
     assert action.ability.identity == os.environ["EXPECTED_MELEE"], (action, turn.abilities)
     attack = turn.submit(action)
     assert attack.status is Outcome.CONFIRMED
@@ -2614,7 +2627,7 @@ with ExitStack() as clients:
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
                              env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"),
-                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN, "EXPECTED_MELEE": expected},
+                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN, "EXPECTED_MELEE": expected, "RETURNING": str(int(returning))},
                              capture_output=True, text=True, timeout=55)
         self.assertEqual(run.returncode, 0, run.stderr)
 

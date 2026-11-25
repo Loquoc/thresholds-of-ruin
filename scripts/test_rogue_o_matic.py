@@ -2315,6 +2315,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(player, turn)
                 self.assertEqual((reason, action.target.target), ("melee", expected))
 
+    def test_first_floor_upstairs_is_a_melee_priority_only_when_carrying_the_objective(self):
+        relic = {"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                 "identified": True, "quantity": 1}
+        tiles = [cell("here"), cell("plain", 1), cell("exit", -1, up=True)]
+        enemies = [{"id": name, "name": "orc", "position": tile["position"]}
+                   for name, tile in zip(("plain", "exit"), tiles[1:])]
+        melee = {"id": "basic_melee", "name": "Attack", "cooldown_remaining": 0, "cost": None,
+                 "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        for pack, expected in (([], "plain"), ([relic], "exit")):
+            with self.subTest(expected=expected):
+                turn = player_turn(tiles, inventory=pack, actors=enemies, hostiles=["plain", "exit"], abilities=[melee])
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss["plain"] = 1
+                action, reason = choose(player, turn)
+                self.assertEqual((reason, action.target.target), ("melee", expected))
+
     def test_melee_breaks_equal_body_distance_by_observed_damage(self):
         cells = [cell(str(x), x) for x in range(-1, 3)]
         actors = [{"id": name, "name": "troll", "position": cell(name, x)["position"]}
