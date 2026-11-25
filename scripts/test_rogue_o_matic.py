@@ -1810,6 +1810,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (Move(direction), reason))
 
+    def test_remembered_arrow_detour_respects_guard_warning_until_expiry(self):
+        hall = [cell(str(x), x, down=x == 0) for x in range(6)]
+        bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
+                       "class": "weapon", "identified": True, "quantity": 1} for name in ("shortbow", "arrow")]
+        guard = {"id": "guard", "name": "orc", "position": hall[5]["position"]}
+        ground = [{**hall[4], "item": arrow, "reachable": False}]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(player_turn(hall, inventory=[bow], actors=[guard], hostiles=["guard"], ground=ground, tick=0))
+        for tick, expected in ((1199, (Move(Direction.DOWN), "descend")), (1200, (Move(Direction.EAST), "recover_arrows"))):
+            with self.subTest(tick=tick):
+                turn = player_turn(hall[:3], inventory=[bow], tick=tick)
+                self.assertEqual(choose(player, turn), expected)
+
     def test_collects_visible_spent_arrows_beyond_an_immediate_detour(self):
         cells = [cell(str(i), i, down=i == 0) for i in range(5)]
         bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",

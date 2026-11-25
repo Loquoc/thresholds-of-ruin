@@ -1311,7 +1311,8 @@ class Adventurer:
             if search := self.search_dead_end(turn, memory):
                 return search, "search"
         loot = self.loot_goals(turn, ground_items, returning)
-        if decision := route_to_loot(turn, memory, loot, self.danger_until.keys()):
+        if decision := route_to_loot(turn, memory, loot, self.danger_until.keys(),
+                                     guarded=self.supplies_guarded_until.keys()):
             return decision
 
         if not turn.hostiles and (decision := self.provision(turn, memory, returning)):

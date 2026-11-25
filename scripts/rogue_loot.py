@@ -156,11 +156,12 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
     return goals
 
 
-def route_to_loot(turn: Turn, memory: FloorMap, goals: LootGoals, danger: Set[str]) -> tuple[Action, str] | None:
+def route_to_loot(turn: Turn, memory: FloorMap, goals: LootGoals, danger: Set[str], *,
+                  guarded: Set[str]) -> tuple[Action, str] | None:
     if action := route_around_danger(turn, memory, goals.wanted, danger):
         return action, "seek_item"
     if goals.recover_arrows:
-        arrows = memory.cells_with_item(lambda item: item.identity == "item.weapon.arrow")
+        arrows = memory.cells_with_item(lambda item: item.identity == "item.weapon.arrow") - guarded
         if arrows and (action := memory.toward(turn, arrows, avoid=danger, max_steps=6)):
             return action, "recover_arrows"
     if goals.nearby and (action := memory.toward(turn, goals.nearby, avoid=danger, max_steps=2)):

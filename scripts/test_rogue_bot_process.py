@@ -1630,6 +1630,12 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
 """)
 
     def test_bot_collects_nearby_gold_before_distant_visible_arrows(self):
+        self.check_gold_before_arrows(arrow_x=1, guarded=False)
+
+    def test_bot_collects_nearby_gold_before_guarded_arrows_in_recovery_range(self):
+        self.check_gold_before_arrows(arrow_x=8, guarded=True)
+
+    def check_gold_before_arrows(self, *, arrow_x, guarded):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1638,7 +1644,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         character["loadout"] = [{"archetype": "rogue.shortbow", "quantity": 1}]
         room, = contents["regions"]
         room.update(size=[17, 5, 2], anchors={"start": [13, 2, 0]}, actors=[], items=[
-            {"id": 9, "archetype": "rogue.arrow", "at": [1, 2, 0]},
+            {"id": 9, "archetype": "rogue.arrow", "at": [arrow_x, 2, 0]},
             {"id": 10, "archetype": "rogue.gold", "at": [15, 2, 0]}])
         self.server(scenario=write_package(self, contents, "loot-in-opposite-directions"))
         self.install_bot_extension()
@@ -1651,6 +1657,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     turn = game.wait_for_decision()
     assert {g.item.identity for g in turn.ground_items} >= {"item.coin.gold", "item.weapon.arrow"}
+    if sys.argv[2] == "guarded":
+        arrow = next(g for g in turn.ground_items if g.item.identity == "item.weapon.arrow")
+        player.supplies_guarded_until[arrow.cell.key] = turn.tick + 1200
     for _ in range(3):
         player.observe(turn)
         action, reason = player.choose(turn)
@@ -1666,7 +1675,8 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
             break
     assert any(i.identity == "item.coin.gold" for i in turn.inventory)
 """
-        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+        result = subprocess.run([sys.executable, "-c", code, self.address, "guarded" if guarded else "clear"],
+                                cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
                                 capture_output=True, text=True, timeout=55)
         self.assertEqual(result.returncode, 0, result.stderr)
