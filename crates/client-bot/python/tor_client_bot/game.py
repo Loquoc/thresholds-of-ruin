@@ -178,8 +178,8 @@ class Turn:
         failures = self._picture.get("intention_failures", {})
         return tuple(Activity.from_row(row, failures.get(row["intention"])) for row in self._picture.get("finished_intentions", ()))
 
-    def outcome_of(self, result: Result) -> ActivityPhase | None:
-        """Latest observed phase for this receipt, or None outside the retained history."""
+    def activity_for(self, result: Result) -> Activity | None:
+        """Latest observed activity for this receipt, or None outside the retained history."""
         original = result.activity
         if original is None:
             return None
@@ -190,8 +190,13 @@ class Turn:
                     and activity.branch == original.branch
                     and activity.intention == original.intention
                 ):
-                    return activity.phase
+                    return activity
         return None
+
+    def outcome_of(self, result: Result) -> ActivityPhase | None:
+        """Latest observed phase for this receipt, or None outside the retained history."""
+        activity = self.activity_for(result)
+        return activity.phase if activity else None
 
     @property
     def terminal(self) -> bool:

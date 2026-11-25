@@ -296,6 +296,11 @@ admitted action, `result.activity.phase` gives the phase at admission. On a
 later observation, `turn.outcome_of(result)` returns its latest disclosed
 `ActivityPhase`, such as `PAUSED`, `RESOLVED` or `FAILED`. It returns `None`
 if there is no matching activity in the current picture or retained history.
+For the failure details, `turn.activity_for(result)` returns the matching
+activity. A server rollback sets its `failure` to `rolled_back` and its
+`failed_action` to the action the server rolled back. Rogue-O-Matic records
+these values as `previous_intention_failure` and `previous_failed_action`
+on the next decision or final report.
 A resolved attack can still miss. A stale submission calls for a fresh
 observation. If a disconnect leaves the outcome unknown, inspect the player
 after reconnecting before deciding whether to repeat the action.

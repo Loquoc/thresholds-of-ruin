@@ -170,6 +170,38 @@ class RogueBotProcess(ProcessTestCase):
             server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_budget_trace_identifies_the_action_rolled_back_by_the_server(self):
+        from test_growth_failure_process import growth_package
+
+        self.install_bot_extension()
+        self.server(scenario=growth_package(self, reject_growth=True))
+        code = """
+import os
+from rogue_player import Adventurer, play
+from tor_client_bot import Session, UseAbility, Wait
+
+class GrowthPlayer(Adventurer):
+    def choose(self, turn):
+        if turn.tick == 0:
+            return Wait(), "wait"
+        attack = next(ability for ability in turn.abilities if ability.identity == "fixture_growth_finisher")
+        target = next(foe for foe in turn.creatures if foe.name == "practice target")
+        return UseAbility(attack, target), "trigger_growth"
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    rows = []
+    report = play(game, GrowthPlayer(26, "item.amulet.amulet-of-yendor"), 2, rows.append)
+    assert report["terminal"] == "action_budget", report
+    assert report["previous_intention_id"] == rows[-1]["result"]["receipt"]["intention"]
+    assert report["previous_intention_phase"] == "failed", report
+    assert report["previous_intention_failure"] == "rolled_back", report
+    assert report["previous_failed_action"] == "use_ability", report
+"""
+        run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
+                             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
+                                  "BOT_TEST_ADDRESS": self.address}, text=True, capture_output=True, timeout=55)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
     def test_lost_reply_identifies_the_single_durable_action(self):
         self.server(seed=None, spectator=False)
         self.install_bot_extension()

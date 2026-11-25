@@ -668,6 +668,12 @@ class BotApiTests(unittest.TestCase):
         self.assertIs(paused.outcome_of(result), ActivityPhase.PAUSED)
         final = observe(finished=[dict(row, phase="resolved", entry_id="later")])
         self.assertIs(Turn.replay(final.recording()).outcome_of(result), ActivityPhase.RESOLVED)
+        failed = Turn({"state": {"observation": {}}, "readiness": {},
+                       "finished_intentions": [dict(row, phase="failed")],
+                       "intention_failures": {"7": {"rolled_back": "read"}}})
+        activity = failed.activity_for(result)
+        self.assertEqual((activity.phase, activity.failure, activity.failed_action),
+                         (ActivityPhase.FAILED, "rolled_back", "read"))
         wire = Result.from_reply({"status": "confirmed", "receipt": {
             "type": "admitted", **row, "actor": "1"}})
         self.assertEqual(wire.activity.actor, 1)

@@ -51,6 +51,17 @@ def trace_navigation(player: Adventurer) -> dict:
     }
 
 
+def trace_previous_intention(turn: Turn, previous: Result | None) -> dict:
+    activity = turn.activity_for(previous) if previous else None
+    detail = {"previous_intention_id": previous.intention if previous else None,
+              "previous_intention_phase": activity.phase if activity else None}
+    if activity and activity.failure:
+        detail["previous_intention_failure"] = activity.failure
+        if activity.failed_action:
+            detail["previous_failed_action"] = activity.failed_action
+    return detail
+
+
 def trace_decision(decision: Decision, player: Adventurer, *, record_decisions: bool) -> dict:
     """Describe what was visible when the player chose the current action."""
     turn = decision.turn
@@ -65,8 +76,7 @@ def trace_decision(decision: Decision, player: Adventurer, *, record_decisions: 
             for ground in turn.ground_items if ground.reachable
         ],
         **({"stalled": True} if decision.stalled else {}),
-        "previous_intention_id": decision.previous.intention if decision.previous else None,
-        "previous_intention_phase": decision.previous_phase,
+        **trace_previous_intention(turn, decision.previous),
         "health_recovery": asdict(turn.recovery) if turn.recovery else None,
         "events_since_previous_action": decision.combat.records(),
     }
@@ -159,9 +169,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
     if record_decisions:
         detail["recording"] = turn.recording()
     if previous:
-        detail.update(
-            previous_intention_id=previous.intention, previous_intention_phase=turn.outcome_of(previous)
-        )
+        detail.update(trace_previous_intention(turn, previous))
     return {
         "terminal": reason,
         "actions": count,
