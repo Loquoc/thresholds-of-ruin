@@ -3233,6 +3233,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(player.estimated_journey_ticks(returning=False), 250 + 2050 + 350)
         self.assertEqual(player.estimated_journey_ticks(returning=True), 250)
 
+    def test_round_trip_forecast_uses_available_timings_when_an_ascent_is_unknown(self):
+        from rogue_food import estimate_round_trip_ticks
+
+        # Of the two measured trips, only floor one has an observed return leg.
+        # The lower median of 120 and 200 supplies the estimate for floor three.
+        self.assertEqual(estimate_round_trip_ticks(2, 4, {1: 100, 2: 200}, {1: 20}), 200 + 120)
+        self.assertEqual(estimate_round_trip_ticks(2, 4, {}, {1: 20}), 0)
+        self.assertEqual(estimate_round_trip_ticks(4, 4, {1: 100}, {1: 20}), 0)
+
     def test_carried_meals_count_toward_the_scouting_budget(self):
         cells = [cell("stairs", down=True), cell("frontier", 1)]
         nutrition = {"kind": "required", "reserve": 100, "maximum": 1300,

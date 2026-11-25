@@ -1,7 +1,8 @@
-"""Food observations and inventory estimates used by the Rogue player."""
+"""Food observations and provisioning estimates used by the Rogue player."""
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from statistics import median_low
 
 from tor_client_bot import Item, ItemUse, Nutrition, Turn
 
@@ -73,3 +74,19 @@ def estimate_carried_food(meals: Iterable[Item], food_value: Mapping[str, int]) 
         else:
             known_reserve += food_value[meal.identity] * meal.quantity
     return FoodEstimate(known_reserve, has_unmeasured_meals, meal_count)
+
+
+def estimate_round_trip_ticks(depth: int, retrieval_depth: int, descent: Mapping[int, int],
+                              ascent: Mapping[int, int]) -> int:
+    """Budget a round trip for each floor from here up to the retrieval floor."""
+    if depth >= retrieval_depth or not descent:
+        return 0
+    round_trips = {floor: ticks + ascent.get(floor, 0) for floor, ticks in descent.items()}
+    measured = [ticks for floor, ticks in round_trips.items() if depth <= floor < retrieval_depth]
+    unmeasured = retrieval_depth - depth - len(measured)
+    if not unmeasured:
+        return sum(measured)
+    # Estimate unseen floors from the five deepest descents observed so far.
+    deepest = sorted(round_trips)[-5:]
+    typical = median_low(round_trips[floor] for floor in deepest)
+    return sum(measured) + unmeasured * typical

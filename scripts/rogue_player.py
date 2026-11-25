@@ -7,7 +7,6 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
-from statistics import median_low
 from typing import NamedTuple
 
 from tor_client_bot import (
@@ -49,7 +48,10 @@ from tor_client_bot import (
 )
 
 from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_corridor
-from rogue_food import FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food
+from rogue_food import (
+    FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food,
+    estimate_round_trip_ticks,
+)
 from rogue_gear import (
     can_identify_carried_item, choose_armor, choose_ring, improve_worn_gear,
     identification_target, ready_weapon, reveal_unseen_attacker, ring_upgrades,
@@ -1147,24 +1149,11 @@ class Adventurer:
     def estimated_journey_ticks(self, returning: bool) -> int:
         """Budget the shallower return legs and the round trips still ahead."""
         known_return = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items() if floor < self.depth)
-        floors_ahead = self.retrieval_depth - self.depth
-        if returning or floors_ahead <= 0 or not self.descent_ticks_by_floor:
+        if returning:
             return known_return
-
-        round_trips = {
-            floor: descent + self.ascent_ticks_by_floor.get(floor, 0)
-            for floor, descent in self.descent_ticks_by_floor.items()
-        }
-        measured_ahead = [
-            ticks for floor, ticks in round_trips.items() if self.depth <= floor < self.retrieval_depth
-        ]
-        measured_ticks = known_return + sum(measured_ahead)
-        unmeasured_floors = floors_ahead - len(measured_ahead)
-        if not unmeasured_floors:
-            return measured_ticks
-        deepest_floors = sorted(round_trips)[-5:]
-        typical_round_trip = median_low(round_trips[floor] for floor in deepest_floors)
-        return measured_ticks + unmeasured_floors * typical_round_trip
+        return known_return + estimate_round_trip_ticks(
+            self.depth, self.retrieval_depth, self.descent_ticks_by_floor, self.ascent_ticks_by_floor
+        )
 
     def respond_to_hunger(self, turn: Turn, memory: FloorMap, ground_items: tuple[GroundItem, ...],
                           *, can_forage: bool) -> tuple[Action, str] | None:
