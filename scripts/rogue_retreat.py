@@ -125,7 +125,7 @@ def _stair_distance(offset: tuple[int, int, int], goal: tuple[int, int, int]) ->
     return max(dx, dy), dx + dy
 
 
-def approach_visible_exit(turn: Turn, exits: set[str], avoid: set[str]) -> Move | None:
+def approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: set[str]) -> Move | None:
     """Approach the best visible stairs while keeping clear of pursuers."""
     exits_by_rank = {}
     for cell in turn.visible_cells:
@@ -143,6 +143,8 @@ def approach_visible_exit(turn: Turn, exits: set[str], avoid: set[str]) -> Move 
         offset = direction.offset
         candidate = turn.cell_at(offset)
         if candidate is None or candidate.key in avoid:
+            continue
+        if candidate.key not in exits and memory.is_dead_end(candidate.key):
             continue
         remaining = min(_stair_distance(offset, goal) for goal in destinations)
         if remaining < current_distance:

@@ -3910,6 +3910,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
                 self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
 
+    def test_stair_retreat_takes_the_detour_around_a_known_blind_alley(self):
+        cells = [cell("here"), cell("alley", 1), cell("barrier", 2, wall=True),
+                 cell("north-wall", 1, -1, wall=True), cell("south-wall", 1, 1, wall=True),
+                 cell("detour", 0, 1), cell("last-step", 3, 1), cell("stairs", 3, up=True)]
+        cells.extend(cell(f"hall-{x}", x, 2) for x in range(4))
+        foe = {"id": "foe", "name": "wraith", "position": cell("enemy", y=-3)["position"]}
+        turn = player_turn(cells, actors=[foe], hostiles=["foe"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        self.assertEqual(choose(player, turn), (Move(Direction.SOUTH), "retreat_to_stairs"))
+
     def test_stair_approach_can_gain_clearance_with_an_off_axis_step(self):
         cells = [cell(str(x), x, up=x == 3) for x in range(4)]
         cells.extend(cell(f"south-{x}", x, 1) for x in range(3))

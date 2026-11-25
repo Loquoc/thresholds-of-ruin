@@ -826,7 +826,7 @@ class Adventurer:
             avoid.update(cell.key for cell in turn.cells_of(foe))
         memory = self.maps[self.depth]
         exits.difference_update(avoid)
-        step = approach_visible_exit(turn, exits, avoid) or memory.toward(turn, exits, avoid=avoid)
+        step = approach_visible_exit(turn, memory, exits, avoid) or memory.toward(turn, exits, avoid=avoid)
         if step is None:
             return None
         # Opening a door spends the turn in the current cell.
