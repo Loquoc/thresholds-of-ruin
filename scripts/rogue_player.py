@@ -110,6 +110,14 @@ CONTROL_DEVICES = (
 HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
 
 
+def offered_item_use(turn: Turn, identity: str, use: ItemUse) -> UseItem | None:
+    """Use the first recognized copy for which the player has this action."""
+    for item in turn.inventory:
+        if item.identity == identity and use in item.uses:
+            return UseItem(item, use)
+    return None
+
+
 def choose_healing_potion(turn: Turn, *, lethal: bool) -> Item | None:
     """Prefer the larger healing roll when nearby enemies could kill the player."""
     doses = (item for item in turn.inventory if item.identity in HEALING_POTIONS and ItemUse.DRINK in item.uses)
@@ -606,9 +614,8 @@ class Adventurer:
                 return UseItem(meal, ItemUse.EAT), "eat"
 
         if lethal:
-            for item in turn.inventory:
-                if item.identity == "item.scroll.teleportation" and ItemUse.READ in item.uses:
-                    return UseItem(item, ItemUse.READ), "escape_pursuit"
+            if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):
+                return teleport, "escape_pursuit"
 
         if adjacent and (two_hit_threat or injured or surrounded):
             if zap := self.aim_combat_wand(turn, adjacent, {"item.wand.wand-teleport-away"}):
@@ -632,9 +639,8 @@ class Adventurer:
 
         if (approaching_group and health and not injured and not turn.has_condition("rogue.hasted")
                 and not turn.has_condition("rogue.haste_exhaustion")):
-            for item in turn.inventory:
-                if item.identity == "item.potion.haste" and ItemUse.DRINK in item.uses:
-                    return UseItem(item, ItemUse.DRINK), "combat_haste"
+            if haste := offered_item_use(turn, "item.potion.haste", ItemUse.DRINK):
+                return haste, "combat_haste"
 
         if (
             turn.hostiles
@@ -1028,9 +1034,8 @@ class Adventurer:
 
     def prepare(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.restorable_losses and turn.restorable_losses.strength:
-            for item in turn.inventory:
-                if item.identity == "item.potion.restore-strength" and ItemUse.DRINK in item.uses:
-                    return UseItem(item, ItemUse.DRINK), "restore_strength"
+            if restore := offered_item_use(turn, "item.potion.restore-strength", ItemUse.DRINK):
+                return restore, "restore_strength"
         if upgrade := choose_armor(turn) or choose_ring(turn):
             return upgrade
         if action := self.recovery_action(turn):
@@ -1270,9 +1275,8 @@ class Adventurer:
     def route_scroll(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[UseItem, str] | None:
         """When cut off from remembered upstairs, prefer a known teleport to a trial."""
         if returning and memory.stairs(Direction.UP):
-            for item in turn.inventory:
-                if item.identity == "item.scroll.teleportation" and ItemUse.READ in item.uses:
-                    return UseItem(item, ItemUse.READ), "find_return_route"
+            if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):
+                return teleport, "find_return_route"
         return self.scroll_trial(turn)
 
     def stalled(self, turn: Turn, previous: Result | None) -> tuple[Action | None, str]:

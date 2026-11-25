@@ -3580,12 +3580,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                   "quantity": 1, "class": "scroll", "identified": True}]
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=4)
         player.observe(player_turn([cell("lost-stair", up=True)]))
-        def picture(tiles):
-            offers = [{"item": name, "readable": True} for name in ("unknown", "scroll")]
+        def picture(tiles, readable=("unknown", "scroll")):
+            offers = [{"item": name, "readable": True} for name in readable]
             return player_turn(tiles, inventory=items, interactions={"inventory": offers})
         turn = picture([cell("here")])
         action, reason = choose(player, turn)
         self.assertEqual((action.item.target, reason), ("scroll", "find_return_route"))
+        action, reason = choose(player, picture([cell("here")], readable=("unknown",)))
+        self.assertEqual((action.item.target, reason), ("unknown", "test_unknown_magic"))
         self.assertEqual(choose(player, picture([cell("here"), cell("frontier", 1)])), (Move(Direction.EAST), "explore"))
 
     def test_partial_recovery_before_reentering_recent_danger_has_a_food_limit(self):
