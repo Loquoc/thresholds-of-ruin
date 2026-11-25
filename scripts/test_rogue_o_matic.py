@@ -3813,7 +3813,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(turn)
         player.maps[3].visited.add("stairs")
         self.assertEqual(player.choose(turn), (Move(Direction.EAST), "scout_for_food"))
+        player.last_exploration_origin = "frontier"
         player.admitted(turn, Move(Direction.WEST), reason="seek_stairs")
+        self.assertIsNone(player.last_exploration_origin)
         self.assertEqual(player.choose(turn), (Move(Direction.WEST), "seek_stairs"))
 
     def test_opening_a_door_on_the_stair_route_finishes_the_food_scout(self):

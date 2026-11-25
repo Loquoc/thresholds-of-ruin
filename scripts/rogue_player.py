@@ -404,25 +404,29 @@ class Adventurer:
 
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
-        if reason == MemoryReason.SEEK_STAIRS:
-            self.finish_food_scout()
-        if reason == MemoryReason.CANCEL_STALLED_SCROLL:
-            self.scroll_trials.interrupted(turn)
-        if reason == MemoryReason.CANCEL_STALLED_STAIR and self.pending_stair:
-            self.cancelled_stairs.add((self.pending_stair.origin, self.pending_stair.direction))
-            self.wait_after_cancel = True
-        elif reason == MemoryReason.WAIT_AFTER_CANCEL:
-            self.wait_after_cancel = False
-        if isinstance(action, Zap):
-            self.remember_zap(turn, action, reason)
-        if isinstance(action, Move):
-            self.remember_move(turn, action, receipt, reason)
-        if isinstance(action, UseItem):
-            self.remember_item_use(turn, action, receipt, reason)
-        if isinstance(action, UseAbility) and action.ability.identity == "rogue.search" and turn.cell:
-            self.remember_search(turn, turn.cell, receipt)
-        if isinstance(action, Shot):
-            self.last_shot_tick = turn.tick
+        """Record the policy decision and the admitted action, which can both change memory."""
+        match reason:
+            case MemoryReason.SEEK_STAIRS:
+                self.finish_food_scout()
+            case MemoryReason.CANCEL_STALLED_SCROLL:
+                self.scroll_trials.interrupted(turn)
+            case MemoryReason.CANCEL_STALLED_STAIR if self.pending_stair:
+                self.cancelled_stairs.add((self.pending_stair.origin, self.pending_stair.direction))
+                self.wait_after_cancel = True
+            case MemoryReason.WAIT_AFTER_CANCEL:
+                self.wait_after_cancel = False
+
+        match action:
+            case Zap():
+                self.remember_zap(turn, action, reason)
+            case Move():
+                self.remember_move(turn, action, receipt, reason)
+            case UseItem():
+                self.remember_item_use(turn, action, receipt, reason)
+            case UseAbility() if action.ability.identity == "rogue.search" and turn.cell:
+                self.remember_search(turn, turn.cell, receipt)
+            case Shot():
+                self.last_shot_tick = turn.tick
 
     def remember_item_use(self, turn: Turn, action: UseItem, receipt: Result | None, reason: str | None) -> None:
         item = action.item
