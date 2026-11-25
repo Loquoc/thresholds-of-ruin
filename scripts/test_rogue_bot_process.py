@@ -2537,7 +2537,10 @@ with ExitStack() as stack:
     def test_pinned_carrier_clears_the_upstairs_on_its_first_floor(self):
         self.pinned_melee("basic_melee", returning=True)
 
-    def pinned_melee(self, expected, *, returning=False):
+    def test_extended_player_pushes_from_its_outer_body_cell(self):
+        self.pinned_melee("dislocating_strike", extended=True)
+
+    def pinned_melee(self, expected, *, returning=False, extended=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -2556,9 +2559,16 @@ with ExitStack() as stack:
         manifest["stair_pairs"] = {"exit": {"upper": upper, "lower": lower}}
         region, = contents["regions"]
         width = 4 if expected == "dislocating_strike" else 3
-        region.update(size=[width, 1, 2], anchors={"start": [1, 0, 0], "guarded": [2, 0, 0]},
+        blocker_x = 3 if extended else 2
+        if extended:
+            character, = manifest["characters"]
+            character["body"] = {"cells": [[0, 0, 0], [0, 0, 1], [1, 0, 0]], "eye": [0, 0, 1], "mass": 80}
+            package = character["creature"]["body_package"]
+            manifest["creatures"]["body_packages"][package]["body"] = character["body"]
+            width += 1
+        region.update(size=[width, 1, 2], anchors={"start": [1, 0, 0], "guarded": [blocker_x, 0, 0]},
                       actors=[{"archetype": "rogue.hobgoblin", "id": i, "at": [x, 0, 0],
-                               "controller": "external", "turn_ticks": 1000000} for i, x in [(3, 0), (4, 2)]])
+                               "controller": "external", "turn_ticks": 1000000} for i, x in [(3, 0), (4, blocker_x)]])
         contents["regions"].append({"id": 2, "name": "Landing", "size": [3, 3, 2],
                                     "chamber": True, "anchors": {"landing": [1, 1, 0]}})
         if returning:
@@ -2593,12 +2603,13 @@ with ExitStack() as clients:
         at_goal.observed_loss[harder.target] = 3
         attack_at_goal, why = at_goal.choose(turn)
         assert why == "melee" and attack_at_goal.target == harder, (attack_at_goal, why)
-    exit_cell = turn.cell_at((1, 0, 0))
+    blocker_dx = max(x for x, _, _ in turn.body) + 1
+    exit_cell = turn.cell_at((blocker_dx, 0, 0))
     other = next(foe for foe in turn.hostiles if exit_cell not in turn.cells_of(foe))
     player.observed_loss[other.target] = 3
     player.unsafe_stairs[exit_cell.key, direction] = turn.tick + 1
     guarded_attack, why = player.choose(turn)
-    assert why == "melee" and guarded_attack.target == other, (guarded_attack, why)
+    assert why == "melee" and guarded_attack.target == other, (guarded_attack, why, turn.body, exit_cell, other, turn.hostiles)
     player.unsafe_stairs[exit_cell.key, direction] = turn.tick
     action, reason = player.choose(turn)
     assert (exit_cell.stairs_up if returning else exit_cell.stairs_down)
@@ -2613,8 +2624,9 @@ with ExitStack() as clients:
     incoming = east.observe().recent_combat.incoming
     assert any(hit.ability == action.ability.identity for hit in incoming), incoming
     if action.ability.identity == "dislocating_strike":
-        assert after.cell_at((1, 0, 0)).stairs_down
-        assert any((2, 0, 0) in foe.cells for foe in after.hostiles), after.hostiles
+        assert after.cell_at((blocker_dx, 0, 0)).stairs_down
+        assert any((blocker_dx + 1, 0, 0) in foe.cells for foe in after.hostiles), after.hostiles
+    if action.ability.identity == "dislocating_strike" and blocker_dx == 1:
         player.observe(after)
         step, reason = player.choose(after)
         assert (step, reason) == (Move(Direction.EAST), "retreat_to_stairs"), (step, reason)

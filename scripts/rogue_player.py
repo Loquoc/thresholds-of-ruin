@@ -703,8 +703,16 @@ class Adventurer:
     @staticmethod
     def has_push_space(turn: Turn, foe: Creature) -> bool:
         """Look for a clear landing directly behind a single column of body cells."""
-        dx, dy, _ = foe.cells[0]
-        if abs(dx) + abs(dy) != 1 or any((x, y) != (dx, dy) for x, y, _ in foe.cells):
+        columns = {(x, y) for x, y, _ in foe.cells}
+        if len(columns) != 1:
+            return False
+        contacts = {(x - sx, y - sy, z - sz)
+                    for sx, sy, sz in turn.body for x, y, z in foe.cells
+                    if abs(x - sx) + abs(y - sy) + abs(z - sz) == 1}
+        if len(contacts) != 1:
+            return False
+        dx, dy, dz = contacts.pop()
+        if dz:
             return False
         occupied = {offset for creature in turn.creatures for offset in creature.cells}
         for x, y, z in foe.cells:

@@ -82,6 +82,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, _ = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.ability.identity, action.target.name), (expected, "orc"))
 
+    def test_dislocating_strike_uses_contact_from_the_players_outer_body_cell(self):
+        tiles = [cell(str(x), x, down=x == 2) for x in range(-1, 4)]
+        actors = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+                  for name, x in (("player", 1), ("orc", 2), ("emu", -1))]
+        abilities = [{"id": name, "name": name, "basic_attack": name == "basic_melee", "cost": None,
+                      "cooldown_remaining": 0, "target_kind": "actor", "reach": {"kind": "melee"}}
+                     for name in ("basic_melee", "dislocating_strike")]
+        for occupied in (False, True):
+            with self.subTest(occupied=occupied):
+                bystander = [{"id": "ally", "name": "ally", "position": tiles[-1]["position"]}] if occupied else []
+                turn = player_turn(tiles, actors=[*actors, *bystander], hostiles=["orc", "emu"], abilities=abilities)
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((reason, action.target.target), ("melee", "orc"))
+                self.assertEqual(action.ability.identity, "basic_melee" if occupied else "dislocating_strike")
+
     def test_drinks_known_haste_before_a_group_closes_and_avoids_a_second_dose(self):
         potion = {"id": "dose", "name": "potion of haste", "identity": "item.potion.haste",
                   "quantity": 2, "identified": True, "class": "potion"}
