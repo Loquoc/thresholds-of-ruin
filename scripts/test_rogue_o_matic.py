@@ -419,6 +419,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(picture(0, 0, []))
                 self.assertEqual(choose(player, picture(100, strength, [hit]))[1], expected)
 
+    def test_unseen_cast_by_a_disclosed_hostile_keeps_the_bot_moving_after_contact_is_lost(self):
+        tiles = [cell("stairs", down=True), cell("west", -1), cell("east", 1)]
+        caster = {"id": "caster", "name": "phantom", "position": tiles[2]["position"]}
+        event = {"type": "unseen_ability", "caster": "caster", "target": "player", "outcome": "unaffected"}
+        for hostiles, expected in ((["caster"], "evade_unseen_attack"), ([], "descend")):
+            with self.subTest(hostiles=hostiles):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(player_turn(tiles, actors=[caster], hostiles=hostiles,
+                                           tick=100, combat={"events": [event]}))
+                self.assertEqual(choose(player, player_turn(tiles, tick=101))[1], expected)
+
     def test_unseen_attack_prefers_a_clear_step_and_can_escape_through_the_only_trap(self):
         pit = {"id": "pit", "family": None, "reachable": True}
         east = {**cell("east", 1), "trap": pit}

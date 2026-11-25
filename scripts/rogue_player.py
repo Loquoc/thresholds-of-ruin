@@ -44,7 +44,7 @@ from tor_client_bot import (
     Zap,
 )
 
-from rogue_combat import includes_self_damage, sole_applied_attacker
+from rogue_combat import includes_self_damage, sole_applied_attacker, witnessed_unseen_attack
 from rogue_loot import (
     DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
 )
@@ -311,14 +311,7 @@ class Adventurer:
         if not turn.hostiles:
             self.scroll_trials.tried_in_encounter = False
             self.last_retreat_origin = None
-        if here and any(
-            event.unseen
-            and (
-                event.outcome is AbilityOutcome.MISS
-                or (event.outcome is AbilityOutcome.APPLIED and injured_this_turn)
-            )
-            for event in incoming
-        ):
+        if here and witnessed_unseen_attack(incoming, turn.hostiles, injured=injured_this_turn):
             self.last_unseen_attack = here.key, turn.tick
 
     def observe_polymorph_resistance(self, outgoing: tuple[OutgoingAbility, ...]) -> None:
