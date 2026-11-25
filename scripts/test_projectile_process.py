@@ -563,9 +563,17 @@ class ProjectileProcesses(ProcessTestCase):
             after = self.settle_weapon_shortcut(incoming)
             self.assertEqual(self.sockets(after)[incoming], 0)
             self.assertIsNone(self.sockets(after)[outgoing])
+            # The observer can see Equip finish before the ASCII window has
+            # reconciled its picture and can accept another key.
+            self.ascii_frame(window, lambda f: (
+                not f["busy"] and f["observation_current"] and f["character_ready"]
+                and f["can_admit_intention"] and not f["intentions"]
+                and self.sockets(f).get(incoming) == 0
+            ))
             inventory = self.key(window, "inventory")
-            self.assertTrue(any(next_name in row and "secondary weapon" in row
-                                for row in inventory["inventory_rows"]))
+            rows = inventory["inventory_rows"]
+            self.assertIsNotNone(rows, "the ready client must open the inventory")
+            self.assertTrue(any(next_name in row and "secondary weapon" in row for row in rows))
             self.key(window, "escape")
 
     def test_ascii_secondary_weapon_stays_designated_when_swap_is_blocked(self):

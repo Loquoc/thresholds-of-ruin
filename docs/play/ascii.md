@@ -236,9 +236,9 @@ the same server authority checks. Tab completes a unique command-name prefix.
 Enter confirms the command. Opening, completing or cancelling the editor costs no turn.
 
 Unsupported NetHack mechanics are not bound to unrelated actions: force-fighting
-an empty square, automatic pickup, weapon swapping, two-weapon toggling, kicking,
+an empty square, automatic pickup, two-weapon mode, kicking,
 and count-prefixed repeated commands are not added by this layout. In particular,
-`@`, `x`, and `X` do not toggle any of those mechanics. `a` applies only portable
+`@` and `X` do not toggle any of those mechanics. `a` applies only portable
 lights; it does not break a wand or invent other tool uses. `Z` lists all disclosed
 non-basic abilities, not a client-inferred spell list. Search, Throw and Launch
 shortcuts require unambiguous current grants of the appropriate target kind.
