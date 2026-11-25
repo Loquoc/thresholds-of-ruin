@@ -814,7 +814,6 @@ class Adventurer:
         )
         if not (dangerous or self.recovering_from_pursuit):
             return None
-        avoid = {self.last_retreat_origin} if self.last_retreat_origin is not None else set()
         exits = self.safe_stairs(turn, Direction.UP)
         if turn.cell and turn.cell.key in exits:
             return Move(Direction.UP), MemoryReason.RETREAT_UPSTAIRS
@@ -822,10 +821,15 @@ class Adventurer:
             if turn.cell and turn.cell.key in downstairs:
                 return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
             exits.update(downstairs)
-        for foe in turn.hostiles:
-            avoid.update(cell.key for cell in turn.cells_of(foe))
+        return self.route_to_retreat_stairs(turn, exits)
+
+    def route_to_retreat_stairs(self, turn: Turn, exits: set[str]) -> tuple[Action, str] | None:
+        """Choose a stair approach while accounting for pursuit and immediate melee risk."""
+        avoid = {cell.key for foe in turn.hostiles for cell in turn.cells_of(foe)}
+        if self.last_retreat_origin is not None:
+            avoid.add(self.last_retreat_origin)
+        exits = exits - avoid
         memory = self.maps[self.depth]
-        exits.difference_update(avoid)
         step = approach_visible_exit(turn, memory, exits, avoid) or memory.toward(turn, exits, avoid=avoid)
         if step is None:
             return None
