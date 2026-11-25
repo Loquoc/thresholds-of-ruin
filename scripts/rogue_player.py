@@ -45,7 +45,9 @@ from tor_client_bot import (
 
 from rogue_loot import DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, route_to_loot, useful_loot
 from rogue_training import purchase_training
-from rogue_retreat import approach_visible_exit, evade_unseen_attacker, route_around_danger, take_corridor
+from rogue_retreat import (
+    approach_visible_exit, best_onward_escape, evade_unseen_attacker, route_around_danger, take_corridor,
+)
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     estimate_round_trip_ticks,
@@ -917,33 +919,17 @@ class Adventurer:
         if best < current:
             return None
         candidates = [direction for score, direction in choices if score == best]
-        if best > current and len(candidates) > 1:
-            # Each candidate already improves safety. Prefer one that avoids a disclosed trap.
-            clear = [direction for direction in candidates if turn.cell_at(direction.offset).trap is None]
-            candidates = clear or candidates
         immediate_retreat = best > current
-        if immediate_retreat and len(candidates) == 1:
-            return Move(candidates[0]), MemoryReason.RETREAT
+        if immediate_retreat:
+            if len(candidates) > 1:
+                clear = [direction for direction in candidates if turn.cell_at(direction.offset).trap is None]
+                candidates = clear or candidates
+            if len(candidates) == 1:
+                return Move(candidates[0]), MemoryReason.RETREAT
 
-        # Among equally safe first steps, prefer one with a safe onward move.
-        best_onward = None
-        onward_direction = None
-        for direction in candidates:
-            cell = turn.cell_at(direction.offset)
-            for second in turn.walkable_from(cell):
-                offset = tuple(a + b for a, b in zip(direction.offset, second.offset))
-                if offset == (0, 0, 0):
-                    continue
-                after = safety(offset)
-                if after < best or after <= current:
-                    continue
-                # Compare trap exposure only when both routes offer the same protection from foes.
-                rank = after, cell.trap is None, turn.cell_at(offset).trap is None
-                if best_onward is None or rank > best_onward:
-                    onward_direction, best_onward = direction, rank
-        if onward_direction is not None:
+        if onward := best_onward_escape(turn, candidates, safety):
             reason = MemoryReason.RETREAT if immediate_retreat else MemoryReason.BREAK_CONTACT
-            return Move(onward_direction), reason
+            return Move(onward), reason
         if immediate_retreat:
             return Move(candidates[0]), MemoryReason.RETREAT
         return None

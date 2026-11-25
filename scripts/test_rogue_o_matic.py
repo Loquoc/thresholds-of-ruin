@@ -4641,6 +4641,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn([cell("here"), cell("passage", -1)])
         self.assertIsNone(Adventurer.evade(turn))
 
+    def test_level_first_step_requires_an_improving_continuation(self):
+        foe = {"id": "hunter", "name": "hunter", "position": cell("foe", 0, 1)["position"]}
+        cells = [cell("here"), cell("west", -1), cell("foe", 0, 1), cell("corner", -1, 1)]
+        # The open corner keeps the hunter in contact after a step west.
+        for onward in (False, True):
+            with self.subTest(onward=onward):
+                visible = cells + ([cell("exit", -2)] if onward else [])
+                turn = player_turn(visible, actors=[foe], hostiles=["hunter"])
+                expected = (Move(Direction.WEST), "break_contact") if onward else None
+                self.assertEqual(Adventurer.evade(turn), expected)
+
     def test_starts_a_two_step_escape_when_every_first_step_is_still_in_reach(self):
         foe = {"id": "foe", "name": "vampire", "position": {"x": 0, "y": 1, "z": 0}}
         southwest = cell("southwest", -1)

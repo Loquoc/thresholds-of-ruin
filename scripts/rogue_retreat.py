@@ -1,6 +1,6 @@
 """Choose retreat steps from visible terrain and pursuer positions."""
 
-from collections.abc import Set
+from collections.abc import Callable, Set
 
 from tor_client_bot import Action, Creature, Direction, FloorMap, Move, Turn
 
@@ -27,6 +27,32 @@ def evade_unseen_attacker(turn: Turn, attack_origin: str) -> Move | None:
             best_rank = rank
             step = Move(direction)
     return step
+
+
+def best_onward_escape(
+    turn: Turn,
+    first_steps: list[Direction],
+    safety: Callable[[tuple[int, int, int]], tuple[int, int]],
+) -> Direction | None:
+    """Choose a first step whose continuation improves on the starting square."""
+    origin = (0, 0, 0)
+    starting_safety = safety(origin)
+    best_rank = None
+    best_direction = None
+    for direction in first_steps:
+        cell = turn.cell_at(direction.offset)
+        first_safety = safety(direction.offset)
+        for second in turn.walkable_from(cell):
+            destination = tuple(a + b for a, b in zip(direction.offset, second.offset))
+            if destination == origin:
+                continue
+            onward_safety = safety(destination)
+            if onward_safety < first_safety or onward_safety <= starting_safety:
+                continue
+            rank = onward_safety, cell.trap is None, turn.cell_at(destination).trap is None
+            if best_rank is None or rank > best_rank:
+                best_direction, best_rank = direction, rank
+    return best_direction
 
 
 def _flanked_by_walls(turn: Turn, x: int, y: int, direction: Direction) -> bool:
