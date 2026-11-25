@@ -272,17 +272,9 @@ class Adventurer:
             self.entered_floor_at = turn.tick
         self.observe_meal(turn)
         self.observe_combat(turn, turn.recent_combat if combat is None else combat)
+        self.observe_stair(turn)
         if self.pending_stair:
-            attempt = self.pending_stair
-            if here is None or not turn.can_act:
-                return
-            arrived = turn.stair_arrival(attempt)
-            if arrived is None:
-                return
-            if arrived:
-                self.record_stair_arrival(turn, attempt, attempt.landing or here.key)
-            self.pending_stair = None
-            self.stair_pursuers = ()
+            return
         scout = self.food_scouts.get(self.depth)
         if scout is not None and scout.finished(turn):
             self.finish_food_scout()
@@ -379,8 +371,20 @@ class Adventurer:
         if self.entered_floor_at is not None:
             self.descent_ticks_by_floor.setdefault(floor, arrival_tick - self.entered_floor_at)
 
+    def observe_stair(self, turn: Turn) -> None:
+        """Resolve a pending stair from a ready or terminal picture with landing evidence."""
+        attempt = self.pending_stair
+        if attempt is None or turn.cell is None or not (turn.can_act or turn.terminal):
+            return
+        arrived = turn.stair_arrival(attempt)
+        if arrived is None:
+            return
+        if arrived:
+            self.record_stair_arrival(turn, attempt, attempt.landing or turn.cell.key)
+        self.pending_stair = None
+        self.stair_pursuers = ()
+
     def record_stair_arrival(self, turn: Turn, attempt: StairAttempt, landing: str) -> None:
-        # Combat on the arrival picture has already been observed.
         if self.last_unseen_attack and turn.cell and self.last_unseen_attack[0] != turn.cell.key:
             self.last_unseen_attack = None
         if self.stair_pursuers:

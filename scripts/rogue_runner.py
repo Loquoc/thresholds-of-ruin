@@ -88,6 +88,8 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
         previous = decision.previous
         acquired |= player.carrying_objective(turn)
         if turn.terminal:
+            player.observe_stair(turn)
+            deepest = max(deepest, player.depth)
             events = combat.records()
             reason = "terminal"
             if turn.victorious:

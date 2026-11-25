@@ -2625,6 +2625,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(landing, move, result)
         self.assertEqual(player.stalled(blocked, result), (None, "readiness_timeout"))
 
+    def test_terminal_depth_counts_only_a_witnessed_final_descent(self):
+        from unittest.mock import Mock
+        from rogue_runner import play
+        from tor_client_bot import Outcome, Result, Session
+
+        for final_cells, depth in (([cell("landing", up=True)], 2), ([cell("origin", down=True)], 1), ([], 1)):
+            with self.subTest(final_cells=final_cells):
+                origin = player_turn([cell("origin", down=True)])
+                origin.submit = Mock(return_value=Result(Outcome.CONFIRMED, None, None))
+                end = player_turn(final_cells, tick=100, combat={"terminal": True, "victory": False, "dead": True})
+                session = Session(Mock())
+                session.wait_for_decision = Mock(side_effect=[origin, end])
+                report = play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 1, Mock())
+                origin.submit.assert_called_once_with(Move(Direction.DOWN))
+                self.assertEqual((report["max_depth"], report["actions"]), (depth, 1))
+
     def test_victory_on_last_budgeted_action_is_reported(self):
         from unittest.mock import Mock
         from rogue_player import play
