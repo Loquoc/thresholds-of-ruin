@@ -1599,6 +1599,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             query.assert_not_called()
 
     def test_prefers_a_short_range_shot_when_two_hostiles_are_in_range(self):
+        from dataclasses import replace
         from unittest.mock import Mock
         from tor_client_bot import ProjectileRange, Shot
 
@@ -1616,8 +1617,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 shots = {foe.target: Shot(turn.abilities[0], foe, foe.cells[0], dart, launcher, 0,
                                           range=ProjectileRange(2, 4)) for foe in turn.hostiles}
                 near_shot, far_shot = shots["near"], shots["far"]
+                longer_range = replace(far_shot, range=ProjectileRange(4, 8))
                 for offers, expected in (([far_shot, near_shot], near_shot), ([near_shot, far_shot], near_shot),
-                                         ([far_shot], far_shot)):
+                                         ([far_shot], far_shot), ([longer_range, near_shot], longer_range),
+                                         ([near_shot, longer_range], near_shot)):
                     turn.ranged_attacks = Mock(return_value=iter(offers))
                     self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), (expected, reason))
 

@@ -44,7 +44,7 @@ from tor_client_bot import (
     Zap,
 )
 
-from rogue_combat import includes_self_damage, sole_applied_attacker, witnessed_unseen_attack
+from rogue_combat import choose_projectile, includes_self_damage, sole_applied_attacker, witnessed_unseen_attack
 from rogue_loot import (
     DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
 )
@@ -130,26 +130,6 @@ def recovery_deficit(health: Health) -> int:
     """Hit points needed to reach four fifths of maximum health, rounded up."""
     target = (4 * health.maximum + 4) // 5
     return max(0, target - health.current)
-
-
-def choose_projectile(shots: Iterable[Shot], *, can_strike: bool) -> Shot | None:
-    """Prefer launched shots, then short range, preserving offer order on ties."""
-    best_shot = None
-    best_rank = None
-    for shot in shots:
-        if not shot.target.hostile:
-            continue
-        distance = max(map(abs, shot.offset))
-        launched = shot.launcher is not None
-        if not launched and (can_strike or shot.equipped_throw or distance > 4):
-            continue
-        in_normal_range = shot.range is None or distance <= shot.range.short_cells
-        if launched and in_normal_range:
-            return shot
-        rank = launched, in_normal_range
-        if best_rank is None or rank > best_rank:
-            best_shot, best_rank = shot, rank
-    return best_shot
 
 
 @dataclass
