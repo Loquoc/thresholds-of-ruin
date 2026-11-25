@@ -70,6 +70,17 @@ class BotApiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             memory.stairs(Direction.EAST)
 
+    def test_reachable_can_leave_an_excluded_origin_but_cannot_cross_an_excluded_passage(self):
+        cells = [{"key": str(x), "position": {"x": x, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False} for x in range(4)]
+        memory = FloorMap()
+        memory.observe(Turn({"readiness": {}, "state": {"observation": {
+            "visible_cells": cells, "ground_items": [], "interactions": {},
+        }}}))
+        route = memory.reachable("0", avoid={"0", "2"})
+        self.assertEqual([(cell.key, steps) for cell, steps in route], [("0", 0), ("1", 1)])
+        self.assertEqual(memory.distance("0", {"3"}), 3)
+
     def test_item_search_finds_matches_anywhere_in_a_remembered_pile(self):
         from tor_client_bot.navigation import RememberedItem
 

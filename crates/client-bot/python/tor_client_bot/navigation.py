@@ -127,11 +127,11 @@ class FloorMap:
             return False
         return sum(self.cells[neighbor].wall for neighbor in sides.values()) == 3
 
-    def reachable(self, start: str) -> Iterator[tuple[RememberedCell, int]]:
-        """Traverse known floor cells in order of distance, ignoring transient occupants."""
+    def reachable(self, start: str, *, avoid: Set[str] = frozenset()) -> Iterator[tuple[RememberedCell, int]]:
+        """Traverse known floor from start by distance, without entering any excluded cell."""
         if start not in self.cells or self.cells[start].wall:
             return
-        seen = {start}
+        seen = {start, *avoid}
         queue = deque([(start, 0)])
         while queue:
             key, distance = queue.popleft()

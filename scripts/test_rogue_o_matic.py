@@ -4218,6 +4218,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
 
+    def test_stair_retreat_prefers_an_open_exit_over_a_shorter_route_through_a_pursuer(self):
+        cells = [cell(str(x), x, up=x in (-4, 3)) for x in range(-4, 4)]
+        foe = {"id": "foe", "name": "wraith", "position": cell("enemy", 2)["position"]}
+        turn = player_turn(cells, actors=[foe], hostiles=["foe"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
+
     def test_stair_retreat_counts_diagonal_moves_when_choosing_an_exit(self):
         cells = [cell("west-exit", -3, up=True), cell("west-hall", -2), cell("west", -1)]
         cells.extend(cell(f"{x},{y}", x, y, up=(x, y) == (2, 2)) for x in range(3) for y in range(3))
