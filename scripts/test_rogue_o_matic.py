@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 # The public policy and model can be tested from source without loading the native extension.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "crates/client-bot/python"))
+from rogue_combat import choose_melee_attack, has_push_space
 from rogue_food import FoodScout, FoodScoutHistory
 from rogue_player import Adventurer
 from tor_client_bot import Direction, Move, Pickup, Turn, UseAbility, Wait
@@ -83,6 +84,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, _ = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.ability.identity, action.target.name), (expected, "orc"))
 
+    def test_melee_uses_rattling_blow_to_finish_a_target_even_when_a_push_is_available(self):
+        cells = [cell("here"), cell("enemy", 1), cell("landing", 2)]
+        foe = {"id": "orc", "name": "orc", "position": cells[1]["position"]}
+        abilities = [{"id": name, "name": name, "basic_attack": False, "target_kind": "actor", "reach": {"kind": "melee"},
+                      "cost": None, "cooldown_remaining": 0} for name in ("rattling_blow", "dislocating_strike")]
+        turn = player_turn(cells, actors=[foe], abilities=abilities,
+                           combat={"actors": [{"actor": "orc", "hostile": True, "injury": "near_death"}]})
+        attack = choose_melee_attack(turn, turn.hostiles, make_space=True)
+        self.assertEqual(attack.ability.identity, "rattling_blow")
+
     def test_dislocating_strike_uses_contact_from_the_players_outer_body_cell(self):
         tiles = [cell(str(x), x, down=x == 2) for x in range(-1, 4)]
         actors = [{"id": name, "name": name, "position": cell(name, x)["position"]}
@@ -104,7 +115,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(landing=landing):
                 turn = player_turn([cell("here"), cell("near", 1), cell("far", 2), *landing],
                                    actors=actors, hostiles=["orc"])
-                self.assertEqual(Adventurer.has_push_space(turn, turn.hostiles[0]), clear)
+                self.assertEqual(has_push_space(turn, turn.hostiles[0]), clear)
 
     def test_push_requires_an_open_door_under_every_landing_cell(self):
         actors = [{"id": "orc", "name": "orc", "position": cell("orc", 1, y)["position"]} for y in (0, 1)]
@@ -113,7 +124,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 door = {**cell("gate", 2, 1), "door": {"id": "gate", "open": opened, "reachable": False}}
                 turn = player_turn([cell("here"), cell("near", 1), cell("side", 1, 1), cell("open", 2), door],
                                    actors=actors, hostiles=["orc"])
-                self.assertEqual(Adventurer.has_push_space(turn, turn.hostiles[0]), opened)
+                self.assertEqual(has_push_space(turn, turn.hostiles[0]), opened)
 
     def test_push_requires_one_horizontal_direction_from_all_face_contacts(self):
         def actor(name, x, y, z):
@@ -130,7 +141,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(body=body, target=target):
                 actors = [actor("player", *offset) for offset in body] + [actor("orc", *offset) for offset in target]
                 turn = player_turn(tiles, actors=actors, hostiles=["orc"])
-                self.assertEqual(Adventurer.has_push_space(turn, turn.hostiles[0]), expected)
+                self.assertEqual(has_push_space(turn, turn.hostiles[0]), expected)
 
     def test_drinks_known_haste_before_a_group_closes_and_avoids_a_second_dose(self):
         potion = {"id": "dose", "name": "potion of haste", "identity": "item.potion.haste",

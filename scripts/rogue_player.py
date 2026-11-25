@@ -40,7 +40,7 @@ from tor_client_bot import (
 )
 
 from rogue_combat import (
-    choose_projectile, has_push_space, includes_self_damage, recovery_deficit,
+    choose_melee_attack, choose_projectile, includes_self_damage, recovery_deficit,
     MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
@@ -537,15 +537,8 @@ class Adventurer:
                 damage_from_this_foe=self.opponents.damage_by_target[foe.target],
             )
 
-        for foe in sorted(turn.hostiles, key=attack_order, reverse=True):
-            if make_space and foe.injury is not Injury.NEAR_DEATH:
-                push = turn.attack(foe, technique="dislocating_strike")
-                if push and self.has_push_space(turn, foe):
-                    return push
-            attack = turn.attack(foe, technique="rattling_blow") or turn.attack(foe)
-            if attack:
-                return attack
-        return None
+        targets = sorted(turn.hostiles, key=attack_order, reverse=True)
+        return choose_melee_attack(turn, targets, make_space=make_space)
 
     def respond_to_unseen_attack(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.hostiles or self.last_unseen_attack is None:
@@ -562,8 +555,6 @@ class Adventurer:
         if step := evade_unseen_attacker(turn, origin, self.maps.get(self.depth)):
             return step, "evade_unseen_attack"
         return None
-
-    has_push_space = staticmethod(has_push_space)
 
     def aim_combat_wand(self, turn: Turn, foes: Iterable[Creature], identities: set[str],
                         *, reflected_ray_range: int | None = None) -> Zap | None:

@@ -9,7 +9,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tor_client_bot import Creature, Device, Health, IncomingAbility, OutgoingAbility, Shot, Turn
+    from tor_client_bot import Creature, Device, Health, IncomingAbility, OutgoingAbility, Shot, Turn, UseAbility
 
 
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
@@ -215,6 +215,21 @@ def has_push_space(turn: Turn, foe: Creature) -> bool:
     if not landing.isdisjoint(turn.body):
         return False
     return all(landing.isdisjoint(creature.cells) for creature in turn.creatures if creature.target != foe.target)
+
+
+def choose_melee_attack(turn: Turn, targets: Iterable[Creature], *, make_space: bool) -> UseAbility | None:
+    """Try each target in priority order, using a push only when it can create space."""
+    from tor_client_bot import Injury
+
+    for foe in targets:
+        if make_space and foe.injury is not Injury.NEAR_DEATH:
+            push = turn.attack(foe, technique="dislocating_strike")
+            if push and has_push_space(turn, foe):
+                return push
+        attack = turn.attack(foe, technique="rattling_blow") or turn.attack(foe)
+        if attack:
+            return attack
+    return None
 
 
 def choose_projectile(shots: Iterable[Shot]) -> Shot | None:
