@@ -379,10 +379,13 @@ class Adventurer:
     def survival_consumable(self, turn: Turn, exposure: MeleeExposure) -> tuple[UseItem, str] | None:
         """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
         health = turn.health
-        injured_and_blind = health is not None and health.current < health.maximum and turn.has_condition("rogue.blindness")
-        if injured_and_blind or exposure.needs_healing(health):
+        injured = health is not None and health.current < health.maximum
+        if exposure.needs_healing(health) or (injured and turn.has_condition("rogue.blindness")):
             if potion := choose_healing_potion(turn, two_hit_threat=exposure.threatens(health, rounds=2)):
                 return UseItem(potion, ItemUse.DRINK), "heal"
+        elif injured and turn.has_condition("rogue.hallucinating"):
+            if extra := offered_item_use(turn, "item.potion.extra-healing", ItemUse.DRINK):
+                return extra, "heal"
 
         if exposure.threatens(health, rounds=1):
             if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):

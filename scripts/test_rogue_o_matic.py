@@ -4157,6 +4157,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 if expected:
                     self.assertEqual(action.item.identity, "item.potion.healing")
 
+    def test_minor_injury_and_hallucination_require_a_dose_that_can_treat_both(self):
+        doses = healing_potions()
+        hallucination = {"condition": {"id": "rogue.hallucinating", "name": "Hallucinating"},
+                         "phase": "active", "remaining_ticks": 100}
+        for hp, extra_offered, should_heal in ((8, True, True), (8, False, False), (10, True, False)):
+            with self.subTest(hp=hp, extra_offered=extra_offered):
+                offers = [{"item": "healing", "drinkable": True}, {"item": "extra-healing", "drinkable": extra_offered}]
+                turn = player_turn([cell("here", down=True)], inventory=doses, combat={"hp": hp, "max_hp": 10},
+                                   stats={"conditions": [hallucination]}, interactions={"inventory": offers})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason == "heal", should_heal)
+                if should_heal:
+                    self.assertEqual(action.item.identity, "item.potion.extra-healing")
+
     def test_healing_while_hallucinating_prefers_a_dose_that_also_cures_the_condition(self):
         condition = {"condition": {"id": "rogue.hallucinating", "name": "Hallucinating"},
                      "phase": "active"}

@@ -3321,6 +3321,12 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
 """)
 
     def test_injured_bot_cures_hallucination_with_extra_healing(self):
+        self.check_hallucination_healing(minor_injury=False)
+
+    def test_bot_cures_hallucination_while_healing_a_minor_injury(self):
+        self.check_hallucination_healing(minor_injury=True)
+
+    def check_hallucination_healing(self, *, minor_injury):
         from utility_potions_package import fixture
 
         contents = fixture()
@@ -3333,7 +3339,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         character["known_identities"].extend((injury, "item.potion.healing", "item.potion.extra-healing",
                                               "item.potion.hallucination"))
         contents["regions"][0]["actors"] = []
-        code = """
+        code = f"""
 import os
 from rogue_player import Adventurer
 from tor_client_bot import ItemUse, Outcome, Session, UseItem
@@ -3344,13 +3350,16 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
         return player.wait_for_decision()
 
-    turn = player.wait_for_decision()
-    while turn.health.current * 2 >= turn.health.maximum:
+    turn = drink(player.wait_for_decision(), "item.potion.fixture.injury")
+    while not {minor_injury} and turn.health.current * 2 >= turn.health.maximum:
         turn = drink(turn, "item.potion.fixture.injury")
     policy = Adventurer(26, "item.amulet.amulet-of-yendor")
     policy.observe(turn)
     action, reason = policy.choose(turn)
-    assert reason == "heal" and action.item.identity == "item.potion.healing", (action, reason)
+    if {minor_injury}:
+        assert turn.health.current < turn.health.maximum <= turn.health.current * 2 and reason != "heal"
+    else:
+        assert reason == "heal" and action.item.identity == "item.potion.healing", (action, reason)
     turn = drink(turn, "item.potion.hallucination")
     assert turn.has_condition("rogue.hallucinating") and not turn.hostiles
     assert any(item.identity == "item.potion.healing" and ItemUse.DRINK in item.uses for item in turn.inventory)
