@@ -20,7 +20,6 @@ from tor_client_bot import (
     Escape,
     FloorMap,
     GroundItem,
-    Health,
     Injury,
     Item,
     ItemUse,
@@ -39,7 +38,7 @@ from tor_client_bot import (
 )
 
 from rogue_combat import (
-    choose_melee_attack, choose_projectile, includes_self_damage, recovery_deficit,
+    below_half_health, choose_melee_attack, choose_projectile, includes_self_damage, recovery_deficit,
     MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
@@ -110,10 +109,6 @@ def choose_healing_potion(turn: Turn, *, two_hit_threat: bool) -> Item | None:
     else:
         preferred = "item.potion.healing"
     return max(doses, key=lambda item: item.identity == preferred, default=None)
-
-
-def below_half_health(health: Health | None) -> bool:
-    return health is not None and health.current * 2 < health.maximum
 
 
 class MeleeRank(NamedTuple):
@@ -395,14 +390,11 @@ class Adventurer:
     def survival_consumable(self, turn: Turn, exposure: MeleeExposure) -> tuple[UseItem, str] | None:
         """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
         health = turn.health
-        lethal = exposure.threatens(health, rounds=1)
-        heal_while_surrounded = (len(exposure.foes) >= 2 and health is not None
-                                 and health.current * 4 < health.maximum * 3)
-        if below_half_health(health) or lethal or heal_while_surrounded:
+        if exposure.needs_healing(health):
             if potion := choose_healing_potion(turn, two_hit_threat=exposure.threatens(health, rounds=2)):
                 return UseItem(potion, ItemUse.DRINK), "heal"
 
-        if lethal:
+        if exposure.threatens(health, rounds=1):
             if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):
                 return teleport, "escape_pursuit"
         elif turn.hostiles and turn.hunger in URGENT_HUNGER:

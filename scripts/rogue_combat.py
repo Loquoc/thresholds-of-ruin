@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
 
 
+def below_half_health(health: Health | None) -> bool:
+    return health is not None and health.current * 2 < health.maximum
+
+
 def recovery_deficit(health: Health) -> int:
     """Hit points needed to reach four fifths of maximum health, rounded up."""
     target = (4 * health.maximum + 4) // 5
@@ -110,6 +114,14 @@ class MeleeExposure:
 
     def threatens(self, health: Health | None, *, rounds: int) -> bool:
         return health is not None and self.damage * rounds >= health.current
+
+    def needs_healing(self, health: Health | None) -> bool:
+        """Heal below half health, below three quarters when surrounded, or before a predicted lethal hit."""
+        if health is None:
+            return False
+        surrounded = len(self.foes) >= 2
+        return (below_half_health(health) or self.threatens(health, rounds=1)
+                or (surrounded and health.current * 4 < health.maximum * 3))
 
 
 @dataclass
