@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
+from rogue_activity import receipt_history_expired
 from tor_client_bot import ActivityPhase, Cell, FloorMap, RememberedCell, Result, Turn
 
 
@@ -76,7 +77,7 @@ class SearchHistory:
                 self.completed_end_searches[search.origin] += 1
         elif phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
             self.unsuccessful_searches[search.origin] += 1
-        elif phase is not None or not turn.can_act or turn.tick <= search.submitted_at:
+        elif not receipt_history_expired(turn, phase, search.submitted_at):
             return
         # A later ready picture without the receipt leaves the outcome unknown.
         self.pending_search = None

@@ -4,6 +4,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from statistics import median_low
 
+from rogue_activity import receipt_history_expired
 from tor_client_bot import ActivityPhase, Direction, FloorMap, Item, ItemUse, Nutrition, Result, StairAttempt, Turn
 
 
@@ -82,7 +83,7 @@ class MealHistory:
         if meal.receipt and meal.receipt.activity:
             if not meal.resolved:
                 phase = turn.outcome_of(meal.receipt)
-                history_expired = phase is None and turn.can_act and turn.tick > meal.submitted_at
+                history_expired = receipt_history_expired(turn, phase, meal.submitted_at)
                 if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED) or history_expired:
                     self.pending = None
                     return

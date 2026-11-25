@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+from rogue_activity import receipt_history_expired
 from tor_client_bot import ActivityPhase, Device, DeviceActivation, Item, ItemUse, Result, Turn
 
 
@@ -14,13 +15,6 @@ def stack_was_reduced(turn: Turn, original: Item) -> bool:
     """A missing or smaller stack is evidence of consumption after an interrupted trial."""
     remaining = next((item.quantity for item in turn.inventory if item.target == original.target), 0)
     return remaining < original.quantity
-
-
-def resolved_or_history_expired(turn: Turn, phase: ActivityPhase | None, submitted_at: int | None) -> bool:
-    """Release a trial on resolution or when a later ready turn has lost its history."""
-    return phase is ActivityPhase.RESOLVED or (
-        phase is None and submitted_at is not None and turn.tick > submitted_at and turn.can_act
-    )
 
 
 @dataclass(frozen=True)
@@ -60,7 +54,7 @@ class PotionTrials:
         if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
             if stack_was_reduced(turn, potion):
                 self.sampled.add(trial_appearance(potion))
-        elif resolved_or_history_expired(turn, phase, self.submitted_at):
+        elif phase is ActivityPhase.RESOLVED or receipt_history_expired(turn, phase, self.submitted_at):
             self.sampled.add(trial_appearance(potion))
         else:
             return
@@ -104,7 +98,7 @@ class ScrollTrials:
         if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
             self.interrupted(turn)
             return
-        if resolved_or_history_expired(turn, phase, trial.submitted_at):
+        if phase is ActivityPhase.RESOLVED or receipt_history_expired(turn, phase, trial.submitted_at):
             self.sampled.add(trial_appearance(trial.scroll))
             self.tried_in_encounter = True
             self.pending = None

@@ -439,6 +439,7 @@ RUNTIME_SCRIPT_EDGES = {
     'process_harness': ('rogue_roster_study',),
     'process_work_budget': ('rogue_earned_route_process',),
     'rogue_activation_oracle': ('rogue_activation_candidate',),
+    'rogue_activity': ('rogue_o_matic_cohort',),
     'rogue_food': ('rogue_o_matic_cohort',),
     'rogue_gear': ('rogue_o_matic_cohort',),
     'rogue_loot': ('rogue_o_matic_cohort',),
