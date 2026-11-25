@@ -1705,6 +1705,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(action.item.target, "smoky")
         receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "drink", "phase": "queued"}
         player.admitted(before, action, Result.from_reply({"status": "confirmed", "receipt": receipt}), reason=reason)
+        self.assertFalse(player.potion_trials.sampled)
         self.assertEqual(choose(player, before)[1], "descend")
         self.assertEqual(choose(player, scene(50))[1], "descend")
         action, reason = choose(player, scene(200))
@@ -3173,6 +3174,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         action, reason = choose(player, turn)
         player.admitted(turn, action, Result.from_reply({"status": "confirmed", "receipt": read_activity()}), reason=reason)
+        self.assertFalse(player.scroll_trials.sampled)
         for phase in ("queued", "started", "paused", "suspended"):
             with self.subTest(phase=phase):
                 active = Turn({**json.loads(turn.recording()), "intentions": [read_activity(phase)]})

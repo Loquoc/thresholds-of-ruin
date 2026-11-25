@@ -28,7 +28,6 @@ class PendingScrollTrial:
     submitted_at: int
     receipt: Result
     scroll: Item
-    newly_sampled_appearance: str | None
 
 
 @dataclass
@@ -49,7 +48,8 @@ class PotionTrials:
         if receipt and receipt.activity and appearance not in self.sampled:
             self.pending = potion, receipt
             self.submitted_at = turn.tick
-        self.sampled.add(appearance)
+        else:
+            self.sampled.add(appearance)
 
     def observe(self, turn: Turn) -> None:
         if self.pending is None:
@@ -57,9 +57,11 @@ class PotionTrials:
         potion, receipt = self.pending
         phase = turn.outcome_of(receipt)
         if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-            if stack_is_intact(turn, potion):
-                self.sampled.discard(trial_appearance(potion))
-        elif not resolved_or_history_expired(turn, phase, self.submitted_at):
+            if not stack_is_intact(turn, potion):
+                self.sampled.add(trial_appearance(potion))
+        elif resolved_or_history_expired(turn, phase, self.submitted_at):
+            self.sampled.add(trial_appearance(potion))
+        else:
             return
         self.pending = None
 
@@ -87,13 +89,11 @@ class ScrollTrials:
         return None
 
     def admitted(self, turn: Turn, floor: int, scroll: Item, receipt: Result | None) -> None:
-        appearance = trial_appearance(scroll)
         if receipt and receipt.activity:
-            newly_sampled = appearance if appearance not in self.sampled else None
-            self.pending = PendingScrollTrial(floor, turn.tick, receipt, scroll, newly_sampled)
+            self.pending = PendingScrollTrial(floor, turn.tick, receipt, scroll)
         else:
             self.tried_in_encounter = True
-        self.sampled.add(appearance)
+            self.sampled.add(trial_appearance(scroll))
 
     def observe(self, turn: Turn) -> None:
         trial = self.pending
@@ -104,6 +104,7 @@ class ScrollTrials:
             self.interrupted(turn)
             return
         if resolved_or_history_expired(turn, phase, trial.submitted_at):
+            self.sampled.add(trial_appearance(trial.scroll))
             self.tried_in_encounter = True
             self.pending = None
 
@@ -112,8 +113,8 @@ class ScrollTrials:
         if trial is None:
             return
         self.stalled.add((trial.floor, trial.scroll.target))
-        if trial.newly_sampled_appearance is not None and stack_is_intact(turn, trial.scroll):
-            self.sampled.discard(trial.newly_sampled_appearance)
+        if not stack_is_intact(turn, trial.scroll):
+            self.sampled.add(trial_appearance(trial.scroll))
         self.pending = None
 
 
