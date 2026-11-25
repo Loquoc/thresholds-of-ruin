@@ -49,7 +49,7 @@ from rogue_trials import PotionTrials, ScrollTrials, WandTrials
 from rogue_retreat import (
     stair_retreat_step,
     choose_retreat_step, converging_pursuers, evade_unseen_attacker,
-    route_around_danger, route_to_recovery_shelter, take_corridor,
+    recovery_stair_step, route_around_danger, route_to_recovery_shelter, take_corridor,
 )
 from rogue_search import ORDINARY_WALL_SEARCHES, SearchHistory
 from rogue_food import (
@@ -720,26 +720,6 @@ class Adventurer:
         packed = estimate_carried_food(edible_items(turn), self.meals.gains)
         return ticks < packed.spare_ticks_after_travel(nutrition, travel)
 
-    def recovery_stair_step(self, turn: Turn, memory: FloorMap, stairs: set[str]) -> Action | None:
-        """Detour around recent danger when recovery can continue on familiar ground."""
-        if not stairs:
-            return None
-        danger = self.danger_until.keys()
-        step = memory.toward_avoiding_traps(turn, stairs, avoid=danger)
-        if isinstance(step, Move):
-            cell = turn.cell_at(step.direction.offset)
-            if cell and (cell.key in memory.visited or cell.key in stairs):
-                return step
-        if step is not None:
-            unfamiliar = memory.cells.keys() - memory.visited - stairs
-            detour = memory.toward_avoiding_traps(turn, stairs, avoid=danger | unfamiliar)
-            if isinstance(detour, Move):
-                return detour
-        if danger:
-            # The caller checks whether waiting for danger to pass is affordable.
-            return memory.toward_avoiding_traps(turn, stairs)
-        return step
-
     def recovery_action(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.cell is None:
             return None
@@ -775,17 +755,15 @@ class Adventurer:
         if not returning and self.depth in self.food_scouts.by_floor:
             food_route = self.provision(turn, memory, returning)
         if food_route:
-            action = food_route[0]
+            action, reason = food_route
         else:
             stairs = self.safe_stairs(turn, direction)
-            action = self.recovery_stair_step(turn, memory, stairs)
+            action = recovery_stair_step(turn, memory, stairs, danger)
+            reason = "recover_en_route"
         if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
             if cell.key not in danger:
-                if food_route:
-                    return food_route
-                if cell.key in memory.visited or cell.key in stairs:
-                    return action, "recover_en_route"
-            elif turn.cell.key not in danger:
+                return action, reason
+            if turn.cell.key not in danger:
                 # Stay in shelter while a single point of recovery is still affordable.
                 return rest_if_affordable(1)
         return rest_if_affordable(missing)

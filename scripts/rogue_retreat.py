@@ -21,6 +21,30 @@ def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: S
     return toward(turn, goals)
 
 
+def recovery_stair_step(turn: Turn, memory: FloorMap, stairs: set[str], danger: Set[str]) -> Move | None:
+    """Walk on familiar ground, or expose a dangerous next step so the caller can wait."""
+    if not stairs:
+        return None
+
+    def eligible_move(step: Action | None) -> Move | None:
+        if isinstance(step, Move) and (cell := turn.cell_at(step.direction.offset)):
+            if cell.key in memory.visited or cell.key in stairs or cell.key in danger:
+                return step
+        return None
+
+    step = memory.toward_avoiding_traps(turn, stairs, avoid=danger)
+    if move := eligible_move(step):
+        return move
+    if step is not None:
+        unfamiliar = memory.cells.keys() - memory.visited - stairs
+        detour = memory.toward_avoiding_traps(turn, stairs, avoid=danger | unfamiliar)
+        if isinstance(detour, Move):
+            return detour
+    if danger:
+        return eligible_move(memory.toward_avoiding_traps(turn, stairs))
+    return None
+
+
 def route_to_recovery_shelter(turn: Turn, memory: FloorMap, danger: Set[str]) -> Action | None:
     """Leave the exposed square immediately if a clear path leads to familiar shelter."""
     shelters = memory.visited - danger

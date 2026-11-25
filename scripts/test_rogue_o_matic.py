@@ -4943,6 +4943,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual((action.item.target, reason), ("unknown", "test_unknown_magic"))
         self.assertEqual(choose(player, picture([cell("here"), cell("frontier", 1)])), (Move(Direction.EAST), "explore"))
 
+    def test_recovery_stair_step_distinguishes_unfamiliar_ground_from_recent_danger(self):
+        from rogue_retreat import recovery_stair_step
+
+        turn = player_turn([cell("here"), cell("passage", 1), cell("stairs", 2, down=True)])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        memory = player.maps[1]
+        self.assertIsNone(recovery_stair_step(turn, memory, {"stairs"}, {"elsewhere"}))
+        self.assertEqual(recovery_stair_step(turn, memory, {"stairs"}, {"passage"}), Move(Direction.EAST))
+
     def test_recovery_keeps_moving_toward_stairs_when_a_familiar_detour_is_clear(self):
         cells = [cell(str(x), x, down=x in (-3, 2)) for x in range(-3, 3)]
         turn = player_turn(cells, combat={"hp": 6}, stats={"health_recovery": {
