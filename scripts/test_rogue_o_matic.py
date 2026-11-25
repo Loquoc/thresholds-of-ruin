@@ -2653,6 +2653,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(report["last_combat_events"], [attack, death])
                 self.assertEqual(report["events_since_previous_action"], [e for batch in batches for e in batch])
 
+    def test_death_report_preserves_disclosed_starvation_evidence(self):
+        from unittest.mock import Mock
+        from rogue_o_matic_cohort import death_cause
+        from rogue_runner import play
+        from tor_client_bot import Session
+
+        for threshold, expected in ((-3, "starvation"), (-4, "undisclosed"), (None, "undisclosed")):
+            with self.subTest(threshold=threshold):
+                food = {"kind": "required", "reserve": -3}
+                if threshold is not None:
+                    food["starve_at"] = threshold
+                turn = player_turn([], stats={"nutrition": food},
+                                   combat={"terminal": True, "dead": True, "victory": False})
+                session = Session(Mock())
+                session.wait_for_decision = Mock(return_value=turn)
+                report = play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 0, self.fail)
+                self.assertEqual(death_cause(report), expected)
+
     def test_terminal_without_death_or_victory_is_reported_as_terminal(self):
         from unittest.mock import Mock
         from rogue_player import play

@@ -94,6 +94,9 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
                 reason = "victory"
             elif turn.dead:
                 reason = "death"
+                if (threshold := turn.starvation_threshold) is not None:
+                    detail["last_nutrition"] = {"kind": "required", "reserve": turn.food_reserve,
+                                                "starve_at": threshold}
             detail.update(
                 last_combat_events=terminal_combat_events(turn, events),
                 events_since_previous_action=events,

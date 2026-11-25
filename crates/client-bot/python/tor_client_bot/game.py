@@ -644,6 +644,12 @@ class Turn:
         stats = self._view.get("combat", {}).get("own_stats", {})
         return stats.get("nutrition", {}).get("reserve")
 
+    @property
+    def starvation_threshold(self) -> int | None:
+        """Reserve at which this actor starves, if disclosed for its food clock."""
+        food = self._view.get("combat", {}).get("own_stats", {}).get("nutrition", {})
+        return food.get("starve_at") if food.get("kind") == "required" else None
+
     @cached_property
     def recovery(self) -> Recovery | None:
         stats = self._view.get("combat", {}).get("own_stats", {})
