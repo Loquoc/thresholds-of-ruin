@@ -1351,6 +1351,45 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_bot_reaches_the_objective_via_an_unguarded_approach(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        identity = "item.amulet.amulet-of-yendor"
+        character, = contents["manifest"]["characters"]
+        character.update(loadout=[], known_identities=[identity])
+        region, = contents["regions"]
+        region.update(actors=[], items=[{"id": 10, "archetype": "rogue.amulet_of_yendor", "at": [5, 2, 0]}])
+        self.check_policy_scenario(contents, "objective-detour", """
+import os
+from rogue_player import Adventurer, RECENT_DANGER_TICKS
+from tor_client_bot import Move, Outcome, Pickup, Session
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    direct, reason = player.choose(turn)
+    assert isinstance(direct, Move) and reason == "seek_objective", (direct, reason)
+    guarded = turn.cell_at(direct.direction.offset).key
+    player.supplies_guarded_until[guarded] = turn.tick + RECENT_DANGER_TICKS
+    for _ in range(8):
+        action, reason = player.choose(turn)
+        if isinstance(action, Move):
+            assert reason == "seek_objective", reason
+            assert turn.cell_at(action.direction.offset).key != guarded, action
+        else:
+            assert isinstance(action, Pickup) and action.item.identity == player.objective, action
+        result = turn.submit(action)
+        assert result.status is Outcome.CONFIRMED, result
+        player.admitted(turn, action, result, reason=reason)
+        turn = game.wait_for_decision()
+        player.observe(turn)
+        if player.carrying_objective(turn):
+            break
+    assert player.carrying_objective(turn)
+""")
+
     def test_bot_cli_retrieves_a_custom_canonical_objective(self):
         from discovery_package import fixture, write_package
 
