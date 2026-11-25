@@ -4385,6 +4385,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.maps[1].visited.add(turn.cell_at(other.direction.offset).key)
         self.assertEqual(player.choose(turn), (first, "explore"))
 
+    def test_recovery_avoids_a_known_pit_between_the_player_and_familiar_ground(self):
+        pit = {"id": "pit", "family": None, "reachable": True}
+        hall = [cell("here"), {**cell("passage", 1), "trap": pit}, cell("stairs", 2, down=True)]
+        stats = {"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100,
+                                     "stopped": False}}
+        turn = player_turn(hall, combat={"hp": 6}, stats=stats)
+        for exposed in (False, True):
+            with self.subTest(exposed=exposed):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                player.maps[1].visited.update({"passage", "stairs"})
+                if exposed:
+                    player.danger_until["here"] = 900
+                self.assertEqual(player.choose(turn), (Wait(), "recover"))
+
     def test_moderate_injury_recovers_while_walking_a_visited_route_to_stairs(self):
         room = [cell("here"), cell("hall", 1), cell("stairs", 2, down=True)]
         stats = {"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100,

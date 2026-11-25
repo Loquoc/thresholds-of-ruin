@@ -723,12 +723,12 @@ class Adventurer:
     def recovery_stair_step(self, turn: Turn, memory: FloorMap, stairs: set[str]) -> Action | None:
         """Detour around recent danger when recovery can continue on familiar ground."""
         if self.danger_until:
-            detour = memory.toward(turn, stairs, avoid=self.danger_until.keys())
+            detour = memory.toward_avoiding_traps(turn, stairs, avoid=self.danger_until.keys())
             if isinstance(detour, Move):
                 cell = turn.cell_at(detour.direction.offset)
                 if cell and (cell.key in memory.visited or cell.key in stairs):
                     return detour
-        return memory.toward(turn, stairs)
+        return memory.toward_avoiding_traps(turn, stairs)
 
     def recovery_action(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.cell is None:
