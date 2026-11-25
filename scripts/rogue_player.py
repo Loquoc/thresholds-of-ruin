@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
-from functools import cache
 from typing import NamedTuple
 
 from tor_client_bot import (
@@ -53,7 +52,7 @@ from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
 from rogue_retreat import (
     stair_retreat_step,
-    best_onward_escape, converging_pursuers, evade_unseen_attacker,
+    choose_retreat_step, converging_pursuers, evade_unseen_attacker,
     route_around_danger, route_to_recovery_shelter, take_corridor,
 )
 from rogue_search import (
@@ -761,37 +760,11 @@ class Adventurer:
 
     @staticmethod
     def evade(turn: Turn) -> tuple[Move, str] | None:
-        if not turn.hostiles:
+        step = choose_retreat_step(turn)
+        if step is None:
             return None
-
-        @cache
-        def safety(offset: tuple[int, int, int]) -> tuple[int, int]:
-            contacts = sum(turn.in_contact(foe, from_offset=offset) for foe in turn.hostiles)
-            clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
-            return -contacts, clearance
-
-        current = safety((0, 0, 0))
-        choices = [(safety(d.offset), d) for d in turn.walkable_directions]
-        if not choices:
-            return None
-        best = max(score for score, _ in choices)
-        if best < current:
-            return None
-        candidates = [direction for score, direction in choices if score == best]
-        immediate_retreat = best > current
-        if immediate_retreat:
-            if len(candidates) > 1:
-                clear = [direction for direction in candidates if turn.cell_at(direction.offset).trap is None]
-                candidates = clear or candidates
-            if len(candidates) == 1:
-                return Move(candidates[0]), MemoryReason.RETREAT
-
-        if onward := best_onward_escape(turn, candidates, safety):
-            reason = MemoryReason.RETREAT if immediate_retreat else MemoryReason.BREAK_CONTACT
-            return Move(onward), reason
-        if immediate_retreat:
-            return Move(candidates[0]), MemoryReason.RETREAT
-        return None
+        reason = MemoryReason.RETREAT if step.improves_immediately else MemoryReason.BREAK_CONTACT
+        return Move(step.direction), reason
 
     def recovery_budget(self, turn: Turn, memory: FloorMap, direction: Direction) -> int | None:
         """Ticks available for rest after reserving travel, or None without a food clock."""

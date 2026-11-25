@@ -1,6 +1,8 @@
 """Choose retreat steps from visible terrain and pursuer positions."""
 
 from collections.abc import Callable, Set
+from functools import cache
+from typing import NamedTuple
 
 from tor_client_bot import Action, Cell, Creature, Direction, FloorMap, Move, OpenDoor, Turn
 
@@ -60,6 +62,41 @@ def evade_unseen_attacker(turn: Turn, attack_origin: str, memory: FloorMap | Non
             best_rank = rank
             step = Move(direction)
     return step
+
+
+class RetreatStep(NamedTuple):
+    direction: Direction
+    improves_immediately: bool
+
+
+def choose_retreat_step(turn: Turn) -> RetreatStep | None:
+    """Reduce melee contacts first, then increase distance to the nearest pursuer."""
+    if not turn.hostiles or not turn.walkable_directions:
+        return None
+
+    @cache
+    def safety(offset: tuple[int, int, int]) -> tuple[int, int]:
+        contacts = sum(turn.in_contact(foe, from_offset=offset) for foe in turn.hostiles)
+        clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
+        return -contacts, clearance
+
+    current = safety((0, 0, 0))
+    best = max(safety(direction.offset) for direction in turn.walkable_directions)
+    if best < current:
+        return None
+    candidates = [direction for direction in turn.walkable_directions if safety(direction.offset) == best]
+
+    if best == current:
+        # A sidestep earns its turn only when the next step improves safety.
+        onward = best_onward_escape(turn, candidates, safety)
+        return RetreatStep(onward, improves_immediately=False) if onward else None
+
+    clear = [direction for direction in candidates if turn.cell_at(direction.offset).trap is None]
+    candidates = clear or candidates
+    direction = candidates[0]
+    if len(candidates) > 1:
+        direction = best_onward_escape(turn, candidates, safety) or direction
+    return RetreatStep(direction, improves_immediately=True)
 
 
 def best_onward_escape(

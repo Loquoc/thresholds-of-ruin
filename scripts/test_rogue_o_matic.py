@@ -4810,6 +4810,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn([cell("here"), cell("passage", -1)])
         self.assertIsNone(Adventurer.evade(turn))
 
+    def test_retreat_recognizes_an_immediate_gain_without_an_onward_square(self):
+        from rogue_retreat import choose_retreat_step
+
+        foe = {"id": "hunter", "name": "hunter", "position": cell("foe", 1)["position"]}
+        turn = player_turn([cell("here"), cell("foe", 1), cell("west", -1)], actors=[foe], hostiles=["hunter"])
+        step = choose_retreat_step(turn)
+        self.assertEqual(step.direction, Direction.WEST)
+        self.assertTrue(step.improves_immediately)
+
     def test_level_first_step_requires_an_improving_continuation(self):
         foe = {"id": "hunter", "name": "hunter", "position": cell("foe", 0, 1)["position"]}
         cells = [cell("here"), cell("west", -1), cell("foe", 0, 1), cell("corner", -1, 1)]
