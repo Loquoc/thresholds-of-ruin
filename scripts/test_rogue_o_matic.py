@@ -2619,23 +2619,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         snake = {"id": "snake", "name": "rattlesnake", "position": cell("snake", 1)["position"]}
         strike = {"id": "strike", "name": "Strike", "cooldown_remaining": 0, "cost": None,
                   "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        rattle = {**strike, "id": "rattling_blow", "basic_attack": False}
         cases = [
-            (21, 5, "snake", "melee"),  # Exactly three quarters of maximum health.
-            (20, 5, "snake", "retreat_upstairs"),
-            (24, 6, "snake", "retreat_upstairs"),  # Four estimated hits would be lethal.
-            (24, 5, "snake", "melee"),
-            (24, 0, "snake", "retreat_upstairs"),
-            (24, 5, "other", "retreat_upstairs"),
+            (21, 5, "snake", [strike, rattle], "rattling_blow"),  # Exactly three quarters of maximum health.
+            (20, 5, "snake", [strike], "retreat_upstairs"),
+            (24, 6, "snake", [strike], "retreat_upstairs"),  # Four estimated hits would be lethal.
+            (24, 5, "snake", [strike, rattle], "rattling_blow"),
+            (24, 5, "snake", [strike], "strike"),
+            (24, 0, "snake", [strike], "retreat_upstairs"),
+            (24, 5, "other", [strike], "retreat_upstairs"),
         ]
-        for hp, damage, guard, expected in cases:
+        for hp, damage, guard, abilities, expected in cases:
             player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
             player.opponents.draining_names.add("rattlesnake")
             player.opponents.damage_by_target["snake"] = damage
             player.last_guarded_landing = "landing", guard
             turn = player_turn([cell("landing", up=True), cell("snake", 1)], actors=[snake], hostiles=["snake"],
-                               abilities=[strike], combat={"hp": str(hp), "max_hp": "28"})
+                               abilities=abilities, combat={"hp": str(hp), "max_hp": "28"})
             with self.subTest(hp=hp, damage=damage, guard=guard):
-                self.assertEqual(choose(player, turn)[1], expected)
+                action, reason = choose(player, turn)
+                self.assertEqual(action.ability.identity if reason == "melee" else reason, expected)
 
     def test_explores_past_a_landing_when_a_known_drainer_is_distant(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)

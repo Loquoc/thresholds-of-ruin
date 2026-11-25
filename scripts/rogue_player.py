@@ -482,9 +482,10 @@ class Adventurer:
         health = turn.health
         if health is None or health.current * 4 < health.maximum * 3 or self.carrying_objective(turn):
             return None
-        if not 0 < self.opponents.damage_estimate(guard) * 4 < health.current:
+        damage_over_four_hits = 4 * self.opponents.damage_estimate(guard)
+        if not 0 < damage_over_four_hits < health.current:
             return None
-        attack = turn.attack(guard, technique="rattling_blow") or turn.attack(guard)
+        attack = choose_melee_attack(turn, (guard,), make_space=False)
         if attack is None:
             return None
         return ready_weapon(turn, bow=False) or (attack, "melee")
