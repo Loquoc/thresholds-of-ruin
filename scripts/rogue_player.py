@@ -908,6 +908,16 @@ class Adventurer:
         packed = estimate_carried_food(edible_items(turn), self.food_value)
         return available - packed.travel_from_current_reserve(nutrition, travel)
 
+    def recovery_stair_step(self, turn: Turn, memory: FloorMap, stairs: set[str]) -> Action | None:
+        """Detour around recent danger when recovery can continue on familiar ground."""
+        if self.danger_until:
+            detour = memory.toward(turn, stairs, avoid=self.danger_until.keys())
+            if isinstance(detour, Move):
+                cell = turn.cell_at(detour.direction.offset)
+                if cell and (cell.key in memory.visited or cell.key in stairs):
+                    return detour
+        return memory.toward(turn, stairs)
+
     def recovery_action(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.cell is None:
             return None
@@ -925,15 +935,15 @@ class Adventurer:
         points_to_rest = missing
 
         if not self.trapped(turn):
-            if turn.cell.key in self.danger_until:
-                danger = self.danger_until.keys()
+            danger = self.danger_until.keys()
+            if turn.cell.key in danger:
                 if action := route_around_danger(turn, memory, memory.visited - danger, danger):
                     return action, "reposition_to_recover"
             # Recover along the food route while scouting away from the stairs.
             food_route = None
             if not returning and self.depth in self.food_scouts:
                 food_route = self.provision(turn, memory, returning)
-            action = food_route[0] if food_route else memory.toward(turn, stairs)
+            action = food_route[0] if food_route else self.recovery_stair_step(turn, memory, stairs)
             if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
                 if cell.key not in self.danger_until:
                     if food_route:

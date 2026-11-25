@@ -3822,6 +3822,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual((action.item.target, reason), ("unknown", "test_unknown_magic"))
         self.assertEqual(choose(player, picture([cell("here"), cell("frontier", 1)])), (Move(Direction.EAST), "explore"))
 
+    def test_recovery_keeps_moving_toward_stairs_when_a_familiar_detour_is_clear(self):
+        cells = [cell(str(x), x, down=x in (-3, 2)) for x in range(-3, 3)]
+        turn = player_turn(cells, combat={"hp": 6}, stats={"health_recovery": {
+            "period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        player.maps[1].visited.update(("-1", "-2", "1"))
+        player.danger_until["1"] = 1200
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "recover_en_route"))
+        player.danger_until["-1"] = 1200
+        self.assertEqual(player.choose(turn), (Wait(), "recover"))
+
     def test_partial_recovery_before_reentering_recent_danger_has_a_food_limit(self):
         room = [cell("shelter"), cell("hall", 1), cell("exit", 2, down=True)]
         for reserve, travel_ticks, expected in [
