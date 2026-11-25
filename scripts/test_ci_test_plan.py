@@ -223,6 +223,14 @@ for path in sys.argv[1:]:
     required = {identity for identity in inventory if identity.split('.')[0] in modules}
     for lane in ('linux-debug-python', 'windows-debug-python'):
         assert required <= set(lanes[lane]['test_ids']), (path, lane)
+path = 'scripts/rogue_policy_fixture.py'
+selection = select([path], inventory, root=ROOT, test_metadata=metadata)
+fixture_plan = make_plan('pull_request', 'a' * 40, 'b' * 40, [path], inventory, selection)
+assert fixture_plan['mode'] == 'selected', fixture_plan['reasons']
+lanes = {lane['id']: set(lane['test_ids']) for lane in fixture_plan['lanes']}
+for module in ('test_rogue_o_matic', 'test_rogue_o_matic_reference'):
+    tests = {identity for identity in inventory if identity.split('.')[0] == module}
+    assert tests and all(tests <= lanes[lane] for lane in ('linux-tooling', 'windows-tooling')), module
 """
         paths = ['crates/client-bot/python/tor_client_bot/game.py', 'scripts/' + 'rogue_player' + '.py']
         run = subprocess.run([sys.executable, '-c', code, *paths], cwd=plan.ROOT, capture_output=True, text=True)
