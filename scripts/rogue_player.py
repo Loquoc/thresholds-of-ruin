@@ -1102,27 +1102,27 @@ class Adventurer:
                          returning: bool, allow_unseen: bool, wall_limit: int) -> SearchRank | None:
         neighbors = memory.adjacent(site.key)
         can_search_unseen = allow_unseen and len(neighbors) < 4
-        walls = [cell for cell in neighbors if cell.wall]
+        wall_keys = {cell.key for cell in neighbors if cell.wall}
         remaining = self.remaining_dead_end_searches(site, memory)
         if remaining is not None:
             if remaining == 0 or turn.hostiles:
                 return None
-            untested = walls
-            value = remaining * len(walls)
+            untested = wall_keys
+            value = remaining * len(untested)
         else:
             attempts = self.search_attempts_at(site.key)
             # A missing cardinal neighbor allows one final search after the wall budget runs out.
             site_limit = wall_limit + int(can_search_unseen)
             if attempts >= site_limit:
                 return None
-            untested = []
+            untested = set()
             if attempts < wall_limit:
-                untested = [wall for wall in walls if self.wall_searches[wall.key] < wall_limit]
-            value = sum(wall_limit - self.wall_searches[c.key] for c in untested)
+                untested = {key for key in wall_keys if self.wall_searches[key] < wall_limit}
+            value = sum(wall_limit - self.wall_searches[key] for key in untested)
         if not untested and not can_search_unseen:
             return None
         near_exit = returning and any(
-            n.stairs_up for wall in untested for n in memory.adjacent(wall.key)
+            neighbor.stairs_up for key in untested for neighbor in memory.adjacent(key)
         )
         # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
         return SearchRank(

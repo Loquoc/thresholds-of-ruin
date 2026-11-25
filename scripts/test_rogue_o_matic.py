@@ -1248,6 +1248,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(decision, None if phase == "resolved" else (search, "search"))
                 self.assertEqual(player.searches["here"], 3)
 
+    def test_search_prefers_two_distinct_walls_over_two_views_of_one_wall(self):
+        turn = search_turn([cell("here"), cell("same-wall", y=-1, wall=True),
+                            cell("same-wall", y=1, wall=True), cell("hall", 1),
+                            cell("end-wall", 2, wall=True), cell("side-wall", 1, -1, wall=True)])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        self.assertEqual(player.search(turn, player.maps[player.depth], returning=False),
+                         (Move(Direction.EAST), "search"))
+
     def test_equivalent_search_sites_are_ranked_independently_of_opaque_cell_keys(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
