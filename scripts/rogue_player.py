@@ -32,6 +32,7 @@ from tor_client_bot import (
     Outcome,
     Pickup,
     PointPool,
+    RememberedCell,
     RestorableLosses,
     Result,
     StairAttempt,
@@ -1140,37 +1141,44 @@ class Adventurer:
                            allow_unseen: bool, wall_limit: int) -> Iterator[set[str]]:
         sites_by_rank: dict[SearchRank, set[str]] = {}
         for site, distance in memory.reachable(turn.cell.key):
-            attempts = self.searches[site.key]
-            neighbors = memory.adjacent(site.key)
-            walls = [c for c in neighbors if c.wall]
-            dead_end = memory.is_dead_end(site.key) and not (site.stairs_down or site.stairs_up)
-            if dead_end:
-                remaining = DEAD_END_SEARCHES - self.completed_end_searches[site.key]
-                if remaining <= 0 or turn.hostiles:
-                    continue
-                untested = walls
-                value = remaining * len(walls)
-            else:
-                if attempts > wall_limit:
-                    continue
-                untested = [c for c in walls if attempts < wall_limit and self.wall_searches[c.key] < wall_limit]
-                value = sum(wall_limit - self.wall_searches[c.key] for c in untested)
-            if not untested and (not allow_unseen or len(neighbors) == 4):
+            rank = self.search_site_rank(turn, memory, site, distance, returning=returning,
+                                         allow_unseen=allow_unseen, wall_limit=wall_limit)
+            if rank is None:
                 continue
-            near_exit = returning and any(
-                n.stairs_up for wall in untested for n in memory.adjacent(wall.key)
-            )
-            # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
-            rank = SearchRank(
-                near_return_stairs=near_exit,
-                has_searchable_walls=bool(untested),
-                value_after_travel=value - distance * 2,
-                negative_distance=-distance,
-            )
             sites_by_rank.setdefault(rank, set()).add(site.key)
         # Route to tied destinations together so a clear path wins over a trapped one.
         for rank in sorted(sites_by_rank, reverse=True):
             yield sites_by_rank[rank]
+
+    def search_site_rank(self, turn: Turn, memory: FloorMap, site: RememberedCell, distance: int, *,
+                         returning: bool, allow_unseen: bool, wall_limit: int) -> SearchRank | None:
+        attempts = self.searches[site.key]
+        neighbors = memory.adjacent(site.key)
+        walls = [c for c in neighbors if c.wall]
+        dead_end = memory.is_dead_end(site.key) and not (site.stairs_down or site.stairs_up)
+        if dead_end:
+            remaining = DEAD_END_SEARCHES - self.completed_end_searches[site.key]
+            if remaining <= 0 or turn.hostiles:
+                return None
+            untested = walls
+            value = remaining * len(walls)
+        else:
+            if attempts > wall_limit:
+                return None
+            untested = [c for c in walls if attempts < wall_limit and self.wall_searches[c.key] < wall_limit]
+            value = sum(wall_limit - self.wall_searches[c.key] for c in untested)
+        if not untested and (not allow_unseen or len(neighbors) == 4):
+            return None
+        near_exit = returning and any(
+            n.stairs_up for wall in untested for n in memory.adjacent(wall.key)
+        )
+        # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
+        return SearchRank(
+            near_return_stairs=near_exit,
+            has_searchable_walls=bool(untested),
+            value_after_travel=value - distance * 2,
+            negative_distance=-distance,
+        )
 
     def estimated_journey_ticks(self, returning: bool) -> int:
         """Budget the shallower return legs and the round trips still ahead."""

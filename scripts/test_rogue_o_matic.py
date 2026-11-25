@@ -1025,6 +1025,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(decision("z", "a"), expected)
         self.assertEqual(decision("z", "a", reverse_observation=True), expected)
 
+    def test_search_limit_allows_one_last_attempt_toward_unseen_terrain(self):
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,
+                   "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        turn = player_turn([cell("here"), {**cell("wall", 1), "wall": True}], abilities=[ability])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        memory = player.maps[1]
+        player.searches["here"] = 3
+        self.assertIsNone(player.search(turn, memory, returning=False, allow_unseen=False))
+        self.assertEqual(player.search(turn, memory, returning=False), (UseAbility(turn.abilities[0]), "search"))
+        player.searches["here"] += 1
+        self.assertIsNone(player.search(turn, memory, returning=False))
+
     def test_equivalent_wall_searches_prefer_the_route_without_a_disclosed_trap(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
