@@ -1044,6 +1044,11 @@ class Adventurer:
         if turn.cell is None or search is None:
             return None
         sites = self.return_connection_sites(memory, turn.cell.key, upstairs)
+        return self.search_at_sites(turn, memory, sites, search)
+
+    def search_at_sites(self, turn: Turn, memory: FloorMap, sites: set[str],
+                        search: UseAbility) -> tuple[Action, str] | None:
+        """Search here if eligible, otherwise approach an eligible site."""
         if turn.cell.key in sites:
             return search, "search"
         if step := route_around_danger(turn, memory, sites, self.danger_until.keys()):
@@ -1071,10 +1076,8 @@ class Adventurer:
         if search is None or turn.cell is None:
             return None
         for sites in self.ranked_search_sites(turn, memory, returning, allow_unseen, wall_limit):
-            if turn.cell.key in sites:
-                return search, "search"
-            if step := route_around_danger(turn, memory, sites, self.danger_until.keys()):
-                return step, "search"
+            if decision := self.search_at_sites(turn, memory, sites, search):
+                return decision
         return None
 
     def ranked_search_sites(self, turn: Turn, memory: FloorMap, returning: bool,

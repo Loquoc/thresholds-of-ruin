@@ -1504,6 +1504,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         memory = player.maps[player.depth]
         self.assertEqual(player.return_connection_sites(memory, "here", {"stairs"}), {"here"})
 
+    def test_search_at_the_current_wall_needs_no_movement_route(self):
+        turn = search_turn([cell("here"), cell("wall", 1, wall=True), cell("stairs", 2, up=True)])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        memory = player.maps[1]
+        expected = (UseAbility(turn.abilities[0]), "search")
+        with patch.object(memory, "toward", side_effect=AssertionError("already at the search site")):
+            self.assertEqual(player.search(turn, memory, returning=False), expected)
+            self.assertEqual(player.search_return_connection(turn, memory, {"stairs"}), expected)
+
     def test_cancelled_return_search_can_be_retried_at_the_same_boundary(self):
         from tor_client_bot import Result
 
