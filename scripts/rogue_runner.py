@@ -47,7 +47,7 @@ def trace_navigation(player: Adventurer) -> dict:
         "visited_cells": len(memory.visited),
         "known_up_stairs": len(memory.stairs(Direction.UP)),
         "known_down_stairs": len(memory.stairs(Direction.DOWN)),
-        "searches_admitted": sum(player.searches[key] for key in memory.cells),
+        "searches_admitted": sum(player.search_history.admissions[key] for key in memory.cells),
     }
 
 

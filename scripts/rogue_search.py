@@ -1,9 +1,10 @@
 """Map geometry and observations used when searching for concealed passages."""
 
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from tor_client_bot import Cell, FloorMap, RememberedCell, Result, Turn
+from tor_client_bot import ActivityPhase, Cell, FloorMap, RememberedCell, Result, Turn
 
 
 ORDINARY_WALL_SEARCHES = 3
@@ -50,3 +51,48 @@ class PendingSearch:
     walls: frozenset[str]
     origin: str
     at_dead_end: bool
+
+
+@dataclass
+class SearchHistory:
+    """Account for admitted searches and the walls covered by completed actions."""
+
+    admissions: Counter[str] = field(default_factory=Counter)
+    unsuccessful_searches: Counter[str] = field(default_factory=Counter)
+    completed_end_searches: Counter[str] = field(default_factory=Counter)
+    pending_search: PendingSearch | None = None
+    wall_searches: Counter[str] = field(default_factory=Counter)
+
+    def observe(self, turn: Turn) -> None:
+        search = self.pending_search
+        if search is None:
+            return
+        phase = turn.outcome_of(search.receipt)
+        if phase is ActivityPhase.RESOLVED:
+            self.wall_searches.update(search.walls)
+            if search.at_dead_end:
+                self.completed_end_searches[search.origin] += 1
+        elif phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+            self.unsuccessful_searches[search.origin] += 1
+        else:
+            return
+        self.pending_search = None
+
+    def admit(self, turn: Turn, origin: Cell, receipt: Result | None, memory: FloorMap | None) -> None:
+        self.admissions[origin.key] += 1
+        walls = nearby_search_walls(turn)
+        if receipt is None or receipt.activity is None:
+            self.wall_searches.update(walls)
+            return
+        at_dead_end = memory is not None and is_searchable_dead_end(origin, memory)
+        self.pending_search = PendingSearch(receipt, walls, origin.key, at_dead_end)
+
+    def attempts_at(self, key: str) -> int:
+        """Count admitted searches toward the site limit unless the game reports failure or cancellation."""
+        return self.admissions[key] - self.unsuccessful_searches[key]
+
+    def remaining_dead_end_searches(self, site: Cell | RememberedCell, memory: FloorMap) -> int | None:
+        """Return the unused completed-search allowance, or None for an ordinary search site."""
+        if not is_searchable_dead_end(site, memory):
+            return None
+        return max(0, DEAD_END_SEARCHES - self.completed_end_searches[site.key])

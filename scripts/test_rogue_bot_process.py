@@ -1292,8 +1292,8 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     east, west = (turn.cell_at((x, 0, 0)).key for x in (1, -1))
     memory.visited.update(memory.cells)
     # The only remaining candidate sites are equally far away.
-    player.searches.update({key: 3 for key in memory.cells if key not in {east, west}})
-    player.completed_end_searches.update({key: 6 for key in memory.cells if memory.is_dead_end(key)})
+    player.search_history.admissions.update({key: 3 for key in memory.cells if key not in {east, west}})
+    player.search_history.completed_end_searches.update({key: 6 for key in memory.cells if memory.is_dead_end(key)})
     walls = lambda key: {cell.key for cell in memory.adjacent(key) if cell.wall}
     assert len(walls(east)) == 2 and len(walls(west)) == 1
     step, reason = player.choose(turn)
@@ -1312,10 +1312,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         assert following.tick > after.tick
         after = following
         player.observe(after)
-    assert all(player.wall_searches[key] == 2 for key in walls(east))
+    assert all(player.search_history.wall_searches[key] == 2 for key in walls(east))
     across_room = {cell.key for cell in after.visible_cells
                    if cell.wall and cell.offset[2] == 0 and 2 <= max(map(abs, cell.offset)) <= 3}
-    assert across_room and all(player.wall_searches[key] == 2 for key in across_room)
+    assert across_room and all(player.search_history.wall_searches[key] == 2 for key in across_room)
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -2298,9 +2298,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     end = turn.cell_at((1, 0, 0)).key
     walls = {c.key for c in memory.adjacent(end) if c.wall}
     assert len(walls) == 3
-    player.wall_searches.update(walls)
+    player.search_history.wall_searches.update(walls)
     memory.visited.update(memory.cells)
-    player.completed_end_searches.update({key: 6 for key in memory.cells if key != end and memory.is_dead_end(key)})
+    player.search_history.completed_end_searches.update({key: 6 for key in memory.cells if key != end and memory.is_dead_end(key)})
     action, reason = player.choose(turn)
     assert (action, reason) == (Move(Direction.EAST), "search"), (action, reason)
     assert turn.submit(action).status is Outcome.CONFIRMED
@@ -2316,10 +2316,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         player.admitted(turn, action, receipt)
         turn = game.wait_for_decision()
         player.observe(turn)
-        assert player.completed_end_searches[end] == completed
+        assert player.search_history.completed_end_searches[end] == completed
     assert turn.hunger == "nourished"
     memory.visited.update(memory.cells)
-    player.wall_searches.update({c.key: 3 for c in memory.cells.values() if c.wall})
+    player.search_history.wall_searches.update({c.key: 3 for c in memory.cells.values() if c.wall})
     action, reason = player.choose(turn)
     assert isinstance(action, UseItem) and action.use is ItemUse.READ and action.item.identity is None
     assert reason == "test_unknown_magic"
@@ -3731,7 +3731,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     memory.cells["remembered-landing"] = replace(memory.cells[origin], key="remembered-landing", stairs_up=True)
     memory.visited.update(memory.cells)
     for key in memory.cells:
-        player.searches[key] = 8
+        player.search_history.admissions[key] = 8
     action, reason = player.choose(turn)
     assert isinstance(action, UseItem) and action.item == scroll and reason == "find_return_route"
     assert turn.submit(action).status is Outcome.CONFIRMED

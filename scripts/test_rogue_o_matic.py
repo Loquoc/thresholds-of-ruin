@@ -1448,7 +1448,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(player_turn([cell("start", down=True)]))
         player.depth = 2
         player.observe(player_turn([cell("landing", up=True), cell("exit", 1, down=True)]))
-        player.searches.update({"start": 4, "landing": 2})
+        player.search_history.admissions.update({"start": 4, "landing": 2})
         self.assertEqual(trace_navigation(player), {
             "floor": 2, "visited_cells": 1, "known_up_stairs": 1, "known_down_stairs": 1, "searches_admitted": 2,
         })
@@ -1464,7 +1464,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observe(turn)
         player.admitted(turn, UseAbility(turn.abilities[0]))
-        self.assertEqual(dict(player.wall_searches), {"diagonal": 1, "middle": 1})
+        self.assertEqual(dict(player.search_history.wall_searches), {"diagonal": 1, "middle": 1})
 
         # A second site contributes another attempt to the same visible wall.
         next_room = [cell("other"), {**cell("diagonal"), "wall": True,
@@ -1472,8 +1472,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         next_turn = player_turn(next_room, abilities=[search])
         player.observe(next_turn)
         player.admitted(next_turn, UseAbility(next_turn.abilities[0]))
-        self.assertEqual(dict(player.searches), {"here": 1, "other": 1})
-        self.assertEqual(dict(player.wall_searches), {"diagonal": 2, "middle": 1})
+        self.assertEqual(dict(player.search_history.admissions), {"here": 1, "other": 1})
+        self.assertEqual(dict(player.search_history.wall_searches), {"diagonal": 2, "middle": 1})
+
+    def test_resolved_search_updates_only_the_player_that_submitted_it(self):
+        from tor_client_bot import Result
+
+        turn = search_turn([cell("start"), cell("wall", 1, wall=True)])
+        searching, idle = (Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY) for _ in range(2))
+        searching.observe(turn)
+        idle.observe(turn)
+        receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
+        searching.admitted(turn, UseAbility(turn.abilities[0]), receipt)
+        finished = Turn({**json.loads(turn.recording()), "finished_intentions": [search_activity("resolved")]})
+        idle.observe(finished)
+        searching.observe(finished)
+        self.assertEqual(searching.search_history.wall_searches["wall"], 1)
+        self.assertEqual(idle.search_history.wall_searches["wall"], 0)
 
     def test_wall_coverage_counts_only_resolved_search_receipts_and_uses_the_original_picture(self):
         from tor_client_bot import Result
@@ -1488,13 +1503,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.admitted(turn, UseAbility(turn.abilities[0]), receipt)
                 stale = search_activity("resolved", intention="earlier-search")
                 player.observe(Turn({**json.loads(later.recording()), "finished_intentions": [stale]}))
-                self.assertFalse(player.wall_searches)
+                self.assertFalse(player.search_history.wall_searches)
                 final = Turn({**json.loads(later.recording()), "finished_intentions": [search_activity(phase)]})
                 player.observe(final)
                 player.observe(final)
-                self.assertEqual(player.search_attempts_at("start"), int(phase == "resolved"))
-                self.assertEqual(dict(player.wall_searches), {"original-wall": 1} if phase == "resolved" else {})
-                self.assertEqual(player.searches["start"], 1)
+                self.assertEqual(player.search_history.attempts_at("start"), int(phase == "resolved"))
+                self.assertEqual(dict(player.search_history.wall_searches), {"original-wall": 1} if phase == "resolved" else {})
+                self.assertEqual(player.search_history.admissions["start"], 1)
 
     def test_return_connection_sites_only_include_the_players_side_of_a_barrier(self):
         cells = [cell("here"), cell("west-wall", 1, wall=True), cell("stairs", 2, up=True),
@@ -1524,14 +1539,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(phase=phase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.observe(turn)
-                player.searches["here"] = 2
+                player.search_history.admissions["here"] = 2
                 search = UseAbility(turn.abilities[0])
                 player.admitted(turn, search, receipt)
                 final = Turn({**json.loads(turn.recording()), "finished_intentions": [search_activity(phase)]})
                 player.observe(final)
                 decision = player.search_return_connection(final, player.maps[player.depth], {"stairs"})
                 self.assertEqual(decision, None if phase == "resolved" else (search, "search"))
-                self.assertEqual(player.searches["here"], 3)
+                self.assertEqual(player.search_history.admissions["here"], 3)
 
     def test_search_prefers_two_distinct_walls_over_two_views_of_one_wall(self):
         turn = search_turn([cell("here"), cell("same-wall", y=-1, wall=True),
@@ -1567,12 +1582,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         memory = player.maps[1]
         for limit in (3, 6):
             with self.subTest(limit=limit):
-                player.searches["here"] = limit
+                player.search_history.admissions["here"] = limit
                 self.assertIsNone(player.search(turn, memory, returning=False, allow_unseen=False,
                                                 wall_limit=limit))
                 self.assertEqual(player.search(turn, memory, returning=False, wall_limit=limit),
                                  (UseAbility(turn.abilities[0]), "search"))
-                player.searches["here"] += 1
+                player.search_history.admissions["here"] += 1
                 self.assertIsNone(player.search(turn, memory, returning=False, wall_limit=limit))
 
     def test_equivalent_wall_searches_prefer_a_route_outside_recent_danger(self):
@@ -3809,8 +3824,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.admitted(turn, UseAbility(turn.abilities[0]), receipt)
                 player.observe(Turn({**json.loads(turn.recording()), "finished_intentions": [
                     search_activity("resolved")]}))
-                self.assertEqual(player.searches["stairs"], 1)
-                self.assertEqual(player.completed_end_searches["stairs"], 0)
+                self.assertEqual(player.search_history.admissions["stairs"], 1)
+                self.assertEqual(player.search_history.completed_end_searches["stairs"], 0)
 
     def test_searches_closed_corridor_end_six_times_before_exploring_elsewhere(self):
         import json
@@ -3836,10 +3851,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             # Reobserving the same outcome must not credit the dead end twice.
             player.observe(turn)
             player.observe(turn)
-            self.assertEqual(player.searches["end"], index + 1)
-            self.assertEqual(player.completed_end_searches["end"], outcomes[:index + 1].count("resolved"))
+            self.assertEqual(player.search_history.admissions["end"], index + 1)
+            self.assertEqual(player.search_history.completed_end_searches["end"], outcomes[:index + 1].count("resolved"))
         self.assertEqual(choose(player, turn)[1], "explore")
-        player.completed_end_searches["end"] = 1
+        player.search_history.completed_end_searches["end"] = 1
         walls[1]["wall"] = False
         self.assertEqual(choose(player, player_turn(room, abilities=[ability]))[1], "explore")
 
@@ -4415,7 +4430,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(turn)
         player.maps[4].visited.update({"here", "search-site"})
         self.assertEqual(player.choose(turn), (Move(Direction.EAST), "search"))
-        player.searches["search-site"] = 3
+        player.search_history.admissions["search-site"] = 3
         self.assertEqual(player.choose(turn), (Move(Direction.SOUTH), "explore"))
 
 
@@ -4428,7 +4443,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn(cells, abilities=[ability])
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.observe(turn)
-                player.searches[exhausted] = 3
+                player.search_history.admissions[exhausted] = 3
                 memory = player.maps[player.depth]
                 self.assertEqual(player.search_return_connection(turn, memory, memory.stairs(Direction.UP)),
                                  (Move(expected), "search"))
@@ -4442,10 +4457,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observe(turn)
         memory = player.maps[player.depth]
-        player.searches["end"] = 7
+        player.search_history.admissions["end"] = 7
         for completed, expected in ((5, (Move(Direction.EAST), "search")), (6, None)):
             with self.subTest(completed=completed):
-                player.completed_end_searches["end"] = completed
+                player.search_history.completed_end_searches["end"] = completed
                 self.assertEqual(player.search_return_connection(turn, memory, {"stairs"}), expected)
 
     def test_stair_in_a_sealed_corridor_uses_the_ordinary_return_search_limit(self):
@@ -4457,7 +4472,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         memory = player.maps[player.depth]
         for attempts, expected in ((2, {"landing"}), (3, set())):
             with self.subTest(attempts=attempts):
-                player.searches["landing"] = attempts
+                player.search_history.admissions["landing"] = attempts
                 self.assertEqual(player.return_connection_sites(memory, "hall", {"exit"}), expected)
 
     def test_return_search_ignores_walls_around_an_already_connected_stair(self):

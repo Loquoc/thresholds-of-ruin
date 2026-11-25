@@ -59,8 +59,7 @@ from rogue_retreat import (
     route_around_danger, route_to_recovery_shelter, take_corridor,
 )
 from rogue_search import (
-    DEAD_END_SEARCHES, ORDINARY_WALL_SEARCHES, PendingSearch, SearchRank, is_searchable_dead_end,
-    nearby_search_walls, squares_across_stair_walls,
+    ORDINARY_WALL_SEARCHES, SearchHistory, SearchRank, squares_across_stair_walls,
 )
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
@@ -161,11 +160,7 @@ class Adventurer:
     last_exploration_origin: str | None = None
     corridor_stand: tuple[str, int] | None = None
     last_shot_tick: int | None = None
-    searches: Counter[str] = field(default_factory=Counter)
-    unsuccessful_searches: Counter[str] = field(default_factory=Counter)
-    completed_end_searches: Counter[str] = field(default_factory=Counter)
-    pending_search: PendingSearch | None = None
-    wall_searches: Counter[str] = field(default_factory=Counter)
+    search_history: SearchHistory = field(default_factory=SearchHistory)
     ascent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
     descent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
     entered_floor_at: int | None = None
@@ -228,7 +223,7 @@ class Adventurer:
         here = turn.cell
         if here and turn.can_act and not self.holding_corridor(here, turn.tick):
             self.corridor_stand = None
-        self.observe_search(turn)
+        self.search_history.observe(turn)
         self.potion_trials.observe(turn)
         self.scroll_trials.observe(turn)
         self.expire_danger_warnings(turn.tick)
@@ -395,7 +390,7 @@ class Adventurer:
             case UseItem():
                 self.remember_item_use(turn, action, receipt, reason)
             case UseAbility() if action.ability.identity == "rogue.search" and turn.cell:
-                self.remember_search(turn, turn.cell, receipt)
+                self.search_history.admit(turn, turn.cell, receipt, self.maps.get(self.depth))
             case Shot():
                 self.last_shot_tick = turn.tick
 
@@ -429,29 +424,6 @@ class Adventurer:
         gain = meal.observed_gain(turn)
         if gain is not None:
             self.food_value[meal.identity] = min(gain, self.food_value.get(meal.identity, gain))
-
-    def observe_search(self, turn: Turn) -> None:
-        search = self.pending_search
-        if search is None:
-            return
-        phase = turn.outcome_of(search.receipt)
-        if phase is ActivityPhase.RESOLVED:
-            self.wall_searches.update(search.walls)
-            if search.at_dead_end:
-                self.completed_end_searches[search.origin] += 1
-        elif phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-            self.unsuccessful_searches[search.origin] += 1
-        else:
-            return
-        self.pending_search = None
-
-    def remember_search(self, turn: Turn, origin: Cell, receipt: Result | None) -> None:
-        self.searches[origin.key] += 1
-        walls = nearby_search_walls(turn)
-        if receipt is None or receipt.activity is None:
-            self.wall_searches.update(walls)
-            return
-        self.pending_search = PendingSearch(receipt, walls, origin.key, is_searchable_dead_end(origin, self.maps[self.depth]))
 
     def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
         if turn.cell is None:
@@ -1004,19 +976,9 @@ class Adventurer:
         return next((UseAbility(ability) for ability in turn.abilities
                      if ability.identity == "rogue.search" and ability.ready), None)
 
-    def search_attempts_at(self, key: str) -> int:
-        """Count admitted searches toward the site limit unless the game reports failure or cancellation."""
-        return self.searches[key] - self.unsuccessful_searches[key]
-
-    def remaining_dead_end_searches(self, site: Cell | RememberedCell, memory: FloorMap) -> int | None:
-        """Return the unused completed-search allowance, or None for an ordinary search site."""
-        if not is_searchable_dead_end(site, memory):
-            return None
-        return max(0, DEAD_END_SEARCHES - self.completed_end_searches[site.key])
-
     def search_dead_end(self, turn: Turn, memory: FloorMap) -> UseAbility | None:
         here = turn.cell
-        if here is None or turn.hostiles or not self.remaining_dead_end_searches(here, memory):
+        if here is None or turn.hostiles or not self.search_history.remaining_dead_end_searches(here, memory):
             return None
         return self.ready_search(turn)
 
@@ -1059,9 +1021,9 @@ class Adventurer:
         """Find unexhausted search squares across a wall from a disconnected stair passage."""
         sites: set[str] = set()
         for cell in squares_across_stair_walls(memory, origin, upstairs):
-            remaining = self.remaining_dead_end_searches(cell, memory)
+            remaining = self.search_history.remaining_dead_end_searches(cell, memory)
             if remaining is None:
-                remaining = ORDINARY_WALL_SEARCHES - self.search_attempts_at(cell.key)
+                remaining = ORDINARY_WALL_SEARCHES - self.search_history.attempts_at(cell.key)
             if remaining > 0:
                 sites.add(cell.key)
         if sites - {origin}:
@@ -1098,22 +1060,22 @@ class Adventurer:
         neighbors = memory.adjacent(site.key)
         can_search_unseen = allow_unseen and len(neighbors) < 4
         wall_keys = {cell.key for cell in neighbors if cell.wall}
-        remaining = self.remaining_dead_end_searches(site, memory)
+        remaining = self.search_history.remaining_dead_end_searches(site, memory)
         if remaining is not None:
             if remaining == 0 or turn.hostiles:
                 return None
             untested = wall_keys
             value = remaining * len(untested)
         else:
-            attempts = self.search_attempts_at(site.key)
+            attempts = self.search_history.attempts_at(site.key)
             # A missing cardinal neighbor allows one final search after the wall budget runs out.
             site_limit = wall_limit + int(can_search_unseen)
             if attempts >= site_limit:
                 return None
             untested = set()
             if attempts < wall_limit:
-                untested = {key for key in wall_keys if self.wall_searches[key] < wall_limit}
-            value = sum(wall_limit - self.wall_searches[key] for key in untested)
+                untested = {key for key in wall_keys if self.search_history.wall_searches[key] < wall_limit}
+            value = sum(wall_limit - self.search_history.wall_searches[key] for key in untested)
         if not untested and not can_search_unseen:
             return None
         near_exit = returning and any(
