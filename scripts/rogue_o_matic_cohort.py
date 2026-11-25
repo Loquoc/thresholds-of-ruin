@@ -114,6 +114,12 @@ def summarize(rows):
     }
 
 
+def observed_reserve(row: dict) -> int | None:
+    """Return a signed nutrition reading when the trace contains an integer sample."""
+    value = row.get("nutrition_reserve")
+    return value if type(value) is int else None
+
+
 @dataclass(frozen=True)
 class TraceSite:
     floor: int
@@ -136,7 +142,7 @@ class AdmittedMove:
             return None
         receipt = result.get("receipt") or {}
         if intention := receipt.get("intention"):
-            return cls(intention, origin, row.get("reason"), row.get("tick"), row.get("nutrition_reserve"))
+            return cls(intention, origin, row.get("reason"), row.get("tick"), observed_reserve(row))
         return None
 
     def record_supply_cost(self, row: dict, detours: dict) -> None:
@@ -147,8 +153,9 @@ class AdmittedMove:
             detours["ticks"] += end_tick - self.tick
         else:
             detours["untimed_steps"] = detours.get("untimed_steps", 0) + 1
-        if row.get("nutrition_reserve") is not None and self.reserve is not None:
-            detours["reserve_spent"] += max(0, self.reserve - row["nutrition_reserve"])
+        end_reserve = observed_reserve(row)
+        if end_reserve is not None and self.reserve is not None:
+            detours["reserve_spent"] += max(0, self.reserve - end_reserve)
 
     def resolved_at(self, row, site: TraceSite) -> bool:
         return (row.get("previous_intention_id") == self.intention
@@ -175,7 +182,7 @@ class FloorVisits:
 
     def record_observation(self, row: dict) -> None:
         floor = row["floor"]
-        reserve = row.get("nutrition_reserve")
+        reserve = observed_reserve(row)
         metrics = self.floors.setdefault(str(floor), {
             "searches_admitted": 0, "searches_resolved": 0, "searches_failed": 0,
             "moves_admitted": 0,

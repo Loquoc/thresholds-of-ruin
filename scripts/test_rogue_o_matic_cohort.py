@@ -525,6 +525,28 @@ assert get_type_hints(play)["player"] is Adventurer
                         expected["untimed_steps"] = untimed
                     self.assertEqual(progress["supply_detours"], expected)
 
+    def test_invalid_reserve_readings_preserve_detour_timing_and_valid_floor_samples(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        move = {"floor": 1, "cell": "hall", "known_cells": 2, "tick": 10, "reason": "seek_supplies",
+                "action": {"type": "move"}, "result": {"status": "confirmed", "receipt": {"intention": "move"}}}
+        end = {"floor": 1, "cell": "shelf", "known_cells": 2, "tick": 35, "terminal": "action_budget",
+               "previous_intention_id": "move", "previous_intention_phase": "resolved"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            for before, after in ((90, "bad"), (True, 90)):
+                with self.subTest(before=before, after=after):
+                    rows = [dict(move, nutrition_reserve=before), dict(end, nutrition_reserve=after)]
+                    path.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+                    terminal, progress = trace_report(path)
+                    self.assertEqual(terminal, rows[-1])
+                    self.assertEqual(progress["supply_detours"], {"ticks": 25, "reserve_spent": 0, "resolved_steps": 1})
+                    floor = progress["floors"]["1"]
+                    self.assertEqual((floor["first_reserve"], floor["lowest_reserve"], floor["last_reserve"]),
+                                     (90, 90, 90))
+
     def test_trace_gap_breaks_movement_costs_and_floor_transitions(self):
         from pathlib import Path
         import tempfile
