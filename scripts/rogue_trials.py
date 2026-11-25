@@ -10,9 +10,10 @@ def trial_appearance(item: Item) -> str:
     return item.appearance or item.name
 
 
-def stack_is_intact(turn: Turn, original: Item) -> bool:
-    """Whether the player still carries the same item stack at its pre-use quantity."""
-    return any(item.target == original.target and item.quantity == original.quantity for item in turn.inventory)
+def stack_was_reduced(turn: Turn, original: Item) -> bool:
+    """A missing or smaller stack is evidence of consumption after an interrupted trial."""
+    remaining = next((item.quantity for item in turn.inventory if item.target == original.target), 0)
+    return remaining < original.quantity
 
 
 def resolved_or_history_expired(turn: Turn, phase: ActivityPhase | None, submitted_at: int | None) -> bool:
@@ -57,7 +58,7 @@ class PotionTrials:
         potion, receipt = self.pending
         phase = turn.outcome_of(receipt)
         if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-            if not stack_is_intact(turn, potion):
+            if stack_was_reduced(turn, potion):
                 self.sampled.add(trial_appearance(potion))
         elif resolved_or_history_expired(turn, phase, self.submitted_at):
             self.sampled.add(trial_appearance(potion))
@@ -113,7 +114,7 @@ class ScrollTrials:
         if trial is None:
             return
         self.stalled.add((trial.floor, trial.scroll.target))
-        if not stack_is_intact(turn, trial.scroll):
+        if stack_was_reduced(turn, trial.scroll):
             self.sampled.add(trial_appearance(trial.scroll))
         self.pending = None
 

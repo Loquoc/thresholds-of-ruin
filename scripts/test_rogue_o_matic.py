@@ -1936,7 +1936,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                interactions={"inventory": [{"item": "flask", "drinkable": True}]})
         receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "drink", "phase": "queued"}
         for phase, quantity, expected in (("failed", 2, "test_unknown_potion"), ("cancelled", 2, "test_unknown_potion"),
-                                          ("resolved", 2, "descend"), ("failed", 1, "descend")):
+                                          ("failed", 3, "test_unknown_potion"), ("resolved", 2, "descend"),
+                                          ("failed", 1, "descend")):
             with self.subTest(phase=phase, quantity=quantity):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 before = scene(2, 50)
@@ -3568,7 +3569,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_interrupted_read_keeps_the_appearance_sampled_if_a_scroll_is_missing(self):
         from tor_client_bot import Result
 
-        for remaining in (0, 1, 2):
+        for remaining in (0, 1, 2, 3):
             with self.subTest(remaining=remaining):
                 turn = scroll_trial_turn([cell("here")], ("one", "runed"), ("two", "runed"))
                 picture = json.loads(turn.recording())
@@ -3589,7 +3590,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 observed = Turn(after)
                 player.observe(observed)
                 choice = player.scroll_trial(observed, at_exit=True)
-                self.assertEqual(choice[0].item.target if choice else None, "two" if remaining == 2 else None)
+                self.assertEqual(choice[0].item.target if choice else None, "two" if remaining >= 2 else None)
 
     def test_failed_emergency_read_allows_a_different_scroll_in_the_same_fight(self):
         import json
