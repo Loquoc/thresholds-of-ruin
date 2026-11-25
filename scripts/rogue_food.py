@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from statistics import median_low
 
-from tor_client_bot import Item, ItemUse, Nutrition, Turn
+from tor_client_bot import Item, ItemUse, Nutrition, Result, Turn
 
 
 URGENT_HUNGER = frozenset({"weak", "empty"})
@@ -38,13 +38,14 @@ class PendingMeal:
     identity: str
     quantity_before: int
     reserve_before: int
+    receipt: Result | None = None
 
     @classmethod
-    def before_eating(cls, turn: Turn, item: Item) -> "PendingMeal | None":
+    def before_eating(cls, turn: Turn, item: Item, receipt: Result | None = None) -> "PendingMeal | None":
         nutrition = turn.nutrition
         if item.identity is None or nutrition is None:
             return None
-        return cls(item.identity, carried_quantity(turn, item.identity), nutrition.reserve)
+        return cls(item.identity, carried_quantity(turn, item.identity), nutrition.reserve, receipt)
 
     def observed_gain(self, turn: Turn) -> int | None:
         nutrition = turn.nutrition

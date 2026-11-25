@@ -479,12 +479,18 @@ class Adventurer:
                 self.tried_unknown_scroll = True
             self.sampled_scrolls.add(appearance)
         elif action.use is ItemUse.EAT:
-            self.pending_meal = PendingMeal.before_eating(turn, item)
+            self.pending_meal = PendingMeal.before_eating(turn, item, receipt)
 
     def observe_meal(self, turn: Turn) -> None:
         """Keep the lowest measured gain for each food after the player can act again."""
         meal = self.pending_meal
-        if meal is None or not turn.can_act:
+        if meal is None:
+            return
+        phase = turn.outcome_of(meal.receipt) if meal.receipt else None
+        if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+            self.pending_meal = None
+            return
+        if not turn.can_act or phase not in (None, ActivityPhase.RESOLVED):
             return
         gain = meal.observed_gain(turn)
         if gain is not None:
