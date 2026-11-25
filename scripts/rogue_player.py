@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import NamedTuple
@@ -26,7 +26,6 @@ from tor_client_bot import (
     ItemUse,
     Move,
     Pickup,
-    RememberedCell,
     RestorableLosses,
     Result,
     StairAttempt,
@@ -53,9 +52,7 @@ from rogue_retreat import (
     choose_retreat_step, converging_pursuers, evade_unseen_attacker,
     route_around_danger, route_to_recovery_shelter, take_corridor,
 )
-from rogue_search import (
-    ORDINARY_WALL_SEARCHES, SearchHistory, SearchRank, squares_across_stair_walls,
-)
+from rogue_search import ORDINARY_WALL_SEARCHES, SearchHistory
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScoutHistory, MealHistory, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     FloorTravelTimes,
@@ -863,7 +860,7 @@ class Adventurer:
         search = self.ready_search(turn)
         if turn.cell is None or search is None:
             return None
-        sites = self.return_connection_sites(memory, turn.cell.key, upstairs)
+        sites = self.search_history.return_connection_sites(memory, turn.cell.key, upstairs)
         return self.search_at_sites(turn, memory, sites, search)
 
     def search_at_sites(self, turn: Turn, memory: FloorMap, sites: set[str],
@@ -875,19 +872,6 @@ class Adventurer:
             return step, "search"
         return None
 
-    def return_connection_sites(self, memory: FloorMap, origin: str, upstairs: set[str]) -> set[str]:
-        """Find unexhausted search squares across a wall from a disconnected stair passage."""
-        sites: set[str] = set()
-        for cell in squares_across_stair_walls(memory, origin, upstairs):
-            remaining = self.search_history.remaining_dead_end_searches(cell, memory)
-            if remaining is None:
-                remaining = ORDINARY_WALL_SEARCHES - self.search_history.attempts_at(cell.key)
-            if remaining > 0:
-                sites.add(cell.key)
-        if sites - {origin}:
-            return {cell.key for cell, _ in memory.reachable(origin) if cell.key in sites}
-        return sites
-
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,
                allow_unseen: bool = True, wall_limit: int = ORDINARY_WALL_SEARCHES) -> tuple[Action, str] | None:
         if returning and (action := self.search_dead_end(turn, memory)):
@@ -895,57 +879,12 @@ class Adventurer:
         search = self.ready_search(turn)
         if search is None or turn.cell is None:
             return None
-        for sites in self.ranked_search_sites(turn, memory, returning, allow_unseen, wall_limit):
+        ranked = self.search_history.ranked_search_sites(turn, memory, returning=returning,
+                                                        allow_unseen=allow_unseen, wall_limit=wall_limit)
+        for sites in ranked:
             if decision := self.search_at_sites(turn, memory, sites, search):
                 return decision
         return None
-
-    def ranked_search_sites(self, turn: Turn, memory: FloorMap, returning: bool,
-                           allow_unseen: bool, wall_limit: int) -> Iterator[set[str]]:
-        sites_by_rank: dict[SearchRank, set[str]] = {}
-        for site, distance in memory.reachable(turn.cell.key):
-            rank = self.search_site_rank(turn, memory, site, distance, returning=returning,
-                                         allow_unseen=allow_unseen, wall_limit=wall_limit)
-            if rank is None:
-                continue
-            sites_by_rank.setdefault(rank, set()).add(site.key)
-        # Route to tied destinations together so a clear path wins over a trapped one.
-        for rank in sorted(sites_by_rank, reverse=True):
-            yield sites_by_rank[rank]
-
-    def search_site_rank(self, turn: Turn, memory: FloorMap, site: RememberedCell, distance: int, *,
-                         returning: bool, allow_unseen: bool, wall_limit: int) -> SearchRank | None:
-        neighbors = memory.adjacent(site.key)
-        can_search_unseen = allow_unseen and len(neighbors) < 4
-        wall_keys = {cell.key for cell in neighbors if cell.wall}
-        remaining = self.search_history.remaining_dead_end_searches(site, memory)
-        if remaining is not None:
-            if remaining == 0 or turn.hostiles:
-                return None
-            untested = wall_keys
-            value = remaining * len(untested)
-        else:
-            attempts = self.search_history.attempts_at(site.key)
-            # A missing cardinal neighbor allows one final search after the wall budget runs out.
-            site_limit = wall_limit + int(can_search_unseen)
-            if attempts >= site_limit:
-                return None
-            untested = set()
-            if attempts < wall_limit:
-                untested = {key for key in wall_keys if self.search_history.wall_searches[key] < wall_limit}
-            value = sum(wall_limit - self.search_history.wall_searches[key] for key in untested)
-        if not untested and not can_search_unseen:
-            return None
-        near_exit = returning and any(
-            neighbor.stairs_up for key in untested for neighbor in memory.adjacent(key)
-        )
-        # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
-        return SearchRank(
-            near_return_stairs=near_exit,
-            has_searchable_walls=bool(untested),
-            value_after_travel=value - distance * 2,
-            negative_distance=-distance,
-        )
 
     def estimated_journey_ticks(self, returning: bool) -> int:
         """Budget the shallower return legs and the round trips still ahead."""

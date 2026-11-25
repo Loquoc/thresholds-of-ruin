@@ -1,6 +1,7 @@
 """Map geometry and observations used when searching for concealed passages."""
 
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -96,3 +97,63 @@ class SearchHistory:
         if not is_searchable_dead_end(site, memory):
             return None
         return max(0, DEAD_END_SEARCHES - self.completed_end_searches[site.key])
+
+    def return_connection_sites(self, memory: FloorMap, origin: str, upstairs: set[str]) -> set[str]:
+        """Find unexhausted search squares across a wall from a disconnected stair passage."""
+        sites: set[str] = set()
+        for cell in squares_across_stair_walls(memory, origin, upstairs):
+            remaining = self.remaining_dead_end_searches(cell, memory)
+            if remaining is None:
+                remaining = ORDINARY_WALL_SEARCHES - self.attempts_at(cell.key)
+            if remaining > 0:
+                sites.add(cell.key)
+        if sites - {origin}:
+            return {cell.key for cell, _ in memory.reachable(origin) if cell.key in sites}
+        return sites
+
+    def ranked_search_sites(self, turn: Turn, memory: FloorMap, *, returning: bool,
+                           allow_unseen: bool, wall_limit: int) -> Iterator[set[str]]:
+        sites_by_rank: dict[SearchRank, set[str]] = {}
+        for site, distance in memory.reachable(turn.cell.key):
+            rank = self.search_site_rank(turn, memory, site, distance, returning=returning,
+                                         allow_unseen=allow_unseen, wall_limit=wall_limit)
+            if rank is None:
+                continue
+            sites_by_rank.setdefault(rank, set()).add(site.key)
+        # Route to tied destinations together so a clear path wins over a trapped one.
+        for rank in sorted(sites_by_rank, reverse=True):
+            yield sites_by_rank[rank]
+
+    def search_site_rank(self, turn: Turn, memory: FloorMap, site: RememberedCell, distance: int, *,
+                         returning: bool, allow_unseen: bool, wall_limit: int) -> SearchRank | None:
+        neighbors = memory.adjacent(site.key)
+        can_search_unseen = allow_unseen and len(neighbors) < 4
+        wall_keys = {cell.key for cell in neighbors if cell.wall}
+        remaining = self.remaining_dead_end_searches(site, memory)
+        if remaining is not None:
+            if remaining == 0 or turn.hostiles:
+                return None
+            untested = wall_keys
+            value = remaining * len(untested)
+        else:
+            attempts = self.attempts_at(site.key)
+            # A missing cardinal neighbor allows one final search after the wall budget runs out.
+            site_limit = wall_limit + int(can_search_unseen)
+            if attempts >= site_limit:
+                return None
+            untested = set()
+            if attempts < wall_limit:
+                untested = {key for key in wall_keys if self.wall_searches[key] < wall_limit}
+            value = sum(wall_limit - self.wall_searches[key] for key in untested)
+        if not untested and not can_search_unseen:
+            return None
+        near_exit = returning and any(
+            neighbor.stairs_up for key in untested for neighbor in memory.adjacent(key)
+        )
+        # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
+        return SearchRank(
+            near_return_stairs=near_exit,
+            has_searchable_walls=bool(untested),
+            value_after_travel=value - distance * 2,
+            negative_distance=-distance,
+        )

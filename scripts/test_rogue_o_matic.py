@@ -1672,7 +1672,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observe(search_turn(cells))
         memory = player.maps[player.depth]
-        self.assertEqual(player.return_connection_sites(memory, "here", {"stairs"}), {"here"})
+        self.assertEqual(player.search_history.return_connection_sites(memory, "here", {"stairs"}), {"here"})
 
     def test_search_at_the_current_wall_needs_no_movement_route(self):
         turn = search_turn([cell("here"), cell("wall", 1, wall=True), cell("stairs", 2, up=True)])
@@ -4046,6 +4046,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                        ground=[{**pos, "item": item, "reachable": reachable}])
                     self.assertEqual(choose(player, turn)[1], reason)
 
+    def test_failed_search_reopens_an_exhausted_site_for_the_final_unseen_search(self):
+        from tor_client_bot import Result
+
+        turn = search_turn([cell("here")])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        memory = player.maps[player.depth]
+        history = player.search_history
+        receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
+        history.admit(turn, turn.cell, receipt, memory)
+        def sites():
+            return list(history.ranked_search_sites(turn, memory, returning=False, allow_unseen=True, wall_limit=0))
+
+        self.assertEqual(sites(), [])
+        history.observe(Turn({**json.loads(turn.recording()), "finished_intentions": [search_activity("failed")]}))
+        self.assertEqual(sites(), [{"here"}])
+
     def test_resolved_stair_search_counts_as_an_attempt_without_spending_a_dead_end_search(self):
         from tor_client_bot import Result
 
@@ -4721,7 +4738,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         for attempts, expected in ((2, {"landing"}), (3, set())):
             with self.subTest(attempts=attempts):
                 player.search_history.admissions["landing"] = attempts
-                self.assertEqual(player.return_connection_sites(memory, "hall", {"exit"}), expected)
+                self.assertEqual(player.search_history.return_connection_sites(memory, "hall", {"exit"}), expected)
 
     def test_return_search_ignores_walls_around_an_already_connected_stair(self):
         cells = [cell("open-stair", -1, up=True), cell("here"), cell("hall", 1),
@@ -4730,7 +4747,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observe(player_turn(cells))
         memory = player.maps[player.depth]
-        self.assertEqual(player.return_connection_sites(memory, "here", memory.stairs(Direction.UP)),
+        self.assertEqual(player.search_history.return_connection_sites(memory, "here", memory.stairs(Direction.UP)),
                          {"hall"})
 
     def test_return_search_traverses_a_shared_stair_passage_once(self):
