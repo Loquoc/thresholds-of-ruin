@@ -1271,11 +1271,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observe(turn)
         memory = player.maps[1]
-        player.searches["here"] = 3
-        self.assertIsNone(player.search(turn, memory, returning=False, allow_unseen=False))
-        self.assertEqual(player.search(turn, memory, returning=False), (UseAbility(turn.abilities[0]), "search"))
-        player.searches["here"] += 1
-        self.assertIsNone(player.search(turn, memory, returning=False))
+        for limit in (3, 6):
+            with self.subTest(limit=limit):
+                player.searches["here"] = limit
+                self.assertIsNone(player.search(turn, memory, returning=False, allow_unseen=False,
+                                                wall_limit=limit))
+                self.assertEqual(player.search(turn, memory, returning=False, wall_limit=limit),
+                                 (UseAbility(turn.abilities[0]), "search"))
+                player.searches["here"] += 1
+                self.assertIsNone(player.search(turn, memory, returning=False, wall_limit=limit))
 
     def test_equivalent_wall_searches_prefer_a_route_outside_recent_danger(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,

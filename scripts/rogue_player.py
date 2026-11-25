@@ -70,6 +70,7 @@ MELEE_INJURY_PRIORITY = {
     Injury.BADLY_WOUNDED: 2,
     Injury.WOUNDED: 1,
 }
+ORDINARY_WALL_SEARCHES = 3
 DEAD_END_SEARCHES = 6
 RECENT_DANGER_TICKS = 1200
 ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
@@ -1098,7 +1099,7 @@ class Adventurer:
         for cell in squares_across_stair_walls(memory, origin, upstairs):
             remaining = self.remaining_dead_end_searches(cell, memory)
             if remaining is None:
-                remaining = 3 - self.search_attempts_at(cell.key)
+                remaining = ORDINARY_WALL_SEARCHES - self.search_attempts_at(cell.key)
             if remaining > 0:
                 sites.add(cell.key)
         if sites - {origin}:
@@ -1106,7 +1107,7 @@ class Adventurer:
         return sites
 
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,
-               allow_unseen: bool = True, wall_limit: int = 3) -> tuple[Action, str] | None:
+               allow_unseen: bool = True, wall_limit: int = ORDINARY_WALL_SEARCHES) -> tuple[Action, str] | None:
         if returning and (action := self.search_dead_end(turn, memory)):
             return action, "search"
         search = self.ready_search(turn)
@@ -1134,9 +1135,9 @@ class Adventurer:
 
     def search_site_rank(self, turn: Turn, memory: FloorMap, site: RememberedCell, distance: int, *,
                          returning: bool, allow_unseen: bool, wall_limit: int) -> SearchRank | None:
-        attempts = self.search_attempts_at(site.key)
         neighbors = memory.adjacent(site.key)
-        walls = [c for c in neighbors if c.wall]
+        can_search_unseen = allow_unseen and len(neighbors) < 4
+        walls = [cell for cell in neighbors if cell.wall]
         remaining = self.remaining_dead_end_searches(site, memory)
         if remaining is not None:
             if remaining == 0 or turn.hostiles:
@@ -1144,11 +1145,16 @@ class Adventurer:
             untested = walls
             value = remaining * len(walls)
         else:
-            if attempts > wall_limit:
+            attempts = self.search_attempts_at(site.key)
+            # A missing cardinal neighbor allows one final search after the wall budget runs out.
+            site_limit = wall_limit + int(can_search_unseen)
+            if attempts >= site_limit:
                 return None
-            untested = [c for c in walls if attempts < wall_limit and self.wall_searches[c.key] < wall_limit]
+            untested = []
+            if attempts < wall_limit:
+                untested = [wall for wall in walls if self.wall_searches[wall.key] < wall_limit]
             value = sum(wall_limit - self.wall_searches[c.key] for c in untested)
-        if not untested and (not allow_unseen or len(neighbors) == 4):
+        if not untested and not can_search_unseen:
             return None
         near_exit = returning and any(
             n.stairs_up for wall in untested for n in memory.adjacent(wall.key)
