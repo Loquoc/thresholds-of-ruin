@@ -3749,6 +3749,31 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertIsNone(player.pending_meal)
                 self.assertEqual(player.food_value, {"fixture.ration": 30} if phase == "resolved" else {})
 
+    def test_resolved_meal_is_measured_before_recovery_drains_the_reserve(self):
+        from tor_client_bot import ItemUse, Result, UseItem
+
+        ration = {"id": "ration", "identity": "fixture.ration", "name": "ration", "class": "food",
+                  "quantity": 1, "identified": True}
+        nutrition = {"kind": "required", "unit_ticks": 100, "elapsed": 0, "maximum": 100,
+                     "reserve": 10, "hunger": "weak"}
+        before = player_turn([cell("here")], inventory=[ration], stats={"nutrition": nutrition},
+                             interactions={"inventory": [{"item": "ration", "edible": True}]})
+        activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": "eat", "phase": "queued"}
+        receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.admitted(before, UseItem(before.inventory[0], ItemUse.EAT), receipt)
+        after = player_turn([cell("here")], tick=100, stats={"nutrition": dict(nutrition, reserve=40)})
+        picture = json.loads(after.recording())
+        picture["readiness"] = {"admission": False}
+        picture["finished_intentions"] = [dict(activity, phase="resolved")]
+        partial = json.loads(player_turn([cell("here")], tick=100).recording())
+        partial.update(readiness=picture["readiness"], finished_intentions=picture["finished_intentions"])
+        player.observe(Turn(partial))
+        self.assertIsNotNone(player.pending_meal)
+        player.observe(Turn(picture))
+        player.observe(player_turn([cell("here")], tick=200, stats={"nutrition": dict(nutrition, reserve=39)}))
+        self.assertEqual(player.food_value, {"fixture.ration": 30})
+
     def test_food_estimate_uses_the_lowest_observed_gain_after_consumption(self):
         from tor_client_bot import ItemUse, UseItem
 

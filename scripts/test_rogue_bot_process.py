@@ -3564,8 +3564,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     player.observe(turn)
 
     def advance(turn, action):
-        assert turn.submit(action).status is Outcome.CONFIRMED
-        player.admitted(turn, action)
+        result = turn.submit(action)
+        assert result.status is Outcome.CONFIRMED, result
+        player.admitted(turn, action, result)
         following = game.wait_for_decision()
         assert following.tick > turn.tick
         player.observe(following)

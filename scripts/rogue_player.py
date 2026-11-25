@@ -408,20 +408,22 @@ class Adventurer:
             self.pending_meal = PendingMeal.before_eating(turn, item, receipt)
 
     def observe_meal(self, turn: Turn) -> None:
-        """Keep the lowest measured gain for each food after the player can act again."""
+        """Measure at resolution, or at the next ready observation for an immediate meal."""
         meal = self.pending_meal
         if meal is None:
             return
-        phase = turn.outcome_of(meal.receipt) if meal.receipt else None
-        if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-            self.pending_meal = None
-            return
-        if not turn.can_act or phase not in (None, ActivityPhase.RESOLVED):
+        if meal.receipt and meal.receipt.activity:
+            phase = turn.outcome_of(meal.receipt)
+            if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED) or (phase is None and turn.can_act):
+                self.pending_meal = None
+                return
+            if phase is not ActivityPhase.RESOLVED:
+                return
+            if turn.nutrition is None and not turn.can_act:
+                return
+        elif not turn.can_act:
             return
         self.pending_meal = None
-        if meal.receipt and meal.receipt.activity and phase is None:
-            # The activity fell outside retained history. Its outcome is unknown.
-            return
         gain = meal.observed_gain(turn)
         if gain is not None:
             self.food_value[meal.identity] = min(gain, self.food_value.get(meal.identity, gain))
