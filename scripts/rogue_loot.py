@@ -21,6 +21,10 @@ def useful_loot(item: Item) -> bool:
     return item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
 
 
+def usable_melee_weapon(item: Item) -> bool:
+    return not item.known_cursed and melee_score(item) >= 0
+
+
 def healing_reserve_gain(item: Item, carried: Counter[str | None]) -> int:
     """Number of missing reserve doses this stack can supply."""
     if item.identity not in HEALING_POTIONS:
@@ -50,9 +54,6 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
     carried: Counter[str | None] = Counter()
     for item in turn.inventory:
         carried[item.identity] += item.quantity
-
-    def usable_melee_weapon(item: Item) -> bool:
-        return not item.known_cursed and melee_score(item) >= 0
 
     needs_weapon = not any(usable_melee_weapon(item) for item in turn.inventory)
     return max(useful, key=lambda item: (healing_reserve_gain(item, carried),
@@ -91,9 +92,12 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
     carried: Counter[str | None] = Counter()
     stock: Counter[str] = Counter()
     usable_gear: set[str] = set()
+    has_melee_weapon = False
     for item in turn.inventory:
         carried[item.identity] += item.quantity
         stock[item.category] += item.quantity
+        if usable_melee_weapon(item):
+            has_melee_weapon = True
         if item.category in {"armor", "ring"} and item.identity is not None and not item.known_cursed:
             usable_gear.add(item.identity)
 
@@ -124,7 +128,8 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
         seek_armor = (item.category == "armor" and item.identity not in usable_gear
                       and not has_spare_armor_to_identify())
         seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
-        if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
+        seek_weapon = not has_melee_weapon and usable_melee_weapon(item)
+        if seek_weapon or seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
             goals.supplies.add(key)
     return goals
 

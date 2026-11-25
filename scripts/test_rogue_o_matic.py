@@ -717,6 +717,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 chosen = player.choose_pickup(turn, turn.ground_items, returning=returning)
                 self.assertEqual(chosen.target if chosen else None, expected)
 
+    def test_first_melee_weapon_is_worth_a_short_outbound_detour(self):
+        weapon = {"id": "blade", "identity": "item.weapon.dagger", "class": "weapon", "name": "dagger",
+                  "quantity": 1, "identified": True}
+        for distance, pack, expected in ((3, [], "seek_supplies"), (4, [], "descend"),
+                                         (3, [{**weapon, "id": "carried"}], "descend")):
+            with self.subTest(distance=distance, armed=bool(pack)):
+                tiles = [cell("exit", down=True), *(cell(str(x), x) for x in range(1, distance + 1))]
+                turn = player_turn(tiles, inventory=pack, ground=[{**tiles[-1], "item": weapon, "reachable": False}])
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason, expected)
+                self.assertEqual(action.direction, Direction.EAST if expected == "seek_supplies" else Direction.DOWN)
+
     def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
         here, near = cell("exit", down=True), cell("ring", 1)
         slot = {"id": "ring", "name": "Finger"}

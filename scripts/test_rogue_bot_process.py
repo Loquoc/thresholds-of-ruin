@@ -1738,6 +1738,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual(rows[0]["reason"], "seek_supplies")
         return rows
 
+    def test_unarmed_bot_walks_to_a_visible_dagger_and_equips_it(self):
+        self.check_supply_detour("rogue.dagger", ["item.weapon.dagger"], "equip_melee")
+
     def check_supply_detour(self, archetype, known, use):
         rows = self.run_supply_detour(archetype, known, budget=6)
         take = next(i for i, row in enumerate(rows) if row.get("reason") == "take")
