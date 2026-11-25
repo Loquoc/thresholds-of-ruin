@@ -1500,6 +1500,8 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(report["terminal"], "death")
         self.assertEqual(report["last_nutrition"], {"kind": "required", "reserve": -3, "starve_at": -3})
         self.assertEqual(death_cause(report), "starvation")
+        journal_only = {key: report[key] for key in ("self_target", "events_since_previous_action")}
+        self.assertEqual(death_cause(journal_only), "starvation")
 
     def test_bot_eats_server_offered_food_without_a_ration_tag(self):
         first, second, terminal = self.nutrition_run(2, initial=2, unit_ticks=1000)

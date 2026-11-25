@@ -37,7 +37,8 @@ POLICY_FILES = (
 
 
 def death_cause(report):
-    if cause := combat_death_cause(report.get("last_combat_events", []), report.get("self_target")):
+    history = report.get("last_combat_events", report.get("events_since_previous_action", []))
+    if cause := combat_death_cause(history, report.get("self_target")):
         return cause
     nutrition = report.get("last_nutrition")
     if isinstance(nutrition, dict) and nutrition.get("kind") == "required":

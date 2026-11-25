@@ -294,6 +294,15 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual(death_cause({"last_combat_events": events, "self_target": "player"}),
                          "rogue.venomous_bite")
 
+    def test_death_summary_can_use_the_final_journal_when_the_snapshot_is_missing(self):
+        attack = {"type": "ability", "caster": "snake", "target": "hero", "outcome": "applied",
+                  "ability": {"id": "rogue.venomous_bite"}}
+        death = {"type": "died", "actor": "hero", "cause": "injury"}
+        journal_only = {"terminal": "death", "self_target": "hero", "events_since_previous_action": [attack, death]}
+        snapshot = {**journal_only, "last_combat_events": [{**death, "cause": "starvation"}]}
+        self.assertEqual(summarize([journal_only, snapshot])["deaths_by_cause"],
+                         {"rogue.venomous_bite": 1, "starvation": 1})
+
     def test_multiple_deaths_without_a_player_target_leave_attack_attribution_unresolved(self):
         from rogue_o_matic_cohort import death_cause
 
