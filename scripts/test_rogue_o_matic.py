@@ -553,6 +553,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Move(Direction.EAST), "seek_supplies"))
 
+    def test_visible_food_detour_crosses_recent_danger_only_when_required(self):
+        stairs, near, hall, far = cell("stairs", down=True), cell("near", 1), cell("hall", -1), cell("far", -2)
+        food = {"id": "ration", "name": "ration", "class": "food", "identified": False, "quantity": 1}
+        for sites, expected in (((near, far), Direction.WEST), ((near,), Direction.EAST)):
+            with self.subTest(destinations=[site["key"] for site in sites]):
+                turn = player_turn([stairs, near, hall, far], ground=[
+                    {**site, "item": {**food, "id": site["key"]}, "reachable": False} for site in sites])
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                player.danger_until["near"] = 900
+                self.assertEqual(player.choose(turn), (Move(expected), "seek_item"))
+
     def test_food_detour_does_not_require_equipment_choices(self):
         stairs, nearby = cell("stairs", down=True), cell("ration", 1)
         ration = {"id": "food", "name": "ration", "class": "food", "quantity": 1, "identified": False}

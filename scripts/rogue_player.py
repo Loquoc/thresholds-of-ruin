@@ -48,7 +48,7 @@ from tor_client_bot import (
     Zap,
 )
 
-from rogue_loot import DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, route_to_loot, useful_loot
+from rogue_loot import DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, route_to_loot, supply_route, useful_loot
 from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_corridor
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
@@ -1194,14 +1194,7 @@ class Adventurer:
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
         food_cells = memory.cells_with_item(lambda item: item.category == "food")
-        return self.food_route(turn, memory, food_cells)
-
-    def food_route(self, turn: Turn, memory: FloorMap, goals: set[str]) -> Action | None:
-        """Cross recent danger for food only when every route requires it."""
-        if goals and self.danger_until:
-            if step := memory.toward(turn, goals, avoid=self.danger_until.keys()):
-                return step
-        return memory.toward(turn, goals)
+        return supply_route(turn, memory, food_cells, self.danger_until.keys())
 
     def finish_food_scout(self) -> None:
         """A completed scout stays closed on later visits to the same floor."""
@@ -1234,7 +1227,7 @@ class Adventurer:
             )
         scout = self.food_scouts[self.depth]
         if scout is not None and turn.tick < scout.deadline:
-            if step := self.food_route(turn, memory, memory.frontier):
+            if step := supply_route(turn, memory, memory.frontier, self.danger_until.keys()):
                 return step, "scout_for_food"
         return None
 
