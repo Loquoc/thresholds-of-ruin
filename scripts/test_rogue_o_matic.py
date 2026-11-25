@@ -4829,6 +4829,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.travel_times.ascent[1] = travel
                 self.assertEqual(player.recovery_action(turn), expected)
 
+    def test_unknown_wands_share_one_check_of_a_blocked_firing_lane(self):
+        from unittest.mock import patch
+
+        cells = [cell(str(x), x, wall=x == 2) for x in range(5)]
+        foe = {"id": "emu", "name": "emu", "position": cells[3]["position"]}
+        wands = [{"id": name, "name": name, "class": "wand", "identified": False, "quantity": 1}
+                 for name in ("oak", "ash")]
+        offers = [{"item": wand["id"], "device_activation": "direction", "zappable": True} for wand in wands]
+        turn = player_turn(cells, actors=[foe], hostiles=["emu"], inventory=wands, interactions={"inventory": offers})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        with patch.object(turn, "aim_device", wraps=turn.aim_device) as aim:
+            self.assertIsNone(player.try_unknown_wand(turn))
+        aim.assert_called_once()
+
     def test_player_samples_a_wand_appearance_once_and_only_with_clearance(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         cells = [cell(str(x), x) for x in range(5)]

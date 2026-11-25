@@ -573,15 +573,20 @@ class Adventurer:
         health = turn.health
         if not health or recovery_deficit(health) > 0 or self.carrying_objective(turn):
             return None
-        if any(turn.distance_to(foe) < 3 for foe in turn.hostiles):
+        # All eligible trial wands use the same directional aim and reflection range.
+        device = next((wand for wand in turn.devices if self.wand_trials.can_experiment(wand)), None)
+        if device is None:
             return None
-        for device in turn.devices:
-            if not self.wand_trials.can_experiment(device):
-                continue
-            for foe in turn.hostiles:
-                if turn.distance_to(foe) <= 4:
-                    if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
-                        return zap
+        targets = []
+        for foe in turn.hostiles:
+            distance = turn.distance_to(foe)
+            if distance < 3:
+                return None
+            if distance <= 4:
+                targets.append(foe)
+        for foe in targets:
+            if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+                return zap
         return None
 
     def counter_threat(self, turn: Turn, health: int, *, in_melee: bool = False) -> tuple[Zap, str] | None:
