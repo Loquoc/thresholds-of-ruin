@@ -124,6 +124,10 @@ def choose_healing_potion(turn: Turn, *, two_hit_threat: bool) -> Item | None:
     return max(doses, key=lambda item: item.identity == preferred, default=None)
 
 
+def below_half_health(health: Health | None) -> bool:
+    return health is not None and health.current * 2 < health.maximum
+
+
 def recovery_deficit(health: Health) -> int:
     """Hit points needed to reach four fifths of maximum health, rounded up."""
     target = (4 * health.maximum + 4) // 5
@@ -462,8 +466,8 @@ class Adventurer:
             # Allow pursuers to reach the choke even when the doorway breaks sight.
             self.corridor_stand = entrance.key, turn.tick + 600
         self.last_retreat_origin = turn.cell.key if reason == MemoryReason.RETREAT_TO_STAIRS else None
-        if (reason in {MemoryReason.RETREAT, MemoryReason.BREAK_CONTACT} and turn.health
-                and turn.health.current * 2 < turn.health.maximum):
+        if (reason in {MemoryReason.RETREAT, MemoryReason.BREAK_CONTACT}
+                and below_half_health(turn.health)):
             self.recovering_from_pursuit = True
         if action.direction in (Direction.UP, Direction.DOWN):
             self.pending_stair = turn.stair_attempt(action, receipt)
@@ -513,11 +517,14 @@ class Adventurer:
         # Allow one closing step before a creature can strike in contact.
         return foe.name in self.draining_creatures and turn.distance_to(foe) <= 2
 
-    def survival_consumable(self, turn: Turn, *, needs_healing: bool, lethal: bool,
-                            two_hit_threat: bool) -> tuple[UseItem, str] | None:
+    def survival_consumable(self, turn: Turn, exposure: MeleeExposure) -> tuple[UseItem, str] | None:
         """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
-        if needs_healing:
-            if potion := choose_healing_potion(turn, two_hit_threat=two_hit_threat):
+        health = turn.health
+        lethal = exposure.threatens(health, rounds=1)
+        heal_while_surrounded = (len(exposure.foes) >= 2 and health is not None
+                                 and health.current * 4 < health.maximum * 3)
+        if below_half_health(health) or lethal or heal_while_surrounded:
+            if potion := choose_healing_potion(turn, two_hit_threat=exposure.threatens(health, rounds=2)):
                 return UseItem(potion, ItemUse.DRINK), "heal"
 
         if lethal:
@@ -530,17 +537,14 @@ class Adventurer:
 
     def combat(self, turn: Turn) -> tuple[Action, str] | None:
         health = turn.health
-        injured = health is not None and health.current * 2 < health.maximum
         exposure = self.melee_exposure(turn)
-        adjacent = exposure.foes
-        surrounded = len(adjacent) >= 2
-        lethal = exposure.threatens(health, rounds=1)
-        two_hit_threat = exposure.threatens(health, rounds=2)
-        needs_healing = injured or lethal or (surrounded and health is not None and health.current * 4 < health.maximum * 3)
-        if decision := self.survival_consumable(turn, needs_healing=needs_healing, lethal=lethal,
-                                                two_hit_threat=two_hit_threat):
+        if decision := self.survival_consumable(turn, exposure):
             return decision
 
+        adjacent = exposure.foes
+        surrounded = len(adjacent) >= 2
+        injured = below_half_health(health)
+        two_hit_threat = exposure.threatens(health, rounds=2)
         if adjacent and (two_hit_threat or injured or surrounded):
             if zap := self.aim_combat_wand(turn, adjacent, {"item.wand.wand-teleport-away"}):
                 return zap, "displace_threat"
@@ -571,7 +575,7 @@ class Adventurer:
         if decision := self.ranged_combat(turn, adjacent):
             return decision
 
-        if lethal and not self.scroll_trials.tried_in_encounter:
+        if exposure.threatens(health, rounds=1) and not self.scroll_trials.tried_in_encounter:
             if trial := self.scroll_trial(turn):
                 return trial
 

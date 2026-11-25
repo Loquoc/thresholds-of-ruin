@@ -3181,10 +3181,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 for name, x in [("east", 1), ("west", -1)]]
         potion = {"id": "heal", "name": "elixir", "identity": "item.potion.healing",
                   "identified": True, "quantity": 1}
-        for hp, healing in [(7, True), (8, False)]:
-            with self.subTest(hp=hp):
-                turn = player_turn([cell("here"), cell("west", -1), cell("east", 1)], actors=foes,
-                                   hostiles=["east", "west"], inventory=[potion], combat={"hp": str(hp)},
+        for hp, contacts, healing in [(5, 1, True), (6, 1, False), (8, 2, True), (9, 2, False)]:
+            with self.subTest(hp=hp, contacts=contacts):
+                turn = player_turn([cell("here"), cell("west", -1), cell("east", 1)], actors=foes[:contacts],
+                                   hostiles=[foe["id"] for foe in foes[:contacts]], inventory=[potion],
+                                   combat={"hp": hp, "max_hp": 12},
                                    interactions={"inventory": [{"item": "heal", "drinkable": True}]})
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual(reason == "heal", healing)
