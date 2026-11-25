@@ -64,7 +64,7 @@ from rogue_food import (
     FloorTravelTimes,
 )
 from rogue_gear import (
-    can_identify_carried_item, can_wield_shortbow, choose_armor, choose_ring, improve_worn_gear,
+    can_wield_shortbow, choose_armor, choose_growth_or_identification, choose_ring, improve_worn_gear,
     identification_target, offered_item_use, ready_weapon, ready_weapon_for_range, reveal_unseen_attacker,
 )
 
@@ -873,14 +873,8 @@ class Adventurer:
             return upgrade
         if action := self.recovery_action(turn):
             return action
-        for item in turn.inventory:
-            if ItemUse.DRINK in item.uses and item.identity in {
-                "item.potion.gain-strength",
-                "item.potion.raise-level",
-            }:
-                return UseItem(item, ItemUse.DRINK), "permanent_growth"
-            if can_identify_carried_item(item, turn):
-                return UseItem(item, ItemUse.READ), "identify_gear"
+        if consumable := choose_growth_or_identification(turn):
+            return consumable
         if improvement := improve_worn_gear(turn):
             return improvement
         if weapon := ready_weapon(turn, bow=False):

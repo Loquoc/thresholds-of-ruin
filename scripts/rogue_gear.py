@@ -68,11 +68,19 @@ def identification_categories(scroll: Item) -> Collection[str]:
     return scroll.identifies or IDENTIFY_CATEGORIES.get(scroll.identity, ())
 
 
-def can_identify_carried_item(scroll: Item, turn: Turn) -> bool:
-    categories = identification_categories(scroll)
-    if not categories:
-        return False
-    return any(item.category in categories and needs_identification(item, turn) for item in turn.inventory)
+def choose_growth_or_identification(turn: Turn) -> tuple[UseItem, str] | None:
+    """Use the first growth potion or identification scroll with a suitable target."""
+    exhausted_categories: set[str] = set()
+    for item in turn.inventory:
+        if ItemUse.DRINK in item.uses and item.identity in {"item.potion.gain-strength", "item.potion.raise-level"}:
+            return UseItem(item, ItemUse.DRINK), "permanent_growth"
+        categories = set(identification_categories(item)) - exhausted_categories
+        if not categories:
+            continue
+        if any(target.category in categories and needs_identification(target, turn) for target in turn.inventory):
+            return UseItem(item, ItemUse.READ), "identify_gear"
+        exhausted_categories.update(categories)
+    return None
 
 
 def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | None:

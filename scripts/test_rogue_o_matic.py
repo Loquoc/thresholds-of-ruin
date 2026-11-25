@@ -267,6 +267,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 _, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual(reason == "identify_gear", should_read)
 
+    def test_duplicate_identification_scrolls_share_the_current_turns_equipment_check(self):
+        from rogue_gear import needs_identification
+
+        scroll = {"id": "one", "class": "scroll", "identity": "item.scroll.identify-weapon",
+                  "quantity": 1, "identified": True, "name": "weapon lore"}
+        blade = {**scroll, "id": "blade", "class": "weapon", "identity": "fixture.blade"}
+        growth = {**scroll, "id": "potion", "class": "potion", "identity": "item.potion.raise-level"}
+        slot = {"id": "weapon", "name": "Weapon"}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for compatible, expected in ((False, "potion"), (True, "one")):
+            with self.subTest(compatible=compatible):
+                offers = [{"item": "one", "readable": True}, {"item": "two", "readable": True},
+                          {"item": "potion", "drinkable": True}]
+                if compatible:
+                    offers.append({"item": "blade", "slot": slot})
+                turn = player_turn([cell("exit", down=True)], inventory=[scroll, dict(scroll, id="two"), blade, growth],
+                                   interactions={"slots": [slot], "inventory": offers})
+                with patch("rogue_gear.needs_identification", wraps=needs_identification) as inspect:
+                    action, _ = choose(player, turn)
+                self.assertEqual(action.item.target, expected)
+                inspect.assert_called_once_with(turn.inventory[2], turn)
+
     def test_unmeasured_plate_waits_only_for_a_readable_scroll_that_identifies_armor(self):
         plate = {"id": "plate", "class": "armor", "name": "plate", "quantity": 1, "identified": True,
                  "identity": "item.armor.plate-mail"}
