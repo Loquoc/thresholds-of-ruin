@@ -1672,6 +1672,27 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             {**shelf, "item": healing, "reachable": False}, {**other_shelf, "item": extra, "reachable": False}])
         self.assertEqual(player.loot_goals(turn, turn.ground_items, returning=False).wanted, {"other-shelf"})
 
+    def test_return_arrow_detour_requires_a_bow_low_stock_and_no_visible_foe(self):
+        here, stash = cell("exit", up=True), cell("stash", 1)
+        bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow",
+               "class": "weapon", "quantity": 1, "identified": True}
+        arrows = {**bow, "id": "arrows", "identity": "item.weapon.arrow"}
+        ground = [{**stash, "item": arrows, "reachable": False}]
+        foe = {"id": "foe", "name": "orc", "position": cell("orc", -1)["position"]}
+        for has_bow, count, enemies, wanted in (
+            (True, 7, [], True), (True, 8, [], False), (False, 7, [], False), (True, 7, [foe], False),
+        ):
+            with self.subTest(bow=has_bow, count=count, enemies=bool(enemies)):
+                pack = [{**arrows, "id": "packed", "quantity": count}]
+                if has_bow:
+                    pack.append(bow)
+                turn = player_turn([here, stash], ground=ground, inventory=pack, actors=enemies,
+                                   hostiles=[enemy["id"] for enemy in enemies])
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                goals = player.loot_goals(turn, turn.ground_items, returning=True)
+                self.assertEqual(goals.wanted, {"stash"} if wanted else set())
+                self.assertFalse(goals.recover_arrows)
+
     def test_recovers_reachable_arrows_when_carrying_the_bow(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         def weapon(name):

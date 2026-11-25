@@ -87,13 +87,13 @@ def worth_long_detour(objective: str, item: Item, carried: Counter[str | None], 
     identity = item.identity
     if identity in HEALING_POTIONS:
         return healing_reserve_gain(item, carried) > 0
-    if identity == "item.weapon.arrow" and returning and carried["item.weapon.shortbow"]:
-        return not under_threat and carried[identity] < 8
-    if (identity == objective and not returning) or item.category == "food":
+    if item.category == "food":
         return True
     if returning:
-        return False
-    return ((identity == "item.weapon.dart" and carried[identity] < 12)
+        return (identity == "item.weapon.arrow" and not under_threat
+                and carried["item.weapon.shortbow"] > 0 and carried[identity] < 8)
+    return (identity == objective
+            or (identity == "item.weapon.dart" and carried[identity] < 12)
             or (identity == "item.weapon.spear" and carried[identity] == 0))
 
 
