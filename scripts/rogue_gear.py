@@ -74,12 +74,8 @@ def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | N
     return base
 
 
-def _readable_scrolls(turn: Turn) -> dict[str, Item]:
-    return {item.identity: item for item in turn.inventory if item.identity is not None and ItemUse.READ in item.uses}
-
-
 def choose_armor(turn: Turn) -> tuple[Action, str] | None:
-    cure = _readable_scrolls(turn).get("item.scroll.remove-curse")
+    cure = offered_item_use(turn, "item.scroll.remove-curse", ItemUse.READ)
     can_identify_armor = any("armor" in identification_categories(item) for item in turn.inventory)
     best = None
     best_rank = None
@@ -104,7 +100,7 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
         return None
     choice, estimated = best
     if choice.slot.removal_blocked and cure is not None:
-        return UseItem(cure, ItemUse.READ), "remove_armor_curse"
+        return cure, "remove_armor_curse"
     action = Unequip(choice.slot) if choice.slot.occupant else choice
     return action, "try_armor" if estimated else "upgrade_armor"
 
@@ -175,19 +171,20 @@ def choose_ring(turn: Turn) -> tuple[Action, str] | None:
 
 
 def improve_worn_gear(turn: Turn) -> tuple[Action, str] | None:
-    scrolls = _readable_scrolls(turn)
     armor = next((s.occupant for s in turn.equipment if s.kind == "body_armor" and s.occupant), None)
     if armor:
         if armor.known_protected is False and armor.identity != "item.armor.leather-armor":
-            if protect := scrolls.get("item.scroll.protect-armor"):
-                return UseItem(protect, ItemUse.READ), "protect_armor"
-        if enchant := scrolls.get("item.scroll.enchant-armor"):
-            return UseItem(enchant, ItemUse.READ), "enchant_armor"
+            if protect := offered_item_use(turn, "item.scroll.protect-armor", ItemUse.READ):
+                return protect, "protect_armor"
+        if enchant := offered_item_use(turn, "item.scroll.enchant-armor", ItemUse.READ):
+            return enchant, "enchant_armor"
     primary = next((s.occupant for s in turn.equipment if s.kind == "weapon"), None)
-    if primary and primary.identity in MELEE_WEAPONS and (scroll := scrolls.get("item.scroll.enchant-weapon")):
+    if primary is None or primary.identity not in MELEE_WEAPONS:
+        return None
+    if scroll := offered_item_use(turn, "item.scroll.enchant-weapon", ItemUse.READ):
         if upgrade := ready_weapon(turn, bow=False):
             return upgrade
-        return UseItem(scroll, ItemUse.READ), "enchant_weapon"
+        return scroll, "enchant_weapon"
     return None
 
 

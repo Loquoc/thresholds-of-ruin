@@ -280,6 +280,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             self.assertEqual(decision, (UseItem(turn.inventory[1], ItemUse.READ), "protect_armor") if known is False
                              else (Move(Direction.DOWN), "descend"))
 
+    def test_armor_protection_uses_the_first_readable_copy_in_inventory_order(self):
+        from tor_client_bot import ItemUse, UseItem
+
+        body = {"id": "body_armor", "name": "body"}
+        scrolls = ["blocked", "first", "spare"]
+        inventory = [{"id": "mail", "identity": "item.armor.ring-mail", "name": "mail", "class": "armor",
+                      "identified": True, "quantity": 1}]
+        inventory.extend({"id": name, "identity": "item.scroll.protect-armor", "name": name, "class": "scroll",
+                          "identified": True, "quantity": 1} for name in scrolls)
+        offers = [{"item": "mail", "slot": body, "equipped_slot": 0, "known_protected": False}]
+        offers.extend({"item": name, "readable": name != "blocked"} for name in scrolls)
+        turn = player_turn([cell("here")], inventory=inventory, interactions={"slots": [body], "inventory": offers})
+        decision = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+        self.assertEqual(decision, (UseItem(turn.inventory[2], ItemUse.READ), "protect_armor"))
+
     def test_trial_armor_needs_a_large_known_improvement_or_a_way_to_remove_a_curse(self):
         from tor_client_bot import Unequip
         slot = {"id": "body_armor", "name": "Armor"}
