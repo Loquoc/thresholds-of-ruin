@@ -817,6 +817,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         training.preview.assert_called_once_with(pool, talent)
         training.options.assert_called_once_with(kind)
 
+    def test_training_skips_a_lethal_preview_and_confirms_only_the_safe_alternative(self):
+        from unittest.mock import Mock
+        from rogue_training import purchase_training
+        from tor_client_bot import PointPool, Training, TrainingKind, TrainingOption
+
+        kind = TrainingKind.TALENT
+        training = Mock(spec=Training)
+        pool = PointPool(1, "growth", "Growth", 1, (kind,), ())
+        training.pools.return_value = (pool,)
+        training.options.return_value = tuple(TrainingOption(kind, name, name, (), ())
+                                              for name in ("rattling_blow", "dislocating_strike"))
+        safe = Mock(would_die=False)
+        training.preview.side_effect = [Mock(would_die=True), safe]
+        purchase, _ = purchase_training(training, ())
+        self.assertEqual(purchase["id"], "dislocating_strike")
+        training.confirm.assert_called_once_with(safe)
+
     def test_training_skips_refused_previews_but_stops_on_stale_context(self):
         from unittest.mock import Mock
         from tor_client_bot import Outcome, PointPool, Result, Training, TrainingKind, TrainingOption, TrainingRefused
