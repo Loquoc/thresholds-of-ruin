@@ -3066,6 +3066,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertTrue(all(turn.in_contact(foe) for foe in turn.hostiles))
         self.assertEqual(choose(player, turn), (Zap(turn.devices[0], turn.cell_at((-1, 0, 0))), "displace_threat"))
 
+    def test_equally_ranked_melee_targets_keep_their_observed_order(self):
+        from rogue_combat import OpponentHistory, ranked_melee_targets
+
+        tiles = [cell("here"), cell("east", 1), cell("west", -1)]
+        foes = [{"id": target, "name": "orc", "position": tile["position"]}
+                for target, tile in zip(("z", "a"), tiles[1:])]
+        turn = player_turn(tiles, actors=foes, hostiles=["z", "a"])
+        self.assertEqual(len(turn.hostiles), 2)
+        targets = ranked_melee_targets(turn, OpponentHistory(), lambda foe: False)
+        self.assertEqual(targets, list(turn.hostiles))
+
     def test_when_pinned_attacks_the_equally_healthy_foe_blocking_the_down_stair(self):
         melee = {"id": "basic_melee", "name": "Attack", "cooldown_remaining": "0", "cost": None,
                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}

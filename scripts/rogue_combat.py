@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from tor_client_bot import Creature, Device, Health, IncomingAbility, Item, OutgoingAbility, Shot, Turn, UseAbility
@@ -260,6 +260,39 @@ def has_push_space(turn: Turn, foe: Creature) -> bool:
     if not landing.isdisjoint(turn.body):
         return False
     return all(landing.isdisjoint(creature.cells) for creature in turn.creatures if creature.target != foe.target)
+
+
+class MeleeRank(NamedTuple):
+    """Higher fields win in order. Equal ranks preserve the observed target order."""
+
+    injury_priority: int
+    opens_exit: bool
+    negative_distance: int
+    estimated_damage: int
+    damage_from_this_foe: int
+
+
+def ranked_melee_targets(turn: Turn, opponents: OpponentHistory,
+                       blocks_usable_exit: Callable[[Creature], bool]) -> list[Creature]:
+    """Order visible foes before checking which attacks the turn offers."""
+    from tor_client_bot import Injury
+
+    injury_priority = {
+        Injury.NEAR_DEATH: 3,
+        Injury.BADLY_WOUNDED: 2,
+        Injury.WOUNDED: 1,
+    }
+
+    def rank(foe: Creature) -> MeleeRank:
+        return MeleeRank(
+            injury_priority=injury_priority.get(foe.injury, 0),
+            opens_exit=blocks_usable_exit(foe),
+            negative_distance=-turn.distance_to(foe),
+            estimated_damage=opponents.damage_estimate(foe),
+            damage_from_this_foe=opponents.damage_by_target[foe.target],
+        )
+
+    return sorted(turn.hostiles, key=rank, reverse=True)
 
 
 def choose_melee_attack(turn: Turn, targets: Iterable[Creature], *, make_space: bool) -> UseAbility | None:

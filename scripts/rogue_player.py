@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import NamedTuple
 
 from tor_client_bot import (
     Action,
@@ -21,7 +20,6 @@ from tor_client_bot import (
     FloorMap,
     GroundItem,
     Identify,
-    Injury,
     Item,
     ItemUse,
     Move,
@@ -40,7 +38,7 @@ from tor_client_bot import (
 
 from rogue_combat import choose_healing_potion as choose_healing_potion
 from rogue_combat import (
-    below_half_health, choose_melee_attack, choose_projectile, includes_self_damage, recovery_deficit,
+    below_half_health, choose_melee_attack, choose_projectile, ranked_melee_targets, includes_self_damage, recovery_deficit,
     MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
@@ -64,11 +62,6 @@ from rogue_gear import (
 )
 
 
-MELEE_INJURY_PRIORITY = {
-    Injury.NEAR_DEATH: 3,
-    Injury.BADLY_WOUNDED: 2,
-    Injury.WOUNDED: 1,
-}
 RECENT_DANGER_TICKS = 1200
 ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
 ELEMENTAL_RAY_RANGE = 6
@@ -102,16 +95,6 @@ CONTROL_DEVICES = (
     ("item.wand.wand-polymorph", MemoryReason.POLYMORPH_THREAT),
     ("item.wand.wand-magic-missile", "magic_missile"),
 )
-
-
-class MeleeRank(NamedTuple):
-    """Higher fields win in order. Equal ranks preserve the observed target order."""
-
-    injury_priority: int
-    opens_exit: bool
-    negative_distance: int
-    estimated_damage: int
-    damage_from_this_foe: int
 
 
 @dataclass(frozen=True)
@@ -538,21 +521,14 @@ class Adventurer:
         can_ascend = returning or self.depth > 1
         can_descend = not returning and self.depth < self.retrieval_depth
 
-        def attack_order(foe: Creature) -> MeleeRank:
-            opens_exit = any(
+        def blocks_usable_exit(foe: Creature) -> bool:
+            return any(
                 (cell.stairs_up and can_ascend and self.stair_is_safe(cell.key, Direction.UP, turn.tick))
                 or (cell.stairs_down and can_descend and self.stair_is_safe(cell.key, Direction.DOWN, turn.tick))
                 for cell in turn.cells_of(foe)
             )
-            return MeleeRank(
-                injury_priority=MELEE_INJURY_PRIORITY.get(foe.injury, 0),
-                opens_exit=opens_exit,
-                negative_distance=-turn.distance_to(foe),
-                estimated_damage=self.opponents.damage_estimate(foe),
-                damage_from_this_foe=self.opponents.damage_by_target[foe.target],
-            )
 
-        targets = sorted(turn.hostiles, key=attack_order, reverse=True)
+        targets = ranked_melee_targets(turn, self.opponents, blocks_usable_exit)
         return choose_melee_attack(turn, targets, make_space=make_space)
 
     def respond_to_unseen_attack(self, turn: Turn) -> tuple[Action, str] | None:
