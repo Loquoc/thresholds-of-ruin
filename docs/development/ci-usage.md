@@ -267,3 +267,17 @@ This does not add jobs, triggers, permissions, network destinations, artifact
 retention or test workloads. It keeps the existing external evidence limits
 and both post-merge readers, and avoids an unusable retained plan rather than
 treating missing smoke evidence as success.
+
+## November 25 cargo-deny action update
+
+Both dependency workflows update the same pinned action, from 2.1.1 to
+2.1.3. The wrapper inputs, base image, release download path, permissions,
+destinations and check invocations are unchanged. The embedded cargo-deny
+moves from 0.20.2 to 0.22.0. Its default for unmaintained advisories now
+covers direct workspace dependencies only, so the policy explicitly keeps
+`unmaintained = "all"` to retain transitive coverage. The 0.22.0 advisory
+check reported the old `instant` exception as unused. The current workspace
+uses `minifb` 0.29 and no longer locks `instant`, so the stale exception is
+removed rather than masking a future reintroduction. Vulnerability, unsound,
+yanked, license, ban and source checks are otherwise unchanged. See the
+[upstream default change](https://github.com/EmbarkStudios/cargo-deny/pull/924).
