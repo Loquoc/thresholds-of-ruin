@@ -1596,12 +1596,14 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         manifest["archetypes"]["rogue.mace"]["equipment_generation"] = {
             "kind": "weapon", "curse_percent": 100, "enchant_percent": 0, "minimum": 1, "maximum": 1}
         character, = manifest["characters"]
-        character.update(known_identities=["item.weapon.mace", "item.weapon.shortbow", "item.scroll.identify-weapon"],
+        character.update(known_identities=["item.weapon.mace", "item.weapon.shortbow", "item.weapon.dagger",
+                                           "item.scroll.identify-weapon"],
                          loadout=[{"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0},
                                   {"archetype": "rogue.shortbow", "quantity": 1},
                                   {"archetype": "rogue.identify_weapon", "quantity": 1}])
         region, = contents["regions"]
-        region.update(actors=[], items=[{"id": 9, "archetype": "rogue.arrow", "at": [5, 2, 0]}])
+        region.update(actors=[], items=[{"id": 9, "archetype": "rogue.arrow", "at": [5, 2, 0]},
+                                       {"id": 10, "archetype": "rogue.dagger", "at": [4, 2, 0]}])
         self.check_policy_scenario(contents, "blocked-bow", """
 import os
 from rogue_player import Adventurer
@@ -1620,7 +1622,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert any(ground.item.identity == "item.weapon.arrow" for ground in turn.ground_items)
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
-    assert not player.loot_goals(turn, turn.ground_items, returning=False).recover_arrows
+    outbound = player.loot_goals(turn, turn.ground_items, returning=False)
+    dagger = next(g for g in turn.ground_items if g.item.identity == "item.weapon.dagger")
+    assert dagger.cell.key not in outbound.supplies
+    assert not outbound.recover_arrows
     assert not player.loot_goals(turn, turn.ground_items, returning=True).wanted
 """)
 

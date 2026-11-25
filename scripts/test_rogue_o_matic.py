@@ -728,6 +728,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 chosen = player.choose_pickup(turn, turn.ground_items, returning=returning)
                 self.assertEqual(chosen.target if chosen else None, expected)
 
+    def test_known_curse_changes_first_weapon_priority_only_when_the_slot_is_blocked(self):
+        mace = {"id": "mace", "identity": "item.weapon.mace", "class": "weapon",
+                "name": "mace", "quantity": 1, "identified": True}
+        dagger = {**mace, "id": "blade", "identity": "item.weapon.dagger"}
+        slot = {"id": "weapon", "name": "Weapon"}
+        tiles = [cell("exit", down=True), cell("hall", 1), cell("hall2", 2), cell("stash", 3)]
+        for worn, expected in ((True, "descend"), (False, "seek_supplies")):
+            with self.subTest(worn=worn):
+                offer = {"item": "mace", "slot": slot, "known_cursed": True, "equipped_slot": 0 if worn else None}
+                turn = player_turn(tiles, inventory=[mace], interactions={"slots": [slot], "inventory": [offer]},
+                                   ground=[{**tiles[-1], "item": dagger, "reachable": False}])
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
+
     def test_first_melee_weapon_is_worth_a_short_outbound_detour(self):
         weapon = {"id": "blade", "identity": "item.weapon.dagger", "class": "weapon", "name": "dagger",
                   "quantity": 1, "identified": True}
