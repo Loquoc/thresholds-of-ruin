@@ -941,6 +941,9 @@ class Adventurer:
             return None
 
         if self.trapped(turn):
+            response = self.respond_to_bear_trap(turn)
+            if isinstance(response[0], Move):
+                return response
             return rest_if_affordable(missing)
 
         stairs = self.safe_stairs(turn, direction)

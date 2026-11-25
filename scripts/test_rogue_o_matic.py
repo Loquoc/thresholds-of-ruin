@@ -3850,6 +3850,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.danger_until["-1"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
 
+    def test_injured_player_attempts_escape_from_an_untimed_trap_before_resting(self):
+        trap = {"condition": {"id": "rogue.bear_trap", "name": "Bear trap"}, "phase": "active",
+                "remaining_ticks": None}
+        tiles = [cell("here")]
+        recovery = {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for conditions, expected in (([trap], (Move(Direction.NORTH), "escape_bear_trap")),
+                                     ([], (Wait(), "recover"))):
+            with self.subTest(trapped=bool(conditions)):
+                turn = player_turn(tiles, combat={"hp": 6}, stats={"conditions": conditions, "health_recovery": recovery})
+                self.assertEqual(choose(player, turn), expected)
+
     def test_timed_bear_trap_keeps_recovery_in_place_and_preserves_the_travel_reserve(self):
         trap = {"condition": {"id": "rogue.bear_trap", "name": "Bear trap"}, "phase": "active",
                 "remaining_ticks": "100"}
