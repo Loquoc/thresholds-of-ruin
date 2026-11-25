@@ -70,6 +70,24 @@ class BotApiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             memory.stairs(Direction.EAST)
 
+    def test_revealed_door_reconnects_both_remembered_sides_outside_the_current_view(self):
+        cells = [{"key": key, "position": {"x": x, "y": 0, "z": 0}, "wall": key == "door",
+                  "stairs_up": False, "stairs_down": False} for x, key in enumerate(("west", "door", "east"))]
+        memory = FloorMap()
+
+        def observe(visible):
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": visible, "ground_items": [], "interactions": {},
+            }}}))
+
+        observe(cells)
+        self.assertIsNone(memory.distance("west", {"east"}))
+        observe([{**cells[1], "wall": False, "door": {"id": "gate", "reachable": True, "open": False}}])
+        self.assertEqual(memory.distance("west", {"east"}), 2)
+        self.assertEqual(memory.distance("east", {"west"}), 2)
+        observe([cells[1]])
+        self.assertIsNone(memory.distance("east", {"west"}))
+
     def test_reachable_can_leave_an_excluded_origin_but_cannot_cross_an_excluded_passage(self):
         cells = [{"key": str(x), "position": {"x": x, "y": 0, "z": 0}, "wall": False,
                   "stairs_up": False, "stairs_down": False} for x in range(4)]

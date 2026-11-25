@@ -84,11 +84,13 @@ class FloorMap:
                     continue
                 if direction in CARDINAL:
                     neighbors[direction] = neighbor.key
-                if dx and dy:
-                    corners = (plane.get((x + dx, y)), plane.get((x, y + dy)))
-                    if any(c is None or c.wall or (c.door and not c.door.open) for c in corners):
-                        links.pop(direction, None)
-                        continue
+                    # Remember the edge even if a wall currently conceals a door.
+                    links[direction] = neighbor.key
+                    continue
+                corners = (plane.get((x + dx, y)), plane.get((x, y + dy)))
+                if any(c is None or c.wall or (c.door and not c.door.open) for c in corners):
+                    links.pop(direction, None)
+                    continue
                 if cell.wall or neighbor.wall:
                     links.pop(direction, None)
                 else:
@@ -127,6 +129,12 @@ class FloorMap:
             return False
         return sum(self.cells[neighbor].wall for neighbor in sides.values()) == 3
 
+    def _passages_from(self, key: str) -> Iterator[tuple[Direction, str]]:
+        """Follow remembered links using each destination's latest terrain."""
+        for direction, neighbor in self._links.get(key, {}).items():
+            if not self.cells[neighbor].wall:
+                yield direction, neighbor
+
     def reachable(self, start: str, *, avoid: Set[str] = frozenset()) -> Iterator[tuple[RememberedCell, int]]:
         """Traverse known floor from start by distance, without entering any excluded cell."""
         if start not in self.cells or self.cells[start].wall:
@@ -136,7 +144,7 @@ class FloorMap:
         while queue:
             key, distance = queue.popleft()
             yield self.cells[key], distance
-            for neighbor in self._links.get(key, {}).values():
+            for _, neighbor in self._passages_from(key):
                 if neighbor not in seen:
                     seen.add(neighbor)
                     queue.append((neighbor, distance + 1))
@@ -167,7 +175,7 @@ class FloorMap:
             return None
         seen = {here.key, *excluded}
         queue: deque[tuple[str, Move | OpenDoor, int]] = deque()
-        for direction, neighbor in self._links.get(here.key, {}).items():
+        for direction, neighbor in self._passages_from(here.key):
             first = turn.step(direction)
             if first is not None and neighbor not in seen:
                 queue.append((neighbor, first, 1))
@@ -178,7 +186,7 @@ class FloorMap:
                 return first
             if max_steps is not None and distance >= max_steps:
                 continue
-            for neighbor in self._links.get(key, {}).values():
+            for _, neighbor in self._passages_from(key):
                 if neighbor not in seen:
                     seen.add(neighbor)
                     queue.append((neighbor, first, distance + 1))
