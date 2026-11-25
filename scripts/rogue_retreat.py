@@ -174,9 +174,15 @@ def stair_retreat_step(turn: Turn, memory: FloorMap, exits: set[str],
     avoid = {cell.key for foe in turn.hostiles for cell in turn.cells_of(foe)}
     if previous_square is not None:
         avoid.add(previous_square)
-    destinations = exits - avoid
-    return (_approach_visible_exit(turn, memory, destinations, avoid)
-            or memory.toward(turn, destinations, avoid=avoid))
+    traps = {cell.key for cell in memory.cells.values() if cell.trapped}
+    # Try every exit on clear ground before considering a route through a known trap.
+    for blocked in ((avoid | traps, avoid) if traps else (avoid,)):
+        destinations = exits - blocked
+        if step := _approach_visible_exit(turn, memory, destinations, blocked):
+            return step
+        if step := memory.toward(turn, destinations, avoid=blocked, prefer_safe=False):
+            return step
+    return None
 
 
 def _approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: set[str]) -> Move | None:

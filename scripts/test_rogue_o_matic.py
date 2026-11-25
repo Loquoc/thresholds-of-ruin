@@ -4873,6 +4873,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
 
+    def test_stair_retreat_checks_remembered_traps_beyond_the_first_step(self):
+        for has_clear_exit, expected in ((True, Direction.WEST), (False, Direction.EAST)):
+            with self.subTest(has_clear_exit=has_clear_exit):
+                corridor = [cell(str(x), x, up=x == 3 or (has_clear_exit and x == -4)) for x in range(-4, 4)]
+                pit = next(tile for tile in corridor if tile["key"] == "2")
+                pit["trap"] = {"id": "pit", "family": "pit", "reachable": False}
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+                player.observe(player_turn(corridor))
+                # The stair is visible again, while the intervening pit is out of sight.
+                foe = {"id": "foe", "name": "wraith", "position": cell("enemy", y=-3)["position"]}
+                turn = player_turn([tile for tile in corridor if tile is not pit], actors=[foe], hostiles=["foe"])
+                self.assertEqual(choose(player, turn), (Move(expected), "retreat_to_stairs"))
+
     def test_stair_retreat_prefers_an_open_exit_over_a_shorter_route_through_a_pursuer(self):
         cells = [cell(str(x), x, up=x in (-4, 3)) for x in range(-4, 4)]
         foe = {"id": "foe", "name": "wraith", "position": cell("enemy", 2)["position"]}
