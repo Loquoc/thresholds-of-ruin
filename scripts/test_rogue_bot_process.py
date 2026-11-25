@@ -3914,6 +3914,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         result = turn.submit(action)
         assert result.status is Outcome.CONFIRMED, result
         player.admitted(turn, action, result, reason=reason)
+        if isinstance(action, UseItem) and action.use is ItemUse.EAT:
+            player.observe(turn)
+            assert player.meals.pending is not None
         following = game.wait_for_decision()
         assert following.tick > turn.tick
         player.observe(following)

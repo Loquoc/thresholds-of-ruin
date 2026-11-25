@@ -4531,6 +4531,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(phase=phase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.admitted(before, UseItem(before.inventory[0], ItemUse.EAT), receipt)
+                # The ready picture at admission can be repeated before the receipt becomes visible.
+                player.observe(before)
+                self.assertIsNotNone(player.meals.pending)
                 paused = Turn({**json.loads(before.recording()), "intentions": [dict(activity, phase="paused")]})
                 player.observe(paused)
                 self.assertIsNotNone(player.meals.pending)

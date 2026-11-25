@@ -44,6 +44,7 @@ class PendingMeal:
     identity: str
     quantity_before: int
     reserve_before: int
+    submitted_at: int
     receipt: Result | None = None
     resolved: bool = False
 
@@ -71,7 +72,8 @@ class MealHistory:
         if item.identity is None or nutrition is None:
             self.pending = None
             return
-        self.pending = PendingMeal(item.identity, carried_quantity(turn, item.identity), nutrition.reserve, receipt)
+        self.pending = PendingMeal(item.identity, carried_quantity(turn, item.identity), nutrition.reserve,
+                                   submitted_at=turn.tick, receipt=receipt)
 
     def observe(self, turn: Turn) -> None:
         meal = self.pending
@@ -80,7 +82,8 @@ class MealHistory:
         if meal.receipt and meal.receipt.activity:
             if not meal.resolved:
                 phase = turn.outcome_of(meal.receipt)
-                if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED) or (phase is None and turn.can_act):
+                history_expired = phase is None and turn.can_act and turn.tick > meal.submitted_at
+                if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED) or history_expired:
                     self.pending = None
                     return
                 if phase is not ActivityPhase.RESOLVED:
