@@ -149,13 +149,14 @@ def choose_ring(turn: Turn) -> tuple[Action, str] | None:
     if not choices:
         return None
     upgrades = ring_upgrades(turn)
-    best_gain = 0
+    # Prefer the largest gain, then a free slot. Keep offer order for equal choices.
+    best_rank = (0, True)
     best = None
     for choice in choices:
-        incumbent = choice.slot.occupant
-        value = upgrades.get(choice.item.identity or "", {}).get(choice.slot.index, 0)
-        if value > best_gain or (value == best_gain and value > 0 and incumbent is None):
-            best, best_gain = choice, value
+        gain = upgrades.get(choice.item.identity, {}).get(choice.slot.index, 0)
+        rank = gain, choice.slot.occupant is None
+        if rank > best_rank:
+            best, best_rank = choice, rank
     if best is None:
         return None
     if best.slot.occupant:

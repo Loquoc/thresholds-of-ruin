@@ -302,6 +302,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Unequip(turn.equipment[1]), "change_ring"))
 
+    def test_equal_ring_upgrades_prefer_the_first_free_finger(self):
+        slot = {"id": "ring", "name": "Finger"}
+        rings = [{"id": target, "name": name, "class": "ring", "quantity": 1, "identified": True,
+                  "identity": "item.ring.ring-" + name}
+                 for target, name in (("worn", "fixture"), ("first", "searching"), ("second", "searching"))]
+        offers = [{"item": ring["id"], "slot": slot} for ring in rings]
+        offers[0]["equipped_slot"] = 0
+        turn = player_turn([cell("stairs", down=True)], inventory=rings,
+                           interactions={"slots": [slot, slot, slot], "inventory": offers})
+        action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+        self.assertEqual((action.item.target, action.slot.index, reason), ("first", 1, "upgrade_equipment"))
+
     def test_regeneration_outranks_slow_digestion_only_when_injured_with_edible_food(self):
         slot = {"id": "ring", "name": "Finger"}
         rings = [{"id": name, "name": name, "class": "ring", "identified": True,
