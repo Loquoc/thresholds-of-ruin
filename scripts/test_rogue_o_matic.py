@@ -1725,6 +1725,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(dict(player.search_history.wall_searches), {"original-wall": 1} if phase == "resolved" else {})
                 self.assertEqual(player.search_history.admissions["start"], 1)
 
+    def test_search_with_expired_history_keeps_only_its_admission_count(self):
+        from tor_client_bot import Result
+
+        cells = [cell("here"), cell("wall", 1, wall=True)]
+        turn = search_turn(cells)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
+        player.admitted(turn, UseAbility(turn.abilities[0]), receipt)
+        history = player.search_history
+        player.observe(turn)
+        self.assertIsNotNone(history.pending_search)
+        player.observe(player_turn(cells, tick=turn.tick + 100))
+        self.assertIsNone(history.pending_search)
+        self.assertEqual(history.attempts_at("here"), 1)
+        self.assertFalse(history.wall_searches)
+        self.assertFalse(history.completed_end_searches)
+
     def test_return_connection_sites_only_include_the_players_side_of_a_barrier(self):
         cells = [cell("here"), cell("west-wall", 1, wall=True), cell("stairs", 2, up=True),
                  cell("east-wall", 3, wall=True), cell("isolated", 4)]

@@ -48,6 +48,7 @@ class SearchRank(NamedTuple):
 
 @dataclass(frozen=True)
 class PendingSearch:
+    submitted_at: int
     receipt: Result
     walls: frozenset[str]
     origin: str
@@ -75,8 +76,9 @@ class SearchHistory:
                 self.completed_end_searches[search.origin] += 1
         elif phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
             self.unsuccessful_searches[search.origin] += 1
-        else:
+        elif phase is not None or not turn.can_act or turn.tick <= search.submitted_at:
             return
+        # A later ready picture without the receipt leaves the outcome unknown.
         self.pending_search = None
 
     def admit(self, turn: Turn, origin: Cell, receipt: Result | None, memory: FloorMap | None) -> None:
@@ -86,7 +88,7 @@ class SearchHistory:
             self.wall_searches.update(walls)
             return
         at_dead_end = memory is not None and is_searchable_dead_end(origin, memory)
-        self.pending_search = PendingSearch(receipt, walls, origin.key, at_dead_end)
+        self.pending_search = PendingSearch(turn.tick, receipt, walls, origin.key, at_dead_end)
 
     def attempts_at(self, key: str) -> int:
         """Count admitted searches toward the site limit unless the game reports failure or cancellation."""
