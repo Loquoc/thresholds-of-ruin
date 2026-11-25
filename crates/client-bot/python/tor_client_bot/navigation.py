@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterator, Set
 from dataclasses import dataclass
 
 from .game import Turn
-from .models import HORIZONTAL, Direction, Move, OpenDoor
+from .models import HORIZONTAL, Cell, Direction, Move, OpenDoor
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +39,12 @@ CARDINAL = (Direction.WEST, Direction.EAST, Direction.NORTH, Direction.SOUTH)
 class _Link:
     destination: str
     corners: tuple[str, ...] = ()
+
+    def matches_partial_diagonal(self, destination: str, horizontal: Cell | None, vertical: Cell | None) -> bool:
+        """A missing corner provides no new evidence about a previously observed diagonal."""
+        return (self.destination == destination
+                and (horizontal is None or horizontal.key == self.corners[0])
+                and (vertical is None or vertical.key == self.corners[1]))
 
 
 class FloorMap:
@@ -97,10 +103,10 @@ class FloorMap:
                     continue
                 horizontal = plane.get((x + dx, y))
                 vertical = plane.get((x, y + dy))
-                if horizontal is None or vertical is None:
-                    links.pop(direction, None)
-                else:
+                if horizontal is not None and vertical is not None:
                     links[direction] = _Link(neighbor.key, (horizontal.key, vertical.key))
+                elif direction in links and not links[direction].matches_partial_diagonal(neighbor.key, horizontal, vertical):
+                    del links[direction]
 
     @property
     def frontier(self) -> set[str]:

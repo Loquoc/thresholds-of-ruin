@@ -81,12 +81,24 @@ class BotApiTests(unittest.TestCase):
                 "visible_cells": visible, "ground_items": [], "interactions": {},
             }}}))
 
+        observe([cells[0], cells[3]])
+        self.assertIsNone(memory.distance("start", {"exit"}))
         observe(cells)
+        observe([cells[0], cells[1], cells[3]])
+        self.assertEqual(memory.distance("start", {"exit"}), 1)
         for opened, steps in ((False, 2), (True, 1)):
             with self.subTest(opened=opened):
                 observe([{**cells[1], "door": {"id": "door", "reachable": True, "open": opened}}])
                 self.assertEqual(memory.distance("start", {"exit"}), steps)
                 self.assertEqual(memory.distance("exit", {"start"}), steps)
+
+        observe([cells[0], {**cells[1], "key": "replacement-wall", "wall": True}, cells[3]])
+        self.assertEqual(memory.distance("start", {"exit"}), 2)
+        self.assertEqual(memory.distance("exit", {"start"}), 2)
+        observe(cells)
+        observe([cells[0], {**cells[3], "key": "different-exit"}])
+        self.assertIsNone(memory.distance("start", {"different-exit"}))
+        self.assertEqual(memory.distance("start", {"exit"}), 2)
 
     def test_revealed_door_reconnects_both_remembered_sides_outside_the_current_view(self):
         cells = [{"key": key, "position": {"x": x, "y": 0, "z": 0}, "wall": key == "door",
