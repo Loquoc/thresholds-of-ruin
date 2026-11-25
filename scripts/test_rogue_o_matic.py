@@ -1036,6 +1036,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(turn)
         player.maps[player.depth].visited.update({"east", "far-east"})
         self.assertEqual(player.choose(turn), (Move(Direction.EAST), "explore"))
+        # A clear backtrack is better than a detour with a pit on its second step.
+        cells[4]["trap"] = {"id": "pit", "family": None, "reachable": True}
+        trapped_route = player_turn(cells)
+        self.assertEqual(choose(player, trapped_route), (Move(Direction.WEST), "explore"))
+        del cells[4]["trap"]
+        player.observe(turn)
         player.maps[player.depth].visited.add("unknown-east")
         self.assertEqual(player.choose(turn), (Move(Direction.WEST), "explore"))
 

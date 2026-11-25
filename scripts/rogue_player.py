@@ -50,7 +50,7 @@ from rogue_trials import PotionTrials, ScrollTrials, WandTrials
 from rogue_retreat import (
     stair_retreat_step,
     choose_retreat_step, converging_pursuers, evade_unseen_attacker,
-    route_around_danger, route_to_recovery_shelter, take_corridor,
+    known_traps, route_around_danger, route_to_recovery_shelter, take_corridor,
 )
 from rogue_search import ORDINARY_WALL_SEARCHES, SearchHistory
 from rogue_food import (
@@ -982,7 +982,9 @@ class Adventurer:
         if isinstance(step, Move) and self.last_exploration_origin is not None:
             destination = turn.cell_at(step.direction.offset)
             if destination and destination.key == self.last_exploration_origin:
-                detour = memory.toward(turn, memory.frontier, avoid=avoid | {destination.key}, max_steps=3)
+                # Only avoid doubling back when the whole detour is clear.
+                blocked = avoid | known_traps(memory) | {destination.key}
+                detour = memory.toward(turn, memory.frontier, avoid=blocked, max_steps=3, prefer_safe=False)
                 return detour or step
         return step
 

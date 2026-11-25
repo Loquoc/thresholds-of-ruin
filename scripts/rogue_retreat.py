@@ -7,6 +7,10 @@ from typing import NamedTuple
 from tor_client_bot import Action, Cell, Creature, Direction, FloorMap, Move, OpenDoor, Turn
 
 
+def known_traps(memory: FloorMap) -> set[str]:
+    return {cell.key for cell in memory.cells.values() if cell.trapped}
+
+
 def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str]) -> Action | None:
     """Prefer a safe route, then allow danger at the goal before crossing danger en route."""
     if danger and any(goal not in danger for goal in goals):
@@ -25,7 +29,7 @@ def route_to_recovery_shelter(turn: Turn, memory: FloorMap, danger: Set[str]) ->
     step = route_around_danger(turn, memory, shelters, danger)
     if isinstance(step, OpenDoor):
         doors = {cell.key for cell in turn.visible_cells if cell.door and cell.door.reachable and not cell.door.open}
-        traps = {cell.key for cell in memory.cells.values() if cell.trapped}
+        traps = known_traps(memory)
         if detour := memory.toward(turn, shelters, avoid=danger | doors | traps):
             return detour
     return step
@@ -220,7 +224,7 @@ def stair_retreat_step(turn: Turn, memory: FloorMap, exits: set[str],
     avoid = {cell.key for foe in turn.hostiles for cell in turn.cells_of(foe)}
     if previous_square is not None:
         avoid.add(previous_square)
-    traps = {cell.key for cell in memory.cells.values() if cell.trapped}
+    traps = known_traps(memory)
     # Try every exit on clear ground before considering a route through a known trap.
     for blocked in ((avoid | traps, avoid) if traps else (avoid,)):
         destinations = exits - blocked
