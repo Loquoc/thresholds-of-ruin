@@ -422,7 +422,7 @@ fn emit_cuff_with_opening(
             Vec3::new(0.0, -0.008, -0.010),
         ]
         .map(|v| center + v * build);
-        seam(&mut p.metal, &corners, 0.0018 * build, GOLD);
+        seam(&mut p.gold, &corners, 0.0018 * build, GOLD);
         for path in padded_stitches {
             // Fine fabric stitches, not thick decorative cords.
             seam(&mut p.matte, &path, 0.00075 * build, color * 1.15);
@@ -1351,8 +1351,8 @@ mod tests {
         assert!(fencing.matte.bounds().1.x > old.matte.bounds().1.x + 0.006);
         assert!(fencing.matte.bounds().1.x < 0.074);
         assert!(fencing.matte.bounds().1.y > old.matte.bounds().1.y + 0.025);
-        assert!(fencing.metal.is_empty());
-        assert!(!old.metal.is_empty());
+        assert!(fencing.gold.is_empty());
+        assert!(!old.gold.is_empty());
     }
     #[test]
     fn padded_knuckle_centers_have_bounded_surface_relative_relief() {

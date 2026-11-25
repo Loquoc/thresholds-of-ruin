@@ -36,11 +36,14 @@ fn torso_necklace_emitted_triangles_clear_actual_body() {
                         parts.matte.smooth = smooth;
                         parts.metal.smooth = smooth;
                         parts.satin.smooth = smooth;
+                        parts.gold.smooth = smooth;
+                        parts.glass.smooth = smooth;
+                        parts.stone.smooth = smooth;
                         neck_collar(&mut parts, neck, body, &support, &look);
                         let mut minimum = f32::INFINITY;
                         let mut maximum = f32::NEG_INFINITY;
                         let mut count = 0;
-                        for mesh in [&parts.metal, &parts.satin, &parts.matte] {
+                        for mesh in parts.all_builders() {
                             for tri in mesh.surface_triangles() {
                                 for p in [
                                     tri[0],
@@ -241,7 +244,7 @@ fn necklaces_keep_style_mounts_independent_of_other_accessories() {
                 // Seven distinct teeth remain, one central tip lower than all
                 // others. The material source is independent of the cord.
                 let mut tips: Vec<_> = isolated
-                    .matte
+                    .stone
                     .surface_triangles()
                     .flatten()
                     .filter(|p| p.y < core.upper_chest_anchor().y - 0.041)
@@ -252,7 +255,7 @@ fn necklaces_keep_style_mounts_independent_of_other_accessories() {
             }
             Neck::Pendant { .. } => {
                 assert_eq!(isolated.matte.surface_triangles().count(), 0);
-                assert!(isolated.satin.surface_triangles().count() > 0);
+                assert!(isolated.glass.surface_triangles().count() > 0);
             }
             _ => unreachable!(),
         }
@@ -296,7 +299,7 @@ fn hanging_teeth_keep_authored_lateral_splay_over_layered_support() {
         &torso,
         &look,
     );
-    let points: Vec<_> = parts.matte.surface_triangles().flatten().collect();
+    let points: Vec<_> = parts.stone.surface_triangles().flatten().collect();
     assert!(!points.is_empty());
     for k in -3i32..=3 {
         let angle = k as f32 * 0.32;

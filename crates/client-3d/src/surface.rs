@@ -12,12 +12,15 @@ use bevy::{
     render::{
         render_asset::RenderAssetUsages,
         render_resource::{
-            AsBindGroup, Extent3d, ShaderRef, ShaderType, TextureDimension, TextureFormat,
+            AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat,
             TextureViewDescriptor, TextureViewDimension,
         },
     },
 };
 use std::collections::HashMap;
+
+mod uniform;
+pub use uniform::SurfaceParams;
 
 pub const SHADER: Handle<Shader> = weak_handle!("9f4c2e1b-7a3d-4e8c-b51a-6d2f8c4e9a12");
 
@@ -354,19 +357,6 @@ impl SurfaceRecipe {
             },
         }
     }
-}
-
-/// GPU uniform block for `model.wgsl`.
-// `ShaderType` (encase) emits an unused compile-time size-check function.
-#[allow(dead_code)]
-#[derive(ShaderType, Reflect, Debug, Clone, Copy)]
-pub struct SurfaceParams {
-    /// `x`: `SurfaceKind`, `y`: detail enabled (0/1), `z`: use baked 3D noise (0/1).
-    pub kind_and_flags: UVec4,
-    /// `x`: noise_scale, `y`: normal_strength, `z`: roughness_variation, `w`: albedo_variation.
-    pub detail: Vec4,
-    /// `x`: rim_strength, `y`: wear, `z`/`w`: reserved.
-    pub finish: Vec4,
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
