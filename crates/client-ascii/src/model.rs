@@ -396,7 +396,13 @@ impl App {
         };
         let action_message = match &update.body {
             UpdateBody::Intention { status, failure } if status.phase != IntentionPhase::Queued => {
-                Some(failure.map_or_else(|| phase_status(status.phase), |reason| reason.message()))
+                Some((
+                    failure.is_some(),
+                    failure.map_or_else(
+                        || phase_status(status.phase).to_owned(),
+                        |reason| reason.message(),
+                    ),
+                ))
             }
             _ => None,
         };
@@ -515,8 +521,11 @@ impl App {
         self.inspection = None;
         self.state_changed(old);
         if self.role == AccessRole::Player {
-            if let Some(message) = action_message {
-                self.status = message.into();
+            if let Some((failed, message)) = action_message {
+                if failed {
+                    self.messages.push(message.clone());
+                }
+                self.status = message;
             }
         }
         Ok(())

@@ -438,23 +438,10 @@ impl Reader<'_> {
                 self.resynced = true;
                 self.beats.push(Beat::Resync);
             }
-            ServerMessage::Error {
-                scope: ErrorScope::Attached { context },
-                request_id: None,
-                code: ErrorCode::InvalidAction | ErrorCode::ResourceLimit,
-                message,
-            } if link.is_synchronized()
-                && link.client().validate_reply_context(context).is_ok()
-                && link
-                    .client()
-                    .intentions()
-                    .iter()
-                    .any(|status| status.phase == IntentionPhase::Queued) =>
-            {
-                self.beats.push(Beat::ExecutionRefused(format!(
-                    "The server could not execute the action: {}. Your action is still queued.",
-                    crate::safe(message).trim_end_matches('.')
-                )));
+            ServerMessage::Error { .. } if link.is_synchronized() => {
+                if let Some(reason) = link.client().queued_execution_notice(message) {
+                    self.beats.push(Beat::ExecutionRefused(crate::safe(reason)));
+                }
             }
             ServerMessage::WizardReport { report, .. } => {
                 self.pages.push(report.title.clone());
@@ -865,7 +852,9 @@ pub async fn run_goal(
             .is_none_or(|t| t.phase != TravelPhase::Active)
     {
         let resumed = settle(link, &mut reader, Request::Continue, Until::Ready).await?;
-        if resumed == Settled::Lost {
+        if let Settled::Failed(reason) = resumed {
+            episode.end = End::Refused(reason.message());
+        } else if resumed == Settled::Lost {
             episode.end = End::Lost;
         } else if resumed == Settled::Deferred {
             episode.end = End::Deferred;
@@ -901,6 +890,7 @@ pub async fn run_goal(
                     Settled::Waiting(_) => episode.end = End::Waiting,
                     Settled::Pending => episode.end = End::Pending,
                     Settled::Deferred => episode.end = End::Deferred,
+                    Settled::Failed(reason) => episode.end = End::Refused(reason.message()),
                     Settled::Rejected { code, detail } => {
                         // A figure that moved off while you closed in is out
                         // of reach, not unreachable.
@@ -1071,6 +1061,7 @@ pub async fn run_goal(
                         Settled::Waiting(_) => episode.end = End::Waiting,
                         Settled::Pending => episode.end = End::Pending,
                         Settled::Deferred => episode.end = End::Deferred,
+                        Settled::Failed(reason) => episode.end = End::Refused(reason.message()),
                         Settled::Rejected { code, .. } => {
                             episode.approached = false;
                             episode.end = End::Refused(refusal(code, &goal));
@@ -1166,6 +1157,10 @@ pub async fn run_request(
     }
     if !pages.is_empty() {
         record.say(pages.join("\n"));
+    }
+    if let Settled::Failed(reason) = settled {
+        record.say(reason.message());
+        return Ok(false);
     }
     if let Settled::Rejected { code, .. } = settled {
         record.say(match code {

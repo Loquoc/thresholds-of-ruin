@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 76;
+pub const PROTOCOL_VERSION: u32 = 77;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -170,19 +170,69 @@ impl IntentionPhase {
     }
 }
 
+/// An owner's attempted action, with no private target or item identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RollbackAction {
+    Read,
+    UseAbility,
+    Escape,
+    Advance,
+    Equip,
+    Light,
+    Drink,
+    Eat,
+    Zap,
+    Identify,
+    ExamineTrap,
+    SetDoor,
+    Move,
+    Take,
+    Drop,
+    Wait,
+}
+
+impl RollbackAction {
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Read => "Reading the scroll",
+            Self::UseAbility => "Using the ability",
+            Self::Escape => "Escaping",
+            Self::Advance => "Changing advancement",
+            Self::Equip => "Changing equipment",
+            Self::Light => "Changing the light",
+            Self::Drink => "Drinking",
+            Self::Eat => "Eating",
+            Self::Zap => "Zapping the device",
+            Self::Identify => "Identifying the item",
+            Self::ExamineTrap => "Examining the trap",
+            Self::SetDoor => "Using the door",
+            Self::Move => "Moving",
+            Self::Take => "Picking up the item",
+            Self::Drop => "Dropping the item",
+            Self::Wait => "Waiting",
+        }
+    }
+}
+
 /// A controlling player's own reason for a committed execution failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IntentionFailure {
     Unfunded,
     CoolingDown,
+    RolledBack(RollbackAction),
 }
 
 impl IntentionFailure {
-    pub fn message(self) -> &'static str {
+    pub fn message(self) -> String {
         match self {
-            Self::Unfunded => "You cannot pay the cost of this action.",
-            Self::CoolingDown => "This ability is still cooling down.",
+            Self::Unfunded => "You cannot pay the cost of this action.".into(),
+            Self::CoolingDown => "This ability is still cooling down.".into(),
+            Self::RolledBack(action) => format!(
+                "{} failed. This attempt used no turn or item. You can choose another action.",
+                action.description()
+            ),
         }
     }
 }

@@ -457,15 +457,8 @@ mod tests {
 
     #[test]
     fn snapshot_batch_admission_is_atomic_and_leases_every_part() {
-        let samples = crate::fixture::load(
-            format!(
-                "{}/../protocol/tests/fixtures/wire-v{}.json",
-                env!("CARGO_MANIFEST_DIR"),
-                tor_protocol::PROTOCOL_VERSION
-            ),
-            tor_protocol::PROTOCOL_VERSION,
-        )
-        .expect("regenerate current wire samples");
+        let samples = crate::fixture::current(tor_protocol::PROTOCOL_VERSION)
+            .expect("regenerate current wire samples");
         assert_eq!(samples["protocol"], tor_protocol::PROTOCOL_VERSION);
         let message: ServerMessage = serde_json::from_value(
             samples["server"]

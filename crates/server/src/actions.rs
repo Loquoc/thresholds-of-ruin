@@ -101,6 +101,31 @@ pub struct SelectedSupply {
 }
 
 impl Action {
+    pub(crate) fn rollback_action(&self) -> tor_protocol::RollbackAction {
+        use tor_protocol::RollbackAction;
+        match self {
+            Self::Read { .. } => RollbackAction::Read,
+            Self::UseAbility { .. } => RollbackAction::UseAbility,
+            Self::Escape { .. } => RollbackAction::Escape,
+            Self::ChooseGrowthSource { .. }
+            | Self::ChooseIntellectExpertise { .. }
+            | Self::Purchase { .. }
+            | Self::Respec { .. } => RollbackAction::Advance,
+            Self::Equip { .. } | Self::Unequip { .. } => RollbackAction::Equip,
+            Self::Ignite { .. } | Self::Extinguish { .. } => RollbackAction::Light,
+            Self::Drink { .. } => RollbackAction::Drink,
+            Self::Eat { .. } => RollbackAction::Eat,
+            Self::Zap { .. } => RollbackAction::Zap,
+            Self::Identify { .. } => RollbackAction::Identify,
+            Self::ExamineTrap { .. } => RollbackAction::ExamineTrap,
+            Self::SetDoor { .. } => RollbackAction::SetDoor,
+            Self::Move { .. } => RollbackAction::Move,
+            Self::Take { .. } | Self::TouchApparentObject { .. } => RollbackAction::Take,
+            Self::Drop { .. } => RollbackAction::Drop,
+            Self::Wait => RollbackAction::Wait,
+        }
+    }
+
     pub(crate) fn advancement_basis(
         &self,
     ) -> Option<&tor_simulation::player_advancement::AdvancementBasis> {

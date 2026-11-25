@@ -503,6 +503,15 @@ pub enum IntentionChange {
     Escaped { direction: Direction },
 }
 
+/// A simulation refusal is reproducible. A host rollback discards the unpublished
+/// candidate and retires the selected human admission in the committed world.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureCause {
+    Simulation,
+    HostRollback,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum JournalContent {
@@ -519,6 +528,7 @@ pub enum JournalContent {
         #[serde(with = "crate::storage::schema::EntryId")]
         admission: EntryId,
         intention: tor_simulation::IntentionId,
+        cause: FailureCause,
     },
     IntentionChanged {
         #[serde(with = "crate::storage::schema::EntryId")]
@@ -541,6 +551,7 @@ pub enum JournalContent {
         #[serde(with = "crate::storage::schema::EntryId")]
         admission: EntryId,
         intention: tor_simulation::IntentionId,
+        cause: FailureCause,
     },
     /// A backend decision admitted without an authenticated RPC or chosen action.
     AutonomousIntentionAdmitted {
@@ -639,6 +650,19 @@ impl AdmittedWork<'_> {
 }
 
 impl JournalContent {
+    pub(crate) fn is_host_rollback(&self) -> bool {
+        matches!(
+            self,
+            Self::IntentionFailed {
+                cause: FailureCause::HostRollback,
+                ..
+            } | Self::IntentionContinuationFailed {
+                cause: FailureCause::HostRollback,
+                ..
+            }
+        )
+    }
+
     /// Exact advancement operations belong to receipts/replay and owner queries,
     /// never ordinary attached-observer history or its pagination anchors.
     pub(crate) fn private_advancement(&self) -> bool {

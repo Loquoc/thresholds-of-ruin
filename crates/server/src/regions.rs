@@ -563,9 +563,7 @@ impl Regions {
             // another internal boundary, never another command or receipt.
             if continue_time {
                 game.complete_region_transition(&work.report)
-                    .map_err(|error| {
-                        Failure::simulation_failure(error).unwrap_or_else(storage_failure)
-                    })?;
+                    .map_err(Failure::region_rule_failure)?;
             }
             total.absorb(work);
             if !game.region_transition_pending() {
@@ -702,8 +700,13 @@ impl Regions {
         let failure = self.failure.take();
         let (_, mut report, _) = match result {
             Ok(result) => result,
-            Err(_) => {
-                return Err(failure.unwrap_or_else(storage_failure));
+            Err(error) => {
+                return Err(failure.unwrap_or_else(|| match error {
+                    tor_simulation::TransitionError::Rule(error) => {
+                        Failure::region_rule_failure(error)
+                    }
+                    _ => storage_failure(),
+                }));
             }
         };
         self.package.install_authored_spatial(&mut next)?;

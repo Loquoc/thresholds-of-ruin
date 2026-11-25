@@ -20,12 +20,11 @@ reuse and the Linux debug 3D smoke check. Domain-specific selection remains
 future work. No hosted
 qualification or measured hosted saving is claimed.
 
-**Current formats:** protocol **76**, save format **73**, scenario format **38**,
+**Current formats:** protocol **77**, save format **74**, scenario format **38**,
 ruleset **`interactions-v72`**, scenario validator **`tor-scenario-52`**.
-Unsupported identities are rejected rather than migrated. Save format 73 records
-the identification result at the time an item is learned, for the turn and
-History. The previous save version is rejected before replay; wire format and
-physical save framing are unchanged by this change. Rules-identity
+Unsupported identities are rejected rather than migrated. Save format 74 records verified host rollbacks so replay retires the admitted action.
+Identification results remain available in the turn and History. Protocol 77
+delivers the rollback reason in the owner's failed-action update. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
 change with a deterministic rules correction. The current rules change admits hostile first-body devices with identified type and

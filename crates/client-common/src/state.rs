@@ -367,6 +367,29 @@ impl ClientState {
         self.session.authority.travel.as_ref()
     }
 
+    /// A current, unsolicited execution notice for work still queued on this attachment.
+    /// A terminal rollback instead carries its reason on the failed intention update.
+    pub fn queued_execution_notice<'a>(&self, message: &'a ServerMessage) -> Option<&'a str> {
+        let ServerMessage::Error {
+            scope: ErrorScope::Attached { context },
+            request_id: None,
+            code:
+                ErrorCode::InvalidAction
+                | ErrorCode::ResourceLimit
+                | ErrorCode::StorageFailure
+                | ErrorCode::InvalidArchive,
+            message,
+        } = message
+        else {
+            return None;
+        };
+        (self.validate_reply_context(context).is_ok()
+            && self
+                .intentions()
+                .iter()
+                .any(|s| s.phase == IntentionPhase::Queued))
+        .then_some(message.as_str())
+    }
     pub fn intentions(&self) -> &[IntentionStatus] {
         &self.session.authority.intentions
     }

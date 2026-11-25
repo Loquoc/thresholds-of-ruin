@@ -368,6 +368,12 @@ class BotApiTests(unittest.TestCase):
                          [("0", ActivityPhase.FAILED, None), ("1", ActivityPhase.RESOLVED, None),
                           ("2", ActivityPhase.FAILED, "unfunded")])
 
+    def test_rollback_exposes_the_attempted_action(self):
+        from tor_client_bot.models import Activity
+        row = {"actor": "1", "branch": "branch", "intention": "2", "phase": "failed"}
+        result = Activity.from_row(row, {"rolled_back": "read"})
+        self.assertEqual((result.failure, result.failed_action), ("rolled_back", "read"))
+
     def test_identification_accepts_only_items_from_its_own_offer(self):
         from dataclasses import replace
         from tor_client_bot import Identification, Item

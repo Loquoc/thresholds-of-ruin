@@ -257,6 +257,22 @@ fn replay_private_boundary(game: &mut Game, record: &Record) -> Result<(), Failu
                 .map_err(|_| invalid_archive())?;
         }
         JournalContent::IntentionFailed { intention, .. }
+        | JournalContent::IntentionContinuationFailed { intention, .. }
+            if record.entry.content.is_host_rollback() =>
+        {
+            let (retired, continuation) =
+                super::intention::retire_selected_human_intention(game, record.entry.actor)?;
+            if retired != *intention
+                || continuation
+                    != matches!(
+                        record.entry.content,
+                        JournalContent::IntentionContinuationFailed { .. }
+                    )
+            {
+                return Err(invalid_archive());
+            }
+        }
+        JournalContent::IntentionFailed { intention, .. }
         | JournalContent::IntentionContinuationFailed { intention, .. } => {
             let execution = game.execute_next_intention().ok_or_else(invalid_archive)?;
             if execution.intention.id != *intention
