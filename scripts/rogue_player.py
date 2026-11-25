@@ -483,7 +483,7 @@ class Adventurer:
         if len(turn.hostiles) != 1 or not adjacent or turn.cell is None or not turn.cell.stairs_up:
             return None
         guard = adjacent[0]
-        if self.last_guarded_landing != (turn.cell.key, guard.target) or guard.name not in self.opponents.draining_names:
+        if self.last_guarded_landing != (turn.cell.key, guard.target) or not self.opponents.is_drainer(guard):
             return None
         health = turn.health
         if health is None or health.current * 4 < health.maximum * 3 or self.carrying_objective(turn):
@@ -622,7 +622,7 @@ class Adventurer:
         for foe in turn.hostiles:
             if turn.distance_to(foe) <= 3:
                 damage = self.opponents.damage_estimate(foe)
-                if 2 * damage >= health or foe.name in self.opponents.draining_names:
+                if 2 * damage >= health or self.opponents.is_drainer(foe):
                     targets.append((foe, damage))
         return sorted(targets, key=lambda target: target[1], reverse=True)
 

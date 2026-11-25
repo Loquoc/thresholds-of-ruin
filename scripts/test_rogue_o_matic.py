@@ -557,12 +557,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             return player_turn(tiles, tick=tick, combat={"hp": 10, "events": events}, stats={
                 "restorable_losses": {"attributes": attributes, "hit_dice": 0, "maximum_health": 0}})
 
-        hit = {"type": "unseen_ability", "target": "player", "outcome": "applied"}
+        hit = {"type": "unseen_ability", "caster": "hunter", "target": "player", "outcome": "applied"}
         for strength, expected in ((0, "descend"), (1, "evade_unseen_attack")):
             with self.subTest(strength=strength):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.observe(picture(0, 0, []))
                 self.assertEqual(choose(player, picture(100, strength, [hit]))[1], expected)
+                for target in ("hunter", "other"):
+                    foe = {"id": target, "name": "snake", "position": tiles[1]["position"]}
+                    sighting = player_turn(tiles, actors=[foe], hostiles=[target])
+                    self.assertEqual(player.opponents.nearby_drainer(sighting, sighting.hostiles[0]),
+                                     strength > 0 and target == "hunter")
 
     def test_reflected_damage_does_not_identify_an_unseen_effect_as_an_attack(self):
         cells = [cell("here"), cell("west", -1)]

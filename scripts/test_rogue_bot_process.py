@@ -1068,6 +1068,8 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         turn = player.observe()
         policy.observe(turn, journal.read(turn))
         if turn.restorable_losses.strength > 0:
+            attacker, = turn.hostiles
+            assert attacker.target in policy.opponents.draining_targets
             assert "rattlesnake" in policy.opponents.draining_names, policy.opponents.draining_names
             break
         enemy = snake.observe()

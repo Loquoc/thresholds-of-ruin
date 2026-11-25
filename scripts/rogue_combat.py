@@ -131,6 +131,7 @@ class OpponentHistory:
     damage_by_target: Counter[str] = field(default_factory=Counter)
     damage_by_name: Counter[str] = field(default_factory=Counter)
     draining_names: set[str] = field(default_factory=set)
+    draining_targets: set[str] = field(default_factory=set)
 
     def record_injury(self, hostiles: tuple[Creature, ...], incoming: tuple[IncomingAbility, ...],
                       health_loss: int, *, lasting_injury: bool) -> None:
@@ -141,6 +142,8 @@ class OpponentHistory:
             return
         if health_loss > 0:
             self.damage_by_target[source] = max(health_loss, self.damage_by_target[source])
+        if lasting_injury:
+            self.draining_targets.add(source)
         for foe in hostiles:
             if foe.target == source:
                 if health_loss > 0:
@@ -156,9 +159,12 @@ class OpponentHistory:
         foes = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=offset)]
         return MeleeExposure(foes, sum(self.damage_estimate(foe) for foe in foes))
 
+    def is_drainer(self, foe: Creature) -> bool:
+        return foe.target in self.draining_targets or foe.name in self.draining_names
+
     def nearby_drainer(self, turn: Turn, foe: Creature) -> bool:
         # Allow one closing step before a creature can strike in contact.
-        return foe.name in self.draining_names and turn.distance_to(foe) <= 2
+        return self.is_drainer(foe) and turn.distance_to(foe) <= 2
 
 
 def preceding_attack(events_before_death, actor):
