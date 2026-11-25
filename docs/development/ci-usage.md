@@ -253,3 +253,17 @@ and qualification evidence, and the unchanged Actions runner and
 transport paths. Refresh only the selected contract resolver's reviewed
 source hash. Unit and transport regressions exercise the observed
 placeholder and reject missing, duplicate, promoted or foreign rows.
+
+## November 25 retained plan byte budget
+
+PR #69 qualified on Linux and Windows, but main run 45522920374 could not
+read its 2,153,018-byte retained plan before the smoke tests. Compact JSON
+fits the same plan in 1,941,728 bytes without changing any test identity
+or qualification digest. The producer now checks that compact encoding
+against the existing reader limit before choosing retained coverage. If
+it still does not fit, the ordinary fresh verification plan remains enabled.
+
+This does not add jobs, triggers, permissions, network destinations, artifact
+retention or test workloads. It keeps the existing external evidence limits
+and both post-merge readers, and avoids an unusable retained plan rather than
+treating missing smoke evidence as success.

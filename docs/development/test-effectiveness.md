@@ -1461,3 +1461,15 @@ The next hosted Linux debug Rust run found one independent current-format
 assertion still pinning save archive 72. Its expected archive is now 73;
 the scenario, ruleset, component and arena formats are unchanged. The
 separate physical-framing and previous-save rejection witnesses remain.
+
+### Retained main plan serialization (2026-11-25)
+
+The Identify merge passed selected PR qualification, but its fresh main
+integration was rejected before running smoke tests. The indented retained
+plan was 2,153,018 bytes, above the existing 2 MiB reader limit. The aggregate’s
+missing smoke receipt was downstream fallout, not an additional root cause.
+The producer now writes compact JSON and declines retention if that encoding
+still exceeds the reader limit, leaving fresh CI enabled. The external evidence
+bounds and both smoke requirements are unchanged. The regression tests cover
+the production plan writer and both post-merge plan readers at realistic lane
+sizes, plus fallback when the compact encoding is still too large.
