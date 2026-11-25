@@ -553,6 +553,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Move(Direction.EAST), "seek_supplies"))
 
+    def test_optional_loot_waits_until_danger_on_the_route_expires(self):
+        for category, distance in (("coin", 2), ("potion", 3)):
+            with self.subTest(category=category):
+                stairs = cell("exit", -1, down=True)
+                cells = [stairs, cell("here"), *(cell(str(x), x) for x in range(1, distance + 1))]
+                item = {"id": "loot", "name": category, "class": category, "quantity": 1, "identified": False}
+                ground = [{**cells[-1], "item": item, "reachable": False}]
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.danger_until["1"] = 100
+                for tick, direction, reason in ((99, Direction.WEST, "seek_stairs"),
+                                                (100, Direction.EAST, "seek_supplies")):
+                    turn = player_turn(cells, ground=ground, tick=tick)
+                    self.assertEqual(choose(player, turn), (Move(direction), reason))
+
     def test_visible_food_detour_crosses_recent_danger_only_when_required(self):
         stairs, near, hall, far = cell("stairs", down=True), cell("near", 1), cell("hall", -1), cell("far", -2)
         food = {"id": "ration", "name": "ration", "class": "food", "identified": False, "quantity": 1}

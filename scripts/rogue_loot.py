@@ -104,8 +104,8 @@ def route_to_loot(turn: Turn, memory: FloorMap, goals: LootGoals, danger: Set[st
         arrows = memory.cells_with_item(lambda item: item.identity == "item.weapon.arrow")
         if arrows and (action := memory.toward(turn, arrows, avoid=danger, max_steps=6)):
             return action, "recover_arrows"
-    if goals.nearby and (action := memory.toward(turn, goals.nearby, max_steps=2)):
+    if goals.nearby and (action := memory.toward(turn, goals.nearby, avoid=danger, max_steps=2)):
         return action, "seek_supplies"
-    if goals.supplies and (action := memory.toward(turn, goals.supplies, max_steps=3)):
+    if goals.supplies and (action := memory.toward(turn, goals.supplies, avoid=danger, max_steps=3)):
         return action, "seek_supplies"
     return None
