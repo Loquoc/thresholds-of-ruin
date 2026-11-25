@@ -47,7 +47,8 @@ class CarriedLoot:
 
     @cached_property
     def _wanted_rings(self) -> set[str]:
-        return ring_upgrades(self._turn).keys() - self.usable_gear
+        can_remove_curse = remove_curse_scroll(self._turn) is not None
+        return ring_upgrades(self._turn, can_remove_curse=can_remove_curse).keys() - self.usable_gear
 
     @cached_property
     def _wants_spare_armor(self) -> bool:

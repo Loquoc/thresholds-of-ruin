@@ -419,6 +419,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 expected = None if replace is None else (Unequip(turn.equipment[replace]), "change_ring")
                 self.assertEqual(choose_ring(turn), expected)
 
+    def test_ring_upgrade_spends_a_cure_only_when_both_fingers_are_blocked(self):
+        from rogue_gear import choose_ring
+
+        slot = {"id": "ring", "name": "Finger"}
+        rings = [{"id": target, "identity": "item.ring.ring-" + name, "name": name,
+                  "class": "ring", "quantity": 1, "identified": True}
+                 for target, name in (("left", "adornment"), ("right", "adornment"), ("new", "slow-digestion"))]
+        cure = {**rings[0], "id": "cure", "identity": "item.scroll.remove-curse", "class": "scroll"}
+        offers = [{"item": "left", "slot": slot, "equipped_slot": 0}, {"item": "right", "slot": slot, "equipped_slot": 1},
+                  {"item": "new", "slot": slot}, {"item": "cure", "readable": True}]
+        for blocked, reason in ((["left", "right"], "remove_ring_curse"), (["left"], "change_ring")):
+            with self.subTest(blocked=blocked):
+                turn = player_turn([cell("here")], inventory=[*rings, cure], interactions={
+                    "slots": [slot, slot], "inventory": offers, "curse_blocked": blocked})
+                decision = choose_ring(turn)
+                self.assertIsNotNone(decision)
+                self.assertEqual(decision[1], reason)
+
     def test_equal_ring_upgrades_prefer_the_first_free_finger(self):
         slot = {"id": "ring", "name": "Finger"}
         rings = [{"id": target, "name": name, "class": "ring", "quantity": 1, "identified": True,
@@ -823,6 +841,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn([here, near], inventory=[ring(worn)], ground=[ground],
                                    interactions={"slots": [slot], "inventory": [
                                        {"item": worn, "slot": slot, "equipped_slot": 0}]})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
+
+    def test_ring_detour_with_a_blocked_finger_requires_a_readable_cure(self):
+        here, near = cell("exit", down=True), cell("prize", 1)
+        slot = {"id": "ring", "name": "Finger"}
+        worn = {"id": "worn", "identity": "item.ring.ring-adornment", "name": "band",
+                "quantity": 1, "class": "ring", "identified": True}
+        cure = {**worn, "id": "scroll", "identity": "item.scroll.remove-curse", "class": "scroll"}
+        ring = {**worn, "id": "ring", "identity": "item.ring.ring-slow-digestion"}
+        for readable, expected in ((True, "seek_supplies"), (False, "descend")):
+            with self.subTest(readable=readable):
+                turn = player_turn([here, near], inventory=[worn, cure], ground=[{**near, "item": ring, "reachable": False}],
+                                   interactions={"slots": [slot], "curse_blocked": ["worn"], "inventory": [
+                                       {"item": "worn", "slot": slot, "equipped_slot": 0},
+                                       {"item": "scroll", "readable": readable}]})
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
 
     def test_cursed_spare_ring_does_not_rule_out_another_copy_of_an_upgrade(self):

@@ -145,7 +145,7 @@ _NORMAL_RING_RANKS = _ring_ranks("slow-digestion", "protection", "searching", "r
 _RECOVERY_RING_RANKS = _ring_ranks("regeneration", "slow-digestion", "protection", "searching")
 
 
-def ring_upgrades(turn: Turn) -> dict[str, dict[int, int]]:
+def ring_upgrades(turn: Turn, *, can_remove_curse: bool = False) -> dict[str, dict[int, int]]:
     """Positive gains by recognized ring identity and replaceable finger slot."""
     fingers = [slot for slot in turn.equipment if slot.kind == "ring"]
     worn = Counter(slot.occupant.identity for slot in fingers if slot.occupant)
@@ -156,7 +156,7 @@ def ring_upgrades(turn: Turn) -> dict[str, dict[int, int]]:
     upgrades: dict[str, dict[int, int]] = {}
     unworn = {identity: rank for identity, rank in ranks.items() if identity not in worn}
     for slot in fingers:
-        if slot.removal_blocked:
+        if slot.removal_blocked and not can_remove_curse:
             continue
         old = slot.occupant.identity if slot.occupant else None
         # Removing a duplicate keeps the same effect on another finger, even if that finger is blocked.
@@ -172,17 +172,22 @@ def choose_ring(turn: Turn) -> tuple[Action, str] | None:
                and choice.item.identity is not None and not choice.item.known_cursed]
     if not choices:
         return None
-    upgrades = ring_upgrades(turn)
-    # Prefer the largest gain, then a free slot. Keep offer order for equal choices.
-    best_rank = (0, True)
+    cure = remove_curse_scroll(turn)
+    upgrades = ring_upgrades(turn, can_remove_curse=cure is not None)
+    # Save the scroll whenever an upgrade is available without it.
+    best_rank = None
     best = None
     for choice in choices:
         gain = upgrades.get(choice.item.identity, {}).get(choice.slot.index, 0)
-        rank = gain, choice.slot.occupant is None
-        if rank > best_rank:
+        if gain <= 0:
+            continue
+        rank = not choice.slot.removal_blocked, gain, choice.slot.occupant is None
+        if best_rank is None or rank > best_rank:
             best, best_rank = choice, rank
     if best is None:
         return None
+    if best.slot.removal_blocked and cure is not None:
+        return cure, "remove_ring_curse"
     if best.slot.occupant:
         return Unequip(best.slot), "change_ring"
     return best, "conserve_food" if best.item.identity == "item.ring.ring-slow-digestion" else "upgrade_equipment"

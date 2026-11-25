@@ -1743,6 +1743,47 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual(rows[reveal + 1]["previous_intention_phase"], "resolved")
         self.assertTrue(any(d["id"] == opened["action"]["door"] and d["open"] for d in doors(rows[reveal + 1])))
 
+    def test_bot_frees_a_cursed_finger_to_wear_a_better_ring(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        manifest["archetypes"]["rogue.ring_adornment"]["equipment_generation"] = {"kind": "cursed"}
+        character, = manifest["characters"]
+        character.update(known_identities=["item.ring.ring-adornment", "item.ring.ring-slow-digestion",
+                                           "item.scroll.identify-wand", "item.scroll.remove-curse"],
+                         loadout=[{"archetype": "rogue.ring_adornment", "quantity": 1, "equipped_slot": index}
+                                  for index in (7, 8)] + [
+                             {"archetype": "rogue.ring_slow_digestion", "quantity": 1},
+                             {"archetype": "rogue.identify_wand", "quantity": 2},
+                             {"archetype": "rogue.remove_curse", "quantity": 1}])
+        contents["regions"][0].update(actors=[], items=[])
+        self.check_policy_scenario(contents, "cursed-fingers", """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import ItemUse, Outcome, Session, UseItem
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    fingers = [slot.occupant.target for slot in turn.equipment if slot.kind == "ring"]
+    for target in fingers:
+        scroll = next(item for item in turn.inventory if item.identity == "item.scroll.identify-wand")
+        assert turn.submit(UseItem(scroll, ItemUse.READ)).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
+        prompt = turn.identification
+        assert turn.submit(prompt.select(next(item for item in prompt.items if item.target == target))).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
+    assert all(slot.removal_blocked for slot in turn.equipment if slot.kind == "ring")
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    for expected in ("remove_ring_curse", "change_ring", "conserve_food"):
+        player.observe(turn)
+        action, reason = player.choose(turn)
+        assert reason == expected, (action, reason)
+        assert turn.submit(action).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
+    assert any(slot.occupant and slot.occupant.identity == "item.ring.ring-slow-digestion" for slot in turn.equipment)
+""")
+
     def test_bot_walks_to_a_recognized_slow_digestion_ring_and_wears_it(self):
         self.check_supply_detour("rogue.ring_slow_digestion", ["item.ring.ring-slow-digestion"], "conserve_food")
 
