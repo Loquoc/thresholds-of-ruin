@@ -129,6 +129,12 @@ class MeleeRank(NamedTuple):
     damage_from_this_foe: int
 
 
+@dataclass(frozen=True)
+class PendingStair:
+    attempt: StairAttempt
+    pursuers: tuple[str, ...]
+
+
 @dataclass
 class Adventurer:
     retrieval_depth: int
@@ -142,8 +148,7 @@ class Adventurer:
     travel_times: FloorTravelTimes = field(default_factory=FloorTravelTimes)
     meals: MealHistory = field(default_factory=MealHistory)
     food_scouts: FoodScoutHistory = field(default_factory=FoodScoutHistory)
-    pending_stair: StairAttempt | None = None
-    stair_pursuers: tuple[str, ...] = ()
+    pending_stair: PendingStair | None = None
     last_guarded_landing: tuple[str, str] | None = None
     unsafe_stairs: dict[tuple[str, Direction], int] = field(default_factory=dict)
     cancelled_stairs: set[tuple[str, Direction]] = field(default_factory=set)
@@ -261,25 +266,27 @@ class Adventurer:
 
     def observe_stair(self, turn: Turn) -> None:
         """Retire a failed attempt immediately. Confirm arrival on a ready or terminal picture."""
-        attempt = self.pending_stair
-        if attempt is None:
+        pending = self.pending_stair
+        if pending is None:
             return
+        attempt = pending.attempt
         arrived = turn.stair_arrival(attempt)
         if arrived is None:
             return
         if arrived:
             if not (turn.can_act or turn.terminal):
                 return
-            self.record_stair_arrival(turn, attempt, attempt.landing or turn.cell.key)
+            self.record_stair_arrival(turn, pending)
         self.pending_stair = None
-        self.stair_pursuers = ()
 
-    def record_stair_arrival(self, turn: Turn, attempt: StairAttempt, landing: str) -> None:
+    def record_stair_arrival(self, turn: Turn, pending: PendingStair) -> None:
+        attempt = pending.attempt
+        landing = attempt.landing or turn.cell.key
         if self.last_unseen_attack and turn.cell and self.last_unseen_attack[0] != turn.cell.key:
             self.last_unseen_attack = None
-        if self.stair_pursuers:
-            if attempt.direction is Direction.UP and len(self.stair_pursuers) == 1:
-                self.last_guarded_landing = attempt.origin, self.stair_pursuers[0]
+        if pending.pursuers:
+            if attempt.direction is Direction.UP and len(pending.pursuers) == 1:
+                self.last_guarded_landing = attempt.origin, pending.pursuers[0]
             reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
             self.unsafe_stairs[landing, reverse] = self.danger_until.get(
                 attempt.origin, turn.tick)
@@ -310,7 +317,8 @@ class Adventurer:
             case MemoryReason.CANCEL_STALLED_SCROLL:
                 self.scroll_trials.interrupted(turn)
             case MemoryReason.CANCEL_STALLED_STAIR if self.pending_stair:
-                self.cancelled_stairs.add((self.pending_stair.origin, self.pending_stair.direction))
+                attempt = self.pending_stair.attempt
+                self.cancelled_stairs.add((attempt.origin, attempt.direction))
                 self.wait_after_cancel = True
             case MemoryReason.WAIT_AFTER_CANCEL:
                 self.wait_after_cancel = False
@@ -350,9 +358,10 @@ class Adventurer:
                 and below_half_health(turn.health)):
             self.recovering_from_pursuit = True
         if action.direction in (Direction.UP, Direction.DOWN):
-            self.pending_stair = turn.stair_attempt(action, receipt)
-            self.stair_pursuers = (tuple(foe.target for foe in turn.hostiles)
-                                   if reason in {MemoryReason.RETREAT_UPSTAIRS, MemoryReason.RETREAT_DOWNSTAIRS} else ())
+            pursuers = ()
+            if reason in {MemoryReason.RETREAT_UPSTAIRS, MemoryReason.RETREAT_DOWNSTAIRS}:
+                pursuers = tuple(foe.target for foe in turn.hostiles)
+            self.pending_stair = PendingStair(turn.stair_attempt(action, receipt), pursuers)
 
     def remember_zap(self, turn: Turn, action: Zap, reason: str | None) -> None:
         self.wand_trials.admitted(action.device, experiment=reason == MemoryReason.TEST_UNKNOWN_DEVICE)
@@ -998,7 +1007,7 @@ class Adventurer:
             return None, "readiness_timeout"
         if self.scroll_trials.pending and self.scroll_trials.pending.receipt == previous:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_SCROLL
-        stair = self.pending_stair
+        stair = self.pending_stair.attempt if self.pending_stair else None
         if stair and stair.receipt == previous and (stair.origin, stair.direction) not in self.cancelled_stairs:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_STAIR
         return None, "readiness_timeout"

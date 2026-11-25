@@ -1412,6 +1412,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         refused = Result.from_reply({"status": "rejected"})
         self.assertIs(after.stair_arrival(before.stair_attempt(Move(Direction.DOWN), refused)), False)
 
+    def test_failed_stair_retreat_does_not_mark_a_later_ordinary_landing_unsafe(self):
+        from tor_client_bot import Result
+
+        origin = player_turn([cell("stairs", down=True), cell("guard", 1)],
+                             actors=[{"id": "orc", "name": "orc", "position": cell("guard", 1)["position"]}],
+                             hostiles=["orc"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(origin)
+        down = Move(Direction.DOWN)
+        player.admitted(origin, down, Result.from_reply({"status": "rejected"}), reason="retreat_downstairs")
+        player.observe(origin)
+        player.admitted(origin, down, reason="descend")
+        player.observe(player_turn([cell("landing", up=True)], tick=100))
+        self.assertEqual(player.depth, 2)
+        self.assertNotIn(("landing", Direction.UP), player.unsafe_stairs)
+
     def test_failed_stair_is_retired_before_its_receipt_leaves_history(self):
         from tor_client_bot import Result
 
