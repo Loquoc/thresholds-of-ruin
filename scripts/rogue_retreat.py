@@ -129,8 +129,13 @@ def choose_retreat_step(turn: Turn, damage_estimate: Callable[[Creature], int] |
         return RetreatStep(onward, improves_immediately=False) if onward else None
 
     best = max(improving.values())
+    contact_score, clear, _ = best
+    if contact_score == 0 and not clear and not contacts_at((0, 0, 0)):
+        # Outside melee reach, a clear sidestep can buy distance without crossing a trap.
+        if onward := best_onward_escape(turn, sidesteps, safety, avoid_traps=True):
+            return RetreatStep(onward, improves_immediately=False)
     candidates = [direction for direction, rank in improving.items() if rank == best]
-    if damage_estimate is not None and best[0] < 0 and len(candidates) > 1:
+    if damage_estimate is not None and contact_score < 0 and len(candidates) > 1:
         # Compare measured damage only when every remaining contact has an estimate.
         costs = {}
         for direction in candidates:
@@ -150,6 +155,7 @@ def best_onward_escape(
     turn: Turn,
     first_steps: list[Direction],
     safety: Callable[[tuple[int, int, int]], tuple[int, int]],
+    *, avoid_traps: bool = False,
 ) -> Direction | None:
     """Choose a first step whose continuation improves on the starting square."""
     origin = (0, 0, 0)
@@ -158,16 +164,21 @@ def best_onward_escape(
     best_direction = None
     for direction in first_steps:
         cell = turn.cell_at(direction.offset)
+        if avoid_traps and cell.trap is not None:
+            continue
         first_safety = safety(direction.offset)
         for second in turn.walkable_from(cell):
             destination = tuple(a + b for a, b in zip(direction.offset, second.offset))
             if destination == origin:
                 continue
+            destination_clear = turn.cell_at(destination).trap is None
+            if avoid_traps and not destination_clear:
+                continue
             onward_safety = safety(destination)
             if onward_safety < first_safety or onward_safety <= starting_safety:
                 continue
             contact_score, clearance = onward_safety
-            rank = contact_score, cell.trap is None, turn.cell_at(destination).trap is None, clearance
+            rank = contact_score, cell.trap is None, destination_clear, clearance
             if best_rank is None or rank > best_rank:
                 best_direction, best_rank = direction, rank
     return best_direction

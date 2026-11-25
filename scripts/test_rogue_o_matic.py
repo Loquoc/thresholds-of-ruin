@@ -5289,6 +5289,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 self.assertEqual(choose(player, turn), (Move(expected), "retreat"))
 
+    def test_distant_pursuer_allows_a_clear_detour_before_a_trapped_escape(self):
+        foe = {"id": "hunter", "name": "hunter", "position": tile(2, 1)["position"]}
+        trap = {"id": "pit", "family": "pit", "reachable": True}
+        west = {**tile(-1, 0), "trap": trap}
+        for onward, expected in (([], (Move(Direction.WEST), "retreat")),
+                                 ([{**tile(0, -2), "trap": trap}], (Move(Direction.WEST), "retreat")),
+                                 ([tile(0, -2)], (Move(Direction.NORTH), "break_contact"))):
+            with self.subTest(onward=onward):
+                room = [tile(0, 0), west, tile(0, -1), tile(2, 1), *onward]
+                turn = player_turn(room, actors=[foe], hostiles=["hunter"], combat={"hp": 2})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), expected)
+
     def test_equal_escape_routes_avoid_a_trap_on_either_step(self):
         foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
         for trap_y, expected in ((-2, Direction.SOUTH), (-1, Direction.SOUTH), (1, Direction.NORTH), (2, Direction.NORTH)):
