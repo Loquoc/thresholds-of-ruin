@@ -2757,6 +2757,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn(tiles, ground=ground, tick=tick)
                 self.assertEqual(choose(player, turn), (Move(expected), "seek_objective"))
 
+    def test_objective_route_prefers_a_past_guard_to_a_known_trap(self):
+        tiles = [cell("here"), cell("guarded", 1), cell("goal", 2)]
+        for x in range(3):
+            detour = cell(f"detour-{x}", x)
+            detour["position"]["y"] = 1
+            if x == 1:
+                detour["trap"] = {"id": "pit", "family": None, "reachable": True}
+            tiles.append(detour)
+        relic = {"id": "relic", "name": AMULET, "class": "amulet", "quantity": 1,
+                 "identified": True, "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        turn = player_turn(tiles, ground=[{**tiles[2], "item": relic, "reachable": False}])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.supplies_guarded_until["guarded"] = 100
+        self.assertEqual(choose(player, turn), (Move(Direction.EAST), "seek_objective"))
+
     def test_guarded_supply_fallback_keeps_combat_sites_excluded_from_objective_pursuit(self):
         corridor = [cell("here"), cell("guarded", 1), cell("combat", 2), cell("goal", 3)]
         relic = {"id": "relic", "name": AMULET, "class": "amulet", "quantity": 1,

@@ -827,9 +827,18 @@ class Adventurer:
             return None
         danger = self.danger_until.keys()
         guarded = self.supplies_guarded_until.keys()
-        if guarded and (step := memory.toward(turn, goals, avoid=danger | guarded)):
-            return step
-        return memory.toward(turn, goals, avoid=danger)
+        if not guarded:
+            return memory.toward(turn, goals, avoid=danger)
+        exclusions = (danger | guarded, danger)
+        # A remembered guard is a softer warning than a disclosed trap.
+        for avoid in exclusions:
+            if step := memory.toward_avoiding_traps(turn, goals, avoid=avoid):
+                return step
+        if memory.known_traps:
+            for avoid in exclusions:
+                if step := memory.toward(turn, goals, avoid=avoid, prefer_safe=False):
+                    return step
+        return None
 
     def follow_stairs(self, turn: Turn, memory: FloorMap, *, returning: bool) -> tuple[Action, str] | None:
         """Descend toward the retrieval floor or follow upstairs with the objective."""

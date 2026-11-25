@@ -1352,6 +1352,12 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_bot_reaches_the_objective_via_an_unguarded_approach(self):
+        self.check_objective_approach(trapped_detours=False)
+
+    def test_bot_crosses_a_guard_warning_to_keep_the_objective_route_trap_free(self):
+        self.check_objective_approach(trapped_detours=True)
+
+    def check_objective_approach(self, *, trapped_detours):
         from utility_potions_package import fixture
 
         contents = fixture()
@@ -1360,7 +1366,13 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         character.update(loadout=[], known_identities=[identity])
         region, = contents["regions"]
         region.update(actors=[], items=[{"id": 10, "archetype": "rogue.amulet_of_yendor", "at": [5, 2, 0]}])
-        self.check_policy_scenario(contents, "objective-detour", """
+        if trapped_detours:
+            region["traps"] = [
+                {"id": y + 1, "at": [2, y, 0], "dc": 0, "avoidance_dc": 100,
+                 "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0}}
+                for y in (0, 1, 3, 4)
+            ]
+        self.check_policy_scenario(contents, "objective-detour", f"""
 import os
 from rogue_player import Adventurer, RECENT_DANGER_TICKS
 from tor_client_bot import Move, Outcome, Pickup, Session
@@ -1373,11 +1385,16 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert isinstance(direct, Move) and reason == "seek_objective", (direct, reason)
     guarded = turn.cell_at(direct.direction.offset).key
     player.supplies_guarded_until[guarded] = turn.tick + RECENT_DANGER_TICKS
+    traps = player.maps[player.depth].known_traps
+    assert len(traps) == {4 if trapped_detours else 0}, traps
+    visited = set()
     for _ in range(8):
         action, reason = player.choose(turn)
         if isinstance(action, Move):
             assert reason == "seek_objective", reason
-            assert turn.cell_at(action.direction.offset).key != guarded, action
+            destination = turn.cell_at(action.direction.offset).key
+            assert destination not in traps, action
+            visited.add(destination)
         else:
             assert isinstance(action, Pickup) and action.item.identity == player.objective, action
         result = turn.submit(action)
@@ -1388,6 +1405,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         if player.carrying_objective(turn):
             break
     assert player.carrying_objective(turn)
+    assert (guarded in visited) == {trapped_detours}, visited
 """)
 
     def test_bot_cli_retrieves_a_custom_canonical_objective(self):
