@@ -442,6 +442,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offers[2]["equipped_slot"] = 0
         self.assertEqual(choose(player, picture())[1], "enchant_weapon")
 
+        # A stronger spare that is known to be cursed leaves the worn sword eligible for enchantment.
+        del offers[2]["equipped_slot"]
+        offers[2]["known_cursed"] = True
+        offers[1]["equipped_slot"] = 0
+        self.assertEqual(choose(player, picture())[1], "enchant_weapon")
+
     def test_reachable_objective_takes_priority_before_planning_loot_detours(self):
         from unittest.mock import patch
 

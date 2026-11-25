@@ -206,9 +206,15 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
         preferred_bow = bow and item.identity == "item.weapon.shortbow"
         return preferred_bow, melee_score(item)
 
-    choices = (choice for choice in turn.equip_choices() if choice.slot is slot and not choice.item.known_cursed)
-    choice = max(choices, key=lambda candidate: rank(candidate.item), default=None)
-    if choice is None or rank(choice.item) <= rank(worn):
+    best_rank = rank(worn)
+    upgrade = None
+    for choice in turn.equip_choices():
+        if choice.slot is not slot or choice.item.known_cursed:
+            continue
+        candidate_rank = rank(choice.item)
+        if candidate_rank > best_rank:
+            best_rank, upgrade = candidate_rank, choice
+    if upgrade is None:
         return None
     if slot.removal_blocked:
         for item in turn.inventory:
@@ -217,7 +223,7 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
         return None
     if worn:
         return Unequip(slot), "change_weapon"
-    return choice, "equip_bow" if choice.item.identity == "item.weapon.shortbow" else "equip_melee"
+    return upgrade, "equip_bow" if upgrade.item.identity == "item.weapon.shortbow" else "equip_melee"
 
 
 class EquipmentHistory:
