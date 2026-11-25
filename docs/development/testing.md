@@ -562,6 +562,9 @@ the required test-support feature, all currently discovered pure tests, and the
 two fixed paired-stair and journal-only exploration persistence witnesses.
 Both platform aggregates require the proof and complete fresh-main evidence.
 They do not claim that Windows, release or the full process matrix executed again.
+Before retaining coverage, scope encodes the plan compactly and checks it
+against the smoke and aggregate readers’ byte limit. A plan that still exceeds
+that limit keeps the normal fresh verification lanes.
 Once the post-merge plan is selected, a failed/missing smoke result blocks its
 gate; it is not silently turned into a pass or an older result.
 

@@ -41,6 +41,11 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
+def encode_plan(plan):
+    """Use the same byte representation for admission and publication."""
+    return (json.dumps(plan, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+
+
 def diff_paths(raw):
     """Parse bounded --raw --no-renames records, retaining old and new sides."""
     require(len(raw) <= ci_scope.MAX_DIFF_BYTES and (not raw or raw.endswith(b"\0")), "invalid diff framing")
@@ -207,11 +212,18 @@ def current_plan(*, root=ROOT, event_name=None, event=None, source_sha=None):
             event = json.loads(raw)
         if ci_scope.classify(root, name, event, normal['source_sha'])['docs_only']:
             return normal
+        import ci_postmerge
         if normal['mode'] == 'selected':
             import ci_contract_reuse
-            return ci_contract_reuse.resolve(normal, event, root)
-        import ci_postmerge
-        return ci_postmerge.resolve(normal, event, root)
+            candidate = ci_contract_reuse.resolve(normal, event, root)
+        else:
+            candidate = ci_postmerge.resolve(normal, event, root)
+        # Both post-merge readers have this byte bound. Decline reuse before
+        # the job outputs can disable the normal verification lanes.
+        if candidate['mode'] == 'postmerge' and len(encode_plan(candidate)) > ci_postmerge.MAX_BYTES:
+            return {**normal, 'postmerge_optimization': {
+                'status': 'declined', 'reason': 'post-merge plan exceeds JSON size bound'}}
+        return candidate
     except (OSError, ValueError, TypeError, KeyError, ImportError, subprocess.SubprocessError):
         return normal
 
@@ -249,7 +261,7 @@ def main(argv=None):
     require(not (args.base and os.environ.get("GITHUB_OUTPUT")), "local plans cannot set CI job outputs")
     result = local_plan(args.base) if args.base else current_plan()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    args.output.write_bytes(encode_plan(result))
     print(json.dumps({"mode": result["mode"], "assurance": result["assurance"], "reasons": result["reasons"],
                       "contracts": result["contracts"], "plan_sha256": digest(result)}, sort_keys=True))
     if output := os.environ.get("GITHUB_OUTPUT"):

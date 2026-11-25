@@ -1,5 +1,10 @@
 """Independent risk-plan expectations: malformed scope must never narrow CI."""
+import contextlib
+import io
 import json
+import os
+from pathlib import Path
+import tempfile
 import subprocess
 import sys
 import unittest
@@ -9,6 +14,65 @@ import ci_test_plan as plan
 
 
 class PlanTests(unittest.TestCase):
+    def retained_plan_at_identify_scale(self, name_length):
+        normal = {**plan.full_plan('a' * 40, 'b' * 40, []), 'mode': 'selected',
+                  'assurance': 'selected-pr-contracts', 'requires_apps': True}
+        normal['lanes'] = [
+            {'id': lane, 'os': system, 'profile': 'debug', 'partition': 'python',
+             'test_ids': [f'test_replay.Processes.test_{index:04d}_' + 'x' * name_length
+                          for index in range(count)]}
+            for lane, system, count in (('linux-debug-python', 'ubuntu-latest', 3171),
+                                        ('windows-debug-python', 'windows-latest', 3164))
+        ]
+        retained = {**normal, 'mode': 'postmerge', 'consumer_3d': False, 'lanes': [],
+                    'assurance': 'prior-exact-tree-selected-plus-fresh-main',
+                    'normal_selection': normal,
+                    'postmerge_proof': {'qualification': {'selection': {'lanes': normal['lanes']}},
+                                        'current_toolchain': {'release': '1.100.0'}}}
+        return normal, retained
+
+    def publish_retained_candidate(self, directory, normal, retained):
+        output = directory / 'plan.json'
+        job_outputs = directory / 'github-output'
+        event = directory / 'event.json'
+        event.write_text('{}', encoding='utf-8')
+        with (patch.object(plan, 'normal_plan', return_value=normal),
+              patch.object(plan.ci_scope, 'classify', return_value={'docs_only': False}),
+              patch('ci_contract_reuse.resolve', return_value=retained),
+              patch.dict(os.environ, {'GITHUB_EVENT_NAME': 'push', 'GITHUB_OUTPUT': str(job_outputs),
+                                      'GITHUB_EVENT_PATH': str(event)}),
+              contextlib.redirect_stdout(io.StringIO())):
+            self.assertEqual(plan.main(['--output', str(output)]), 0)
+        return output, job_outputs.read_text(encoding='utf-8').splitlines()
+
+    def test_real_size_retained_plan_reaches_both_postmerge_consumers(self):
+        import ci_postmerge as postmerge
+        normal, retained = self.retained_plan_at_identify_scale(122)
+        self.assertGreater(len(json.dumps(retained, indent=2).encode()), postmerge.MAX_BYTES)
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            output, decisions = self.publish_retained_candidate(directory, normal, retained)
+            self.assertIn('mode=postmerge', decisions)
+            with patch.object(postmerge, 'smoke') as smoke:
+                self.assertEqual(postmerge.main(['smoke', '--plan', str(output)]), 0)
+            smoke.assert_called_once_with(retained)
+            with patch.object(postmerge, 'validate_smoke') as aggregate, patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': ''}):
+                self.assertEqual(postmerge.main(['aggregate', '--plan', str(output), '--directory', folder]), 0)
+            aggregate.assert_called_once_with(retained, directory)
+
+    def test_retained_plan_above_wire_budget_leaves_fresh_selected_jobs_enabled(self):
+        import ci_postmerge as postmerge
+        normal, retained = self.retained_plan_at_identify_scale(150)
+        self.assertGreater(len(json.dumps(retained, separators=(',', ':')).encode()), postmerge.MAX_BYTES)
+        with tempfile.TemporaryDirectory() as folder:
+            output, decisions = self.publish_retained_candidate(Path(folder), normal, retained)
+            self.assertIn('mode=selected', decisions)
+            self.assertIn('postmerge_release=', decisions)
+            fresh = postmerge.decode(output.read_bytes())
+            self.assertEqual(fresh.pop('postmerge_optimization')['status'], 'declined')
+            self.assertEqual(fresh, normal)
+            self.assertNotIn('postmerge_proof', fresh)
+
     def complete_selection(self, paths):
         import ci_test_contracts as contracts
         inventory, metadata = plan.discover_inventory()
