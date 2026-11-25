@@ -1053,6 +1053,24 @@ class Adventurer:
             return None
         return self.ready_search(turn)
 
+    def follow_stairs(self, turn: Turn, memory: FloorMap, *, returning: bool) -> tuple[Action, str] | None:
+        """Descend toward the retrieval floor or follow upstairs with the objective."""
+        if turn.cell is None or (not returning and self.depth >= self.retrieval_depth):
+            return None
+        direction = Direction.UP if returning else Direction.DOWN
+        stairs = self.safe_stairs(turn, direction)
+        if not stairs:
+            return None
+        if turn.cell.key in stairs:
+            if turn.has_condition("rogue.levitation"):
+                return Wait(), "wait_for_ground_contact"
+            return Move(direction), "ascend" if returning else "descend"
+        if step := memory.toward(turn, stairs):
+            return step, MemoryReason.SEEK_STAIRS
+        if returning and not turn.hostiles:
+            return self.search_return_connection(turn, memory, stairs)
+        return None
+
     def search_return_connection(self, turn: Turn, memory: FloorMap, upstairs: set[str]) -> tuple[Action, str] | None:
         """Search where one opening could reconnect the route to a remembered staircase."""
         search = self.ready_search(turn)
@@ -1383,18 +1401,8 @@ class Adventurer:
         if not turn.hostiles and (decision := self.provision(turn, memory, returning)):
             return decision
 
-        direction = Direction.UP if returning else Direction.DOWN
-        if returning or self.depth < self.retrieval_depth:
-            stairs = self.safe_stairs(turn, direction)
-            if turn.cell.key in stairs:
-                if hovering:
-                    return Wait(), "wait_for_ground_contact"
-                return Move(direction), "ascend" if returning else "descend"
-            if action := memory.toward(turn, stairs):
-                return action, MemoryReason.SEEK_STAIRS
-            if returning and stairs and not turn.hostiles:
-                if link := self.search_return_connection(turn, memory, stairs):
-                    return link
+        if decision := self.follow_stairs(turn, memory, returning=returning):
+            return decision
 
         if (turn.cell.lit is False and not turn.hostiles and self.depth not in self.attempted_room_light
                 and not turn.has_condition("rogue.blindness")):

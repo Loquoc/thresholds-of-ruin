@@ -4617,6 +4617,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         policy.floor = 3
         self.assertEqual(policy.choose(data), ({"type": "move", "direction": "east"}, "explore"))
 
+    def test_retrieval_floor_changes_stair_priority_until_the_objective_is_carried(self):
+        room = [cell("stairs", up=True, down=True), cell("frontier", 1)]
+        prize = {"id": "prize", "name": AMULET, "class": "amulet", "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                 "quantity": 1, "identified": True}
+        for depth, inventory, direction, reason in (
+            (2, [], Direction.DOWN, "descend"),
+            (3, [], Direction.EAST, "explore"),
+            (3, [prize], Direction.UP, "ascend"),
+        ):
+            with self.subTest(depth=depth, reason=reason):
+                player = Adventurer(3, DEFAULT_OBJECTIVE_IDENTITY, depth=depth)
+                self.assertEqual(choose(player, player_turn(room, inventory=inventory)), (Move(direction), reason))
+
     def test_takes_known_descent_before_chasing_optional_loot(self):
         sword = {"id": "sword", "class": "weapon", "name": "long sword",
                  "quantity": "1", "identified": True}
