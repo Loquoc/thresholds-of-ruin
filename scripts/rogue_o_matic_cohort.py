@@ -205,6 +205,22 @@ class FloorVisits:
         self.previous_reserve = reserve
 
 
+def trace_rows(log):
+    """Yield an action or terminal report per nonblank line, with None marking a gap."""
+    for line in log:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line.decode("utf-8"))
+        except ValueError:
+            row = None
+        if isinstance(row, dict):
+            if "terminal" in row or (isinstance(row.get("action"), dict) and row.get("floor") is not None):
+                yield row
+                continue
+        yield None
+
+
 def trace_report(path):
     progress = {"actions": 0, "max_depth": 0, "amulet_acquired": False,
                 "closest_return_floor": None}
@@ -212,23 +228,16 @@ def trace_report(path):
     terminal = None
     last_move = None
     previous_origin = None
-    # Decode each JSON line independently so a truncated character cannot hide earlier rows.
     with path.open("rb") as log:
-        for line in log:
-            if not line.strip():
-                continue
+        for row in trace_rows(log):
             terminal = None
-            try:
-                row = json.loads(line.decode("utf-8"))
-            except ValueError:
-                row = None
-            if not isinstance(row, dict):
+            if row is None:
                 # Costs and transitions need consecutive observations. Totals from intact rows survive.
                 last_move = previous_origin = None
                 visits.previous_floor = None
                 visits.previous_reserve = None
                 continue
-            if row.get("cell") is not None and row.get("known_cells") is not None:
+            if row.get("floor") is not None and row.get("cell") is not None and row.get("known_cells") is not None:
                 detours = progress.setdefault("supply_detours", {"ticks": 0, "reserve_spent": 0, "resolved_steps": 0})
                 progress.setdefault("reversals_without_new_terrain", 0)
                 site = TraceSite(row["floor"], row["known_cells"], row["cell"])
@@ -252,10 +261,8 @@ def trace_report(path):
                 # Older summaries have no observed position. Their max_depth is a run total.
                 if row.get("cell") is None or row.get("floor") is None:
                     continue
-            elif "action" in row:
-                progress["actions"] += 1
             else:
-                continue
+                progress["actions"] += 1
             visits.record_observation(row)
             floor = row["floor"]
             progress["max_depth"] = max(progress["max_depth"], floor)

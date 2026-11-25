@@ -465,7 +465,7 @@ assert get_type_hints(play)["player"] is Adventurer
                "nutrition_reserve": 20, "previous_intention_id": "step", "previous_intention_phase": "resolved"}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "turns.jsonl"
-            for gap in ('{"action":', "null"):
+            for gap in ('{"action":', "null", "{}", '{"action":{"type":"move"}}'):
                 for floor in (1, 2):
                     with self.subTest(gap=gap, floor=floor):
                         path.write_text("\n".join((json.dumps(move), gap, json.dumps(dict(end, floor=floor)))),
