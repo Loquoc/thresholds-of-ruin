@@ -110,22 +110,20 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
 
 @dataclass
 class LootGoals:
-    wanted: set[str] = field(default_factory=set)
+    essential: set[str] = field(default_factory=set)
+    weapons: set[str] = field(default_factory=set)
     nearby: set[str] = field(default_factory=set)
     supplies: set[str] = field(default_factory=set)
     recover_arrows: bool = False
 
+    @property
+    def wanted(self) -> set[str]:
+        """All destinations worth a long detour when a clear route exists."""
+        return self.essential | self.weapons
 
-def worth_long_detour(objective: str, item: Item, carried: Counter[str | None], *, returning: bool,
-                      needs_return_arrows: bool, guarded: bool) -> bool:
-    """Items worth routing to beyond the short supply-detour radius."""
-    identity = item.identity
-    if identity in HEALING_POTIONS:
-        return healing_reserve_gain(item, carried) > 0
-    if item.category == "food" or (not returning and identity == objective):
-        return True
-    if guarded:
-        return False
+
+def needs_weapon_detour(identity: str | None, carried: Counter[str | None], *,
+                       returning: bool, needs_return_arrows: bool) -> bool:
     if returning:
         return identity == "item.weapon.arrow" and needs_return_arrows
     return ((identity == "item.weapon.dart" and carried[identity] < 12)
@@ -148,9 +146,12 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
     for ground in distant_items:
         item = ground.item
         key = ground.cell.key
-        if worth_long_detour(objective, item, carried.by_identity, returning=returning,
-                             needs_return_arrows=needs_return_arrows, guarded=key in guarded):
-            goals.wanted.add(key)
+        if (item.category == "food" or (not returning and item.identity == objective)
+                or healing_reserve_gain(item, carried.by_identity) > 0):
+            goals.essential.add(key)
+        elif key not in guarded and needs_weapon_detour(item.identity, carried.by_identity, returning=returning,
+                                                        needs_return_arrows=needs_return_arrows):
+            goals.weapons.add(key)
         if returning or turn.hostiles or key in guarded or item.identity in HEALING_POTIONS:
             continue
         if useful_loot(item) and not turn.cell.stairs_down:
@@ -163,7 +164,9 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
 def route_to_loot(turn: Turn, memory: FloorMap, goals: LootGoals, danger: Set[str], *,
                   guarded: Set[str]) -> tuple[Action, str] | None:
     avoid = danger | guarded
-    if goals.wanted and (action := route_around_danger(turn, memory, goals.wanted, avoid)):
+    if goals.weapons and (action := memory.toward(turn, goals.wanted, avoid=avoid)):
+        return action, "seek_item"
+    if goals.essential and (action := route_around_danger(turn, memory, goals.essential, avoid)):
         return action, "seek_item"
     if goals.recover_arrows:
         arrows = memory.cells_with_item(lambda item: item.identity == "item.weapon.arrow") - guarded

@@ -966,6 +966,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.supplies_guarded_until["near"] = 900
                     self.assertEqual(choose(player, turn), (Move(direction), reason))
 
+    def test_only_essential_loot_justifies_crossing_a_guarded_passage(self):
+        hall = [cell(str(x), x, down=x == 0) for x in range(5)]
+        spear = {"id": "spear", "name": "spear", "class": "weapon", "identity": "item.weapon.spear",
+                 "identified": True, "quantity": 1}
+        ration = {"id": "food", "name": "ration", "class": "food", "identified": False, "quantity": 1}
+        weapons = [{**hall[2], "item": spear, "reachable": False}]
+        for ground, expected in ((weapons, (Move(Direction.DOWN), "descend")),
+                                 (weapons + [{**hall[4], "item": ration, "reachable": False}],
+                                  (Move(Direction.EAST), "seek_item"))):
+            with self.subTest(items=len(ground)):
+                turn = player_turn(hall, ground=ground)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.supplies_guarded_until["1"] = 900
+                self.assertEqual(choose(player, turn), expected)
+
     def test_route_to_guarded_food_avoids_a_second_dangerous_square(self):
         target = cell("ration", 2)
         cells = [cell("here", down=True), cell("shortcut", 1), target,
@@ -984,7 +999,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         with patch.object(turn, "equip_choices", side_effect=AssertionError("unexpected equipment scan")):
             goals = player.loot_goals(turn, turn.ground_items, returning=False)
-        self.assertEqual(goals.wanted, {"ration"})
+        self.assertEqual(goals.essential, {"ration"})
 
     def test_visible_armor_piles_share_one_inventory_check(self):
         stairs, east, west = cell("stairs", down=True), cell("east", 1), cell("west", -1)
@@ -1812,7 +1827,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn([stairs, near], inventory=[bow], ground=[{**near, "item": food, "reachable": False}],
                                    stats={"conditions": conditions})
                 goals = player.loot_goals(turn, turn.ground_items, returning=False)
-                self.assertEqual(goals.wanted, {"food"} if grounded else set())
+                self.assertEqual(goals.essential, {"food"} if grounded else set())
                 self.assertEqual(goals.recover_arrows, grounded)
                 expected = (Move(Direction.EAST), "seek_item") if grounded else (Wait(), "wait_for_ground_contact")
                 self.assertEqual(choose(player, turn), expected)
@@ -1972,7 +1987,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         with patch("rogue_loot.CarriedLoot", side_effect=AssertionError("no ground stack needs a stock count")):
             goals = player.loot_goals(turn, turn.ground_items, returning=False)
         self.assertTrue(goals.recover_arrows)
-        self.assertFalse(goals.wanted or goals.nearby or goals.supplies)
+        self.assertFalse(goals.essential or goals.weapons or goals.nearby or goals.supplies)
 
     def test_return_arrow_detour_requires_a_bow_low_stock_and_no_visible_foe(self):
         here, stash = cell("exit", up=True), cell("stash", 1)
@@ -1992,7 +2007,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    hostiles=[enemy["id"] for enemy in enemies])
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 goals = player.loot_goals(turn, turn.ground_items, returning=True)
-                self.assertEqual(goals.wanted, {"stash"} if wanted else set())
+                self.assertEqual(goals.weapons, {"stash"} if wanted else set())
                 self.assertFalse(goals.recover_arrows)
 
     def test_arrow_routes_require_a_bow_the_player_can_wield(self):
@@ -2738,7 +2753,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.observe(turn)
                     goals = player.loot_goals(turn, turn.ground_items, returning=False)
                     weapon_detour = identity in {"item.weapon.dart", "item.weapon.spear"}
-                    self.assertEqual("stash" in goals.wanted, tick == 1200 and weapon_detour)
+                    self.assertEqual("stash" in goals.weapons, tick == 1200 and weapon_detour)
                     self.assertEqual("stash" in goals.nearby, tick == 1200)
                     melee_supply = identity in {"item.weapon.dagger", "item.weapon.spear"}
                     self.assertEqual("stash" in goals.supplies, tick == 1200 and melee_supply)
