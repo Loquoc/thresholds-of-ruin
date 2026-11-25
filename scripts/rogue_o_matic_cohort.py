@@ -16,7 +16,7 @@ import sys
 import tomllib
 
 from process_harness import Process, ROOT
-from rogue_combat import SELF_DAMAGE_ABILITIES
+from rogue_combat import combat_death_cause
 from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH, player_exit_code
 
 
@@ -33,44 +33,6 @@ POLICY_FILES = (
     "rogue_training.py",
     "rogue_trials.py",
 )
-
-
-def preceding_attack(events_before_death, actor):
-    """Read newest first. Only the dying actor's interruptions can follow the attack."""
-    for event in events_before_death:
-        kind = event["type"]
-        if kind == "interrupted" and event.get("actor") == actor:
-            continue
-        if (kind not in {"ability", "unseen_ability"} or event.get("target") != actor
-                or event.get("outcome") != "applied"):
-            return None
-        self_inflicted = event.get("caster") == actor
-        if kind == "unseen_ability" and not self_inflicted:
-            return "unseen_ability"
-        ability = (event.get("ability") or {}).get("id")
-        if self_inflicted and ability not in SELF_DAMAGE_ABILITIES:
-            return None
-        return ability or "unidentified_ability"
-    return None
-
-
-def combat_death_cause(history, player):
-    """Use the player's death event and its immediately preceding combat evidence."""
-    if player is None:
-        # Older reports omit the player target. A single victim makes it unambiguous.
-        victims = {event["actor"] for event in history if event["type"] == "died"}
-        if len(victims) != 1:
-            return None
-        player = victims.pop()
-
-    events = reversed(history)
-    for event in events:
-        if event["type"] == "died" and event["actor"] == player:
-            cause = event.get("cause")
-            if cause == "starvation":
-                return cause
-            return preceding_attack(events, player) or cause
-    return None
 
 
 def death_cause(report):

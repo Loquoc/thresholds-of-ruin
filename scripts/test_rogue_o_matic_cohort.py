@@ -340,6 +340,18 @@ assert get_type_hints(play)["player"] is Adventurer
         attack.update(outcome="applied", target="other")
         self.assertEqual(death_cause(report), "injury")
 
+    def test_latest_applied_hit_before_death_distinguishes_reflection_from_unseen_damage(self):
+        from rogue_o_matic_cohort import death_cause
+
+        reflected = {"type": "ability", "caster": "hero", "target": "hero", "outcome": "applied",
+                     "ability": {"id": "rogue.wand_fire"}}
+        unseen = {"type": "unseen_ability", "target": "hero", "outcome": "applied"}
+        death = {"type": "died", "actor": "hero", "cause": "injury"}
+        for events, expected in (([reflected, unseen, death], "unseen_ability"),
+                                 ([unseen, reflected, death], "rogue.wand_fire")):
+            with self.subTest(expected=expected):
+                self.assertEqual(death_cause({"self_target": "hero", "last_combat_events": events}), expected)
+
     def test_anonymous_effect_between_an_attack_and_death_preserves_the_reported_injury(self):
         from rogue_o_matic_cohort import death_cause
 
