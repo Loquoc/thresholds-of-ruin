@@ -25,6 +25,7 @@ from tor_client_bot import (
     FloorMap,
     GroundItem,
     Health,
+    IncomingAbility,
     Injury,
     Item,
     ItemUse,
@@ -349,7 +350,7 @@ class Adventurer:
                 self.attempted_polymorph.remove(target)
                 self.resisted_polymorph.add(target)
         incoming = report.incoming
-        self.record_injury(turn, report, loss)
+        self.record_injury(turn, incoming, loss)
         if self.danger_until:
             self.danger_until = {
                 key: expiry for key, expiry in self.danger_until.items() if expiry > turn.tick
@@ -369,7 +370,7 @@ class Adventurer:
         ):
             self.last_unseen_attack = here.key, turn.tick
 
-    def record_injury(self, turn: Turn, report: CombatReport, health_loss: int) -> None:
+    def record_injury(self, turn: Turn, incoming: tuple[IncomingAbility, ...], health_loss: int) -> None:
         losses = turn.restorable_losses
         previous = self.previous_losses
         self.previous_losses = losses
@@ -377,8 +378,8 @@ class Adventurer:
         if health_loss <= 0 and not lasting_injury:
             return
 
-        # Several attackers can contribute to the same observed change in health.
-        sources = {event.caster for event in report.incoming if event.outcome is AbilityOutcome.APPLIED}
+        # Keep anonymous hits in the set: a named attacker and an unseen one can share the damage.
+        sources = {event.caster for event in incoming if event.outcome is AbilityOutcome.APPLIED}
         if len(sources) != 1:
             return
         source, = sources

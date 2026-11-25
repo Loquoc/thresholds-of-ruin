@@ -1552,15 +1552,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         room = [cell("here"), cell("west", -1), cell("east", 1)]
         foes = [{"id": who, "name": who, "position": tile["position"]}
                 for who, tile in zip(("orc", "bat"), room[1:])]
-        for other, outcome, expected in (("orc", "applied", {"orc": 6}),
-                                         ("bat", "miss", {"orc": 6}),
-                                         ("bat", "applied", {})):
-            with self.subTest(other=other, outcome=outcome):
+        for event_type, other, outcome, expected in (
+            ("ability", "orc", "applied", {"orc": 6}),
+            ("ability", "bat", "miss", {"orc": 6}),
+            ("ability", "bat", "applied", {}),
+            ("unseen_ability", None, "applied", {}),
+            ("unseen_ability", None, "miss", {"orc": 6}),
+        ):
+            with self.subTest(event_type=event_type, other=other, outcome=outcome):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.observe(player_turn(room, actors=foes, hostiles=["orc", "bat"]))
                 hit = {"type": "ability", "target": "player", "caster": "orc", "outcome": "applied"}
+                other_event = {"type": event_type, "target": "player", "outcome": outcome}
+                if other is not None:
+                    other_event["caster"] = other
                 player.observe(player_turn(room, actors=foes, hostiles=["orc", "bat"],
-                                           combat={"hp": 4, "events": [hit, dict(hit, caster=other, outcome=outcome)]}))
+                                           combat={"hp": 4, "events": [hit, other_event]}))
                 self.assertEqual(dict(player.observed_loss), expected)
                 self.assertEqual(dict(player.observed_loss_by_name), expected)
 
