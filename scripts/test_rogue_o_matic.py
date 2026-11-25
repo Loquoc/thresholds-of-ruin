@@ -1984,6 +1984,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 decision = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY).ranged_combat(turn, [])
                 self.assertEqual(decision[1] if decision else None, expected)
 
+    def test_loose_arrows_without_a_bow_allow_melee_preparation(self):
+        slot = {"id": "weapon", "name": "Weapon"}
+        inventory = [{"id": name, "name": name, "identity": f"item.weapon.{name}", "class": "weapon",
+                      "quantity": 1, "identified": True} for name in ("mace", "arrow")]
+        foe = {"id": "foe", "name": "orc", "position": cell("near", 3)["position"]}
+        turn = player_turn([cell("here")], actors=[foe], hostiles=["foe"], inventory=inventory,
+                           interactions={"slots": [slot], "inventory": [{"item": "mace", "slot": slot}]})
+        action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+        self.assertEqual(reason, "equip_melee")
+        self.assertEqual(action.item.target, "mace")
+
     def test_replaces_empty_bow_while_an_enemy_is_visible(self):
         from tor_client_bot import Unequip
 

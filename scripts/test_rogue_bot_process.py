@@ -3361,6 +3361,33 @@ finally:
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_bowless_bot_with_arrows_readies_its_mace_at_medium_range(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        character, = contents["manifest"]["characters"]
+        character.update(loadout=[{"archetype": "rogue.arrow", "quantity": 3},
+                                  {"archetype": "rogue.mace", "quantity": 1}],
+                         known_identities=["item.weapon.arrow", "item.weapon.mace"])
+        region, = contents["regions"]
+        region.update(items=[], actors=[{"archetype": "rogue.hobgoblin", "id": 3, "controller": "external",
+                                         "at": [5, 2, 0], "turn_ticks": 1000000}])
+        self.check_policy_scenario(contents, "bowless-mace", """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import Equip, Outcome, Session
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    assert 3 <= turn.distance_to(turn.hostiles[0]) <= 4
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    action, reason = player.choose(turn)
+    assert isinstance(action, Equip) and reason == "equip_melee", (action, reason)
+    assert action.item.identity == "item.weapon.mace"
+    assert turn.submit(action).status is Outcome.CONFIRMED
+""")
+
     def test_unarmed_bot_equips_a_recognized_spear_with_undisclosed_stats(self):
         from utility_potions_package import fixture
 

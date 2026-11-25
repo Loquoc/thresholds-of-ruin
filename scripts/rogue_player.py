@@ -67,7 +67,7 @@ from rogue_food import (
     estimate_round_trip_ticks,
 )
 from rogue_gear import (
-    can_identify_carried_item, choose_armor, choose_ring, improve_worn_gear,
+    can_identify_carried_item, can_wield_shortbow, choose_armor, choose_ring, improve_worn_gear,
     identification_target, offered_item_use, ready_weapon, ready_weapon_for_range, reveal_unseen_attacker,
 )
 
@@ -576,7 +576,7 @@ class Adventurer:
             if trial := self.scroll_trial(turn):
                 return trial
 
-        if turn.hostiles and not self.has_arrows(turn):
+        if turn.hostiles and not (self.has_arrows(turn) and can_wield_shortbow(turn)):
             if decision := ready_weapon(turn, bow=False):
                 return decision
 

@@ -205,6 +205,15 @@ def melee_score(item: Item) -> float:
     return accuracy * attack.mean_damage / (attack.wind_up + attack.recovery)
 
 
+def can_wield_shortbow(turn: Turn) -> bool:
+    slot = next((slot for slot in turn.equipment if slot.kind == "weapon"), None)
+    if slot and slot.occupant and slot.occupant.identity == "item.weapon.shortbow":
+        return True
+    if slot and slot.removal_blocked:
+        return False
+    return any(item.identity == "item.weapon.shortbow" and not item.known_cursed for item in turn.inventory)
+
+
 def ready_weapon_for_range(turn: Turn, nearest: int) -> tuple[Action, str] | None:
     """With arrows available, keep the current weapon at three or four cells."""
     if nearest <= 2:

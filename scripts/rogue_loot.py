@@ -8,7 +8,7 @@ from functools import cached_property
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
 from rogue_combat import recovery_deficit
-from rogue_gear import melee_score, remove_curse_scroll, ring_upgrades
+from rogue_gear import can_wield_shortbow, melee_score, remove_curse_scroll, ring_upgrades
 from rogue_retreat import route_around_danger
 
 
@@ -37,15 +37,11 @@ class CarriedLoot:
         weapon_slot = next((slot for slot in turn.equipment if slot.kind == "weapon"), None)
         weapon_locked = bool(weapon_slot and weapon_slot.removal_blocked)
         self.needs_melee_weapon = not weapon_locked
-        self.can_wield_shortbow = False
         for item in turn.inventory:
             self.by_identity[item.identity] += item.quantity
             self.by_category[item.category] += item.quantity
             if usable_melee_weapon(item):
                 self.needs_melee_weapon = False
-            if item.identity == "item.weapon.shortbow":
-                if (weapon_slot and weapon_slot.occupant == item) or (not weapon_locked and not item.known_cursed):
-                    self.can_wield_shortbow = True
             if item.category in {"armor", "ring"} and item.identity is not None and not item.known_cursed:
                 self.usable_gear.add(item.identity)
 
@@ -141,7 +137,7 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
         return goals
     carried = CarriedLoot(turn)
 
-    seek_arrows = not turn.hostiles and carried.can_wield_shortbow
+    seek_arrows = not turn.hostiles and can_wield_shortbow(turn)
     goals.recover_arrows = seek_arrows and not returning
     needs_return_arrows = seek_arrows and returning and carried.by_identity["item.weapon.arrow"] < 8
     for ground in ground_items:
