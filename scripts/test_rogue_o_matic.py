@@ -1998,6 +1998,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn(tiles, stats={"conditions": [expired]})
                 self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "descend"))
 
+    def test_inactive_untimed_trap_does_not_trigger_escape_from_a_timed_trap(self):
+        timed = {"condition": {"id": "rogue.bear_trap", "name": "Bear trap"},
+                 "phase": "active", "remaining_ticks": "100"}
+        inactive = {**timed, "phase": "inactive", "remaining_ticks": None}
+        for conditions in ([timed, inactive], [inactive, timed]):
+            with self.subTest(conditions=conditions):
+                turn = player_turn([cell("stairs", down=True)], stats={"conditions": conditions})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                                 (Wait(), "wait_for_restraint"))
+
     def test_stalled_campaign_reports_the_last_picture_and_the_admitted_stair_phase(self):
         import json
         from unittest.mock import Mock

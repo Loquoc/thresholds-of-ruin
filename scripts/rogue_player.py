@@ -522,6 +522,16 @@ class Adventurer:
     def trapped(turn: Turn) -> bool:
         return turn.has_condition("rogue.bear_trap")
 
+    @staticmethod
+    def respond_to_bear_trap(turn: Turn) -> tuple[Action, str]:
+        """Choose how to spend a turn while pinned by an active bear trap."""
+        if not turn.holds:
+            for condition in turn.conditions:
+                if condition.identity == "rogue.bear_trap" and condition.active and condition.remaining_ticks is None:
+                    # Any direction attempts escape in place, even on an isolated tile.
+                    return Move(Direction.NORTH), "escape_bear_trap"
+        return Wait(), "wait_for_restraint"
+
     def damage_estimate(self, foe: Creature) -> int:
         return max(self.observed_loss[foe.target], self.observed_loss_by_name[foe.name])
 
@@ -1339,12 +1349,7 @@ class Adventurer:
         if not turn.hostiles and (decision := self.prepare(turn)):
             return decision
         if trapped:
-            if not turn.holds and any(c.identity == "rogue.bear_trap" and c.active
-                                      and c.remaining_ticks is None for c in turn.conditions):
-                # While pinned, any Move is a paid attempt in place. Do not
-                # turn it into Wait just because there is no walkable tile.
-                return Move(Direction.NORTH), "escape_bear_trap"
-            return Wait(), "wait_for_restraint"
+            return self.respond_to_bear_trap(turn)
         if not returning and not any(g.item.identity == self.objective for g in ground_items):
             if search := self.search_dead_end(turn, memory):
                 return search, "search"
