@@ -2576,7 +2576,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(previously_sampled=previously_sampled):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
                 if previously_sampled:
-                    player.sampled_scrolls.add("runed scroll")
+                    prior, reason = player.scroll_trial(turn, at_exit=True)
+                    player.admitted(turn, prior, reason=reason)
+                    self.assertIsNone(player.scroll_trial(turn, at_exit=True))
                 action, reason = player.scroll_trial(turn)
                 player.admitted(turn, action, result, reason=reason)
                 player.admitted(turn, ActivityChoice.CANCEL, reason="cancel_stalled_scroll")

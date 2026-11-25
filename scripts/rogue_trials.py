@@ -57,3 +57,57 @@ class PotionTrials:
             if phase is not ActivityPhase.RESOLVED and not history_missing:
                 return
         self.pending = None
+
+
+@dataclass
+class ScrollTrials:
+    """Track sampled appearances across floors and interrupted reads on each floor."""
+
+    sampled: set[str] = field(default_factory=set)
+    stalled: set[tuple[int, str]] = field(default_factory=set)
+    pending: PendingScrollTrial | None = None
+    tried_in_encounter: bool = False
+
+    def choose(self, turn: Turn, floor: int, *, at_exit: bool) -> Item | None:
+        if self.pending is not None:
+            return None
+        for item in turn.inventory:
+            if item.identity is not None or ItemUse.READ not in item.uses:
+                continue
+            if (floor, item.target) in self.stalled:
+                continue
+            if at_exit and trial_appearance(item) in self.sampled:
+                continue
+            return item
+        return None
+
+    def admitted(self, turn: Turn, floor: int, scroll: Item, receipt: Result | None) -> None:
+        appearance = trial_appearance(scroll)
+        if receipt and receipt.activity:
+            newly_sampled = appearance if appearance not in self.sampled else None
+            self.pending = PendingScrollTrial(floor, turn.tick, receipt, scroll, newly_sampled)
+        else:
+            self.tried_in_encounter = True
+        self.sampled.add(appearance)
+
+    def observe(self, turn: Turn) -> None:
+        trial = self.pending
+        if trial is None:
+            return
+        phase = turn.outcome_of(trial.receipt)
+        if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+            self.interrupted(turn)
+            return
+        history_missing = phase is None and turn.can_act and turn.tick > trial.submitted_at
+        if phase is ActivityPhase.RESOLVED or history_missing:
+            self.tried_in_encounter = True
+            self.pending = None
+
+    def interrupted(self, turn: Turn) -> None:
+        trial = self.pending
+        if trial is None:
+            return
+        self.stalled.add((trial.floor, trial.scroll.target))
+        if trial.newly_sampled_appearance is not None and stack_is_intact(turn, trial.scroll):
+            self.sampled.discard(trial.newly_sampled_appearance)
+        self.pending = None

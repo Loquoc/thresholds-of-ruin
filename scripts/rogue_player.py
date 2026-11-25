@@ -48,7 +48,7 @@ from rogue_loot import (
     DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
 )
 from rogue_training import purchase_training
-from rogue_trials import PendingScrollTrial, PotionTrials, stack_is_intact, trial_appearance
+from rogue_trials import PotionTrials, ScrollTrials, trial_appearance
 from rogue_retreat import (
     approach_visible_exit, best_onward_escape, evade_unseen_attacker, route_around_danger, take_corridor,
 )
@@ -207,11 +207,8 @@ class Adventurer:
     previous_health: int | None = None
     observed_loss: Counter[str] = field(default_factory=Counter)
     observed_loss_by_name: Counter[str] = field(default_factory=Counter)
-    tried_unknown_scroll: bool = False
     potion_trials: PotionTrials = field(default_factory=PotionTrials)
-    pending_scroll_trial: PendingScrollTrial | None = None
-    stalled_scrolls: set[tuple[int, str]] = field(default_factory=set)
-    sampled_scrolls: set[str] = field(default_factory=set)
+    scroll_trials: ScrollTrials = field(default_factory=ScrollTrials)
     sampled_wands: set[str] = field(default_factory=set)
     supplies_guarded_until: dict[str, int] = field(default_factory=dict)
     tried_unmeasured_devices: set[str] = field(default_factory=set)
@@ -253,7 +250,7 @@ class Adventurer:
                 self.corridor_stand = None
         self.observe_end_search(turn)
         self.potion_trials.observe(turn)
-        self.observe_scroll_trial(turn)
+        self.scroll_trials.observe(turn)
         self.expire_danger_warnings(turn.tick)
         self.observe_guarded_supplies(turn)
         if self.entered_floor_at is None:
@@ -318,7 +315,7 @@ class Adventurer:
         if here and (turn.hostiles or (injured_this_turn and incoming)):
             self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:
-            self.tried_unknown_scroll = False
+            self.scroll_trials.tried_in_encounter = False
             self.last_retreat_origin = None
         if here and any(
             event.unseen
@@ -399,31 +396,10 @@ class Adventurer:
         )
         self.entered_floor_at = turn.tick
 
-    def observe_scroll_trial(self, turn: Turn) -> None:
-        trial = self.pending_scroll_trial
-        if trial is None:
-            return
-        phase = turn.outcome_of(trial.receipt)
-        if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-            self.mark_scroll_trial_unsuccessful(turn, trial)
-            return
-        # Once a later ready picture has lost the receipt, keep the appearance marked
-        # as sampled, but allow another trial when the policy would normally permit it.
-        history_missing = phase is None and turn.can_act and turn.tick > trial.submitted_at
-        if phase is ActivityPhase.RESOLVED or history_missing:
-            self.tried_unknown_scroll = True
-            self.pending_scroll_trial = None
-
-    def mark_scroll_trial_unsuccessful(self, turn: Turn, trial: PendingScrollTrial) -> None:
-        self.stalled_scrolls.add((trial.floor, trial.scroll.target))
-        if trial.newly_sampled_appearance is not None and stack_is_intact(turn, trial.scroll):
-            self.sampled_scrolls.discard(trial.newly_sampled_appearance)
-        self.pending_scroll_trial = None
-
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
-        if reason == MemoryReason.CANCEL_STALLED_SCROLL and self.pending_scroll_trial:
-            self.mark_scroll_trial_unsuccessful(turn, self.pending_scroll_trial)
+        if reason == MemoryReason.CANCEL_STALLED_SCROLL:
+            self.scroll_trials.interrupted(turn)
         if reason == MemoryReason.CANCEL_STALLED_STAIR and self.pending_stair:
             self.cancelled_stairs.add((self.pending_stair.origin, self.pending_stair.direction))
             self.wait_after_cancel = True
@@ -445,13 +421,8 @@ class Adventurer:
         if action.use is ItemUse.DRINK and item.identity is None:
             self.potion_trials.admitted(turn, item, receipt)
         elif action.use is ItemUse.READ and item.identity is None:
-            appearance = trial_appearance(item)
-            if receipt and receipt.activity and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
-                newly_sampled = appearance if appearance not in self.sampled_scrolls else None
-                self.pending_scroll_trial = PendingScrollTrial(self.depth, turn.tick, receipt, item, newly_sampled)
-            else:
-                self.tried_unknown_scroll = True
-            self.sampled_scrolls.add(appearance)
+            trial = reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}
+            self.scroll_trials.admitted(turn, self.depth, item, receipt if trial else None)
         elif action.use is ItemUse.EAT:
             self.pending_meal = PendingMeal.before_eating(turn, item, receipt)
 
@@ -639,7 +610,7 @@ class Adventurer:
         if decision := self.ranged_combat(turn, adjacent):
             return decision
 
-        if lethal and not self.tried_unknown_scroll:
+        if lethal and not self.scroll_trials.tried_in_encounter:
             if trial := self.scroll_trial(turn):
                 return trial
 
@@ -1201,18 +1172,11 @@ class Adventurer:
         return None
 
     def scroll_trial(self, turn: Turn, *, at_exit: bool = False) -> tuple[UseItem, MemoryReason] | None:
-        if self.pending_scroll_trial is not None:
+        scroll = self.scroll_trials.choose(turn, self.depth, at_exit=at_exit)
+        if scroll is None:
             return None
-        for item in turn.inventory:
-            if item.identity is not None or ItemUse.READ not in item.uses:
-                continue
-            if (self.depth, item.target) in self.stalled_scrolls:
-                continue
-            if at_exit and trial_appearance(item) in self.sampled_scrolls:
-                continue
-            reason = MemoryReason.STUDY_SCROLL_AT_EXIT if at_exit else MemoryReason.TEST_UNKNOWN_MAGIC
-            return UseItem(item, ItemUse.READ), reason
-        return None
+        reason = MemoryReason.STUDY_SCROLL_AT_EXIT if at_exit else MemoryReason.TEST_UNKNOWN_MAGIC
+        return UseItem(scroll, ItemUse.READ), reason
 
     def route_scroll(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[UseItem, str] | None:
         """When cut off from remembered upstairs, prefer a known teleport to a trial."""
@@ -1225,7 +1189,7 @@ class Adventurer:
         if (previous is None or not turn.can_cancel or len(turn.activities) != 1
                 or turn.outcome_of(previous) is not ActivityPhase.QUEUED):
             return None, "readiness_timeout"
-        if self.pending_scroll_trial and self.pending_scroll_trial.receipt == previous:
+        if self.scroll_trials.pending and self.scroll_trials.pending.receipt == previous:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_SCROLL
         stair = self.pending_stair
         if stair and stair.receipt == previous and (stair.origin, stair.direction) not in self.cancelled_stairs:
