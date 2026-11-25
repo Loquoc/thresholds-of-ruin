@@ -2581,6 +2581,13 @@ with ExitStack() as clients:
     at_goal.observed_loss[harder.target] = 3
     attack_at_goal, why = at_goal.choose(turn)
     assert why == "melee" and attack_at_goal.target == harder, (attack_at_goal, why)
+    exit_cell = turn.cell_at((1, 0, 0))
+    other = next(foe for foe in turn.hostiles if exit_cell not in turn.cells_of(foe))
+    player.observed_loss[other.target] = 3
+    player.unsafe_stairs[exit_cell.key, Direction.DOWN] = turn.tick + 1
+    guarded_attack, why = player.choose(turn)
+    assert why == "melee" and guarded_attack.target == other, (guarded_attack, why)
+    player.unsafe_stairs[exit_cell.key, Direction.DOWN] = turn.tick
     action, reason = player.choose(turn)
     assert reason == "melee" and any(c.stairs_down for c in turn.cells_of(action.target))
     assert action.ability.identity == os.environ["EXPECTED_MELEE"], (action, turn.abilities)

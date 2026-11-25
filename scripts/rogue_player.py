@@ -660,8 +660,8 @@ class Adventurer:
 
         def attack_order(foe: Creature) -> MeleeRank:
             opens_exit = any(
-                (cell.stairs_up and self.depth > 1) or
-                (cell.stairs_down and can_descend)
+                (cell.stairs_up and self.depth > 1 and self.stair_is_safe(cell.key, Direction.UP, turn.tick))
+                or (cell.stairs_down and can_descend and self.stair_is_safe(cell.key, Direction.DOWN, turn.tick))
                 for cell in turn.cells_of(foe)
             )
             return MeleeRank(
@@ -789,10 +789,13 @@ class Adventurer:
             other.target != foe.target and turn.in_contact(other) for other in turn.hostiles
         )
 
+    def stair_is_safe(self, key: str, direction: Direction, tick: int) -> bool:
+        return (self.unsafe_stairs.get((key, direction), 0) <= tick
+                and not (direction is Direction.DOWN and key == self.recovery_landing))
+
     def safe_stairs(self, turn: Turn, direction: Direction) -> set[str]:
         return {key for key in self.maps[self.depth].stairs(direction)
-                if self.unsafe_stairs.get((key, direction), 0) <= turn.tick
-                and not (direction is Direction.DOWN and key == self.recovery_landing)}
+                if self.stair_is_safe(key, direction, turn.tick)}
 
     def retreat_to_stairs(self, turn: Turn, *, pressed: bool = False) -> tuple[Action, str] | None:
         if not turn.hostiles or self.trapped(turn) or turn.holds:

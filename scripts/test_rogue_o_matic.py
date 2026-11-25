@@ -2307,10 +2307,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                    for name, tile in zip(["other", "blocker"], room[1:])]
         turn = player_turn(room, actors=enemies, hostiles=["other", "blocker"], abilities=[melee],
                            combat={"hp": 7, "max_hp": 42})
-        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
-        action, reason = choose(player, turn)
-        self.assertEqual((reason, action.target.target), ("melee", "blocker"))
-        self.assertEqual(turn.cells_of(action.target), (turn.cell_at((-1, 0, 0)),))
+        for warning_until, expected in ((turn.tick + 1, "other"), (turn.tick, "blocker")):
+            with self.subTest(warning_until=warning_until):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
+                player.unsafe_stairs["exit", Direction.DOWN] = warning_until
+                player.observed_loss["other"] = 3
+                action, reason = choose(player, turn)
+                self.assertEqual((reason, action.target.target), ("melee", expected))
 
     def test_melee_breaks_equal_body_distance_by_observed_damage(self):
         cells = [cell(str(x), x) for x in range(-1, 3)]
