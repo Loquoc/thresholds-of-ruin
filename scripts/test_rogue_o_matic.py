@@ -4609,6 +4609,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.maps[3].visited.add("far")
         self.assertEqual(player.choose(turn), (Move(Direction.WEST), "scout_for_food"))
 
+    def test_food_scout_stays_off_a_known_pit_on_the_way_to_an_unexplored_square(self):
+        stairs, passage, frontier = cell("stairs", down=True), cell("passage", 1), cell("frontier", 2)
+        nutrition = {"kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
+                     "hunger": "nourished", "elapsed": 0}
+        for trap, expected in ((None, (Move(Direction.EAST), "scout_for_food")),
+                               ({"id": "pit", "family": None, "reachable": True}, (Move(Direction.DOWN), "descend"))):
+            with self.subTest(trap=trap):
+                turn = player_turn([stairs, {**passage, "trap": trap}, frontier], stats={"nutrition": nutrition})
+                player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+                player.travel_times.ascent[2] = 50000
+                player.observe(turn)
+                player.maps[3].visited.add("passage")
+                self.assertEqual(player.choose(turn), expected)
+
     def test_injured_food_scout_keeps_moving_until_the_scouting_budget_expires(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]

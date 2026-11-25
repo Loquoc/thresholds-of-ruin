@@ -922,7 +922,7 @@ class Adventurer:
         if not self.food_scouts.can_explore(self.depth, turn, ticks_until_empty=nutrition.ticks_until_empty,
                                            carried_meals=packed.meal_count):
             return None
-        if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys()):
+        if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys(), avoid_traps=True):
             return step, "scout_for_food"
         return None
 

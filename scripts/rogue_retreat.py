@@ -7,16 +7,18 @@ from typing import NamedTuple
 from tor_client_bot import Action, Cell, Creature, Direction, FloorMap, Move, OpenDoor, Turn
 
 
-def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str]) -> Action | None:
+def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str], *,
+                        avoid_traps: bool = False) -> Action | None:
     """Prefer a safe route, then allow danger at the goal before crossing danger en route."""
+    toward = memory.toward_avoiding_traps if avoid_traps else memory.toward
     if danger and any(goal not in danger for goal in goals):
-        if step := memory.toward(turn, goals, avoid=danger):
+        if step := toward(turn, goals, avoid=danger):
             return step
     if goals & danger:
         en_route_danger = danger - goals
-        if en_route_danger and (step := memory.toward(turn, goals, avoid=en_route_danger)):
+        if en_route_danger and (step := toward(turn, goals, avoid=en_route_danger)):
             return step
-    return memory.toward(turn, goals)
+    return toward(turn, goals)
 
 
 def route_to_recovery_shelter(turn: Turn, memory: FloorMap, danger: Set[str]) -> Action | None:
