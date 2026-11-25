@@ -2727,11 +2727,13 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             action, reason = player.choose(turn)
             assert (action, reason) == (Wait(), "recover"), (action, reason)
             turn = submit(turn, action)
-            assert player.unsafe_stairs[landing, Direction.DOWN] <= turn.tick
+            assert landing in player.safe_stairs(turn, Direction.DOWN)
             hall = turn.cell_at(east.direction.offset).key
             player.danger_until[hall] = turn.tick + 100
             player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
-            assert player.choose(turn) == (east, "seek_stairs")
+            safe_step = memory.toward(turn, {landing}, avoid={hall})
+            assert safe_step is not None and safe_step != east
+            assert player.choose(turn) == (safe_step, "seek_stairs")
             player.ascent_ticks_by_floor[2] -= turn.recovery.ticks_to_regain(1) + 1
             action, reason = player.choose(turn)
             assert (action, reason) == (Wait(), "recover"), (action, reason)

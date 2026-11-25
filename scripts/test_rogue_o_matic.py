@@ -949,6 +949,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             player.observe(player_turn([cell("here"), cell("exit", 1, down=True)]))
         self.assertIn("exit", memory.stairs(Direction.DOWN))
 
+    def test_stair_travel_prefers_a_clear_approach_and_keeps_the_only_exit(self):
+        amulet = {"id": "prize", "name": AMULET, "class": "amulet", "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                  "identified": True, "quantity": 1}
+        for returning in (False, True):
+            for west_exit in (False, True):
+                with self.subTest(returning=returning, west_exit=west_exit):
+                    exits = {2, -3} if west_exit else {2}
+                    cells = [cell(str(x), x, up=returning and x in exits, down=not returning and x in exits)
+                             for x in range(-3, 3)]
+                    player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+                    player.danger_until["1"] = 100
+                    for tick, expected in ((99, Direction.WEST if west_exit else Direction.EAST),
+                                           (100, Direction.EAST)):
+                        turn = player_turn(cells, inventory=[amulet] if returning else [], tick=tick)
+                        self.assertEqual(choose(player, turn), (Move(expected), "seek_stairs"))
+
     def test_routes_to_descent_and_confirms_stair_arrival(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         self.assertEqual(choose(policy, player_turn([cell("up", up=True), cell("down", 1, down=True)])),
