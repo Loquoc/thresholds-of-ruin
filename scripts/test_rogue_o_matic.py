@@ -2698,6 +2698,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(trace[0]["reachable_pickups"], [
             {"item": "ration-a", "category": "food", "identity": None, "quantity": 2, "cell": "here"}])
 
+    def test_identification_precedes_resume_only_while_the_prompt_accepts_an_answer(self):
+        from tor_client_bot import ActivityChoice
+
+        potion = {"id": "dose", "name": "blue potion", "class": "potion", "identified": False, "quantity": 1}
+        prompt = {"choice": "lore", "classes": ["potion"], "items": ["dose"]}
+        turn = player_turn([cell("here")], inventory=[potion], interactions={"identification": prompt})
+        picture = json.loads(turn.recording())
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for admission in (True, False):
+            with self.subTest(admission=admission):
+                paused = Turn({**picture, "can_resume": True, "readiness": {"admission": admission}})
+                action, reason = player.choose(paused)
+                if admission:
+                    self.assertEqual((action.item.target, reason), ("dose", "identify"))
+                else:
+                    self.assertEqual((action, reason), (ActivityChoice.RESUME, "resume"))
+
     def test_switches_to_stronger_disclosed_armor_and_ignores_cursed_gear(self):
         slot = {"id": "armor"}
         def armor(item, reduction, *, equipped=None, cursed=False):

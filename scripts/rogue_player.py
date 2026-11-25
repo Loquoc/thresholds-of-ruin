@@ -1409,6 +1409,10 @@ class Adventurer:
         if self.wait_after_cancel:
             return Wait(), MemoryReason.WAIT_AFTER_CANCEL
 
+        return self.choose_ready_action(turn)
+
+    def choose_ready_action(self, turn: Turn) -> tuple[Action | None, str]:
+        """Choose a gameplay action once prompts, interruptions and forced waits are handled."""
         if decision := self.combat(turn):
             return decision
 
