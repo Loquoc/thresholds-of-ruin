@@ -3361,6 +3361,29 @@ finally:
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_visible_guard_is_remembered_at_weapon_and_coin_piles(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        region, = contents["regions"]
+        region.update(actors=[{"archetype": "rogue.hobgoblin", "id": 3, "controller": "external",
+                               "at": [4, 2, 0], "turn_ticks": 1000000}],
+                      items=[{"id": 9, "archetype": "rogue.dagger", "at": [3, 2, 0]},
+                             {"id": 10, "archetype": "rogue.gold", "at": [4, 3, 0]}])
+        self.check_policy_scenario(contents, "guarded-piles", """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import Session
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    piles = {ground.cell.key for ground in turn.ground_items if ground.item.category in {"weapon", "coin"}}
+    assert turn.hostiles and len(piles) == 2
+    assert piles <= player.supplies_guarded_until.keys(), (piles, player.supplies_guarded_until)
+""")
+
     def test_bowless_bot_with_arrows_readies_its_mace_at_medium_range(self):
         from utility_potions_package import fixture
 

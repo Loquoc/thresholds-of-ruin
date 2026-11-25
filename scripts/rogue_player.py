@@ -49,7 +49,7 @@ from rogue_combat import (
     sole_applied_attacker, witnessed_unseen_attack,
 )
 from rogue_loot import (
-    DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
+    HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot, useful_loot,
 )
 from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
@@ -261,8 +261,7 @@ class Adventurer:
         if not guard_cells:
             return
         for ground in turn.ground_items:
-            category = ground.item.category
-            if ground.cell is None or (category not in DETOUR_STOCK and category not in {"armor", "ring"}):
+            if ground.cell is None or not useful_loot(ground.item):
                 continue
             x, y, z = ground.offset
             if any(abs(x - gx) <= 1 and abs(y - gy) <= 1 and abs(z - gz) <= 1 for gx, gy, gz in guard_cells):
