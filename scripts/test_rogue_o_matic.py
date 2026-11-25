@@ -826,6 +826,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             goals = player.loot_goals(turn, turn.ground_items, returning=False)
         self.assertEqual(goals.wanted, {"ration"})
 
+    def test_visible_armor_piles_share_one_inventory_check(self):
+        stairs, east, west = cell("stairs", down=True), cell("east", 1), cell("west", -1)
+        plate = {"name": "plate", "identity": "item.armor.plate-mail",
+                 "class": "armor", "identified": True, "quantity": 1}
+        ground = [{**site, "item": {**plate, "id": site["key"]}, "reachable": False} for site in (east, west)]
+        turn = player_turn([stairs, east, west], ground=ground)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        with patch.object(turn, "equip_choices", wraps=turn.equip_choices) as choices:
+            goals = player.loot_goals(turn, turn.ground_items, returning=False)
+        self.assertEqual(goals.supplies, {"east", "west"})
+        choices.assert_called_once_with()
+
     def test_only_a_usable_unmeasured_spare_can_defer_an_armor_detour(self):
         stairs, near = cell("stairs", down=True), cell("plate", 1)
         slot = {"id": "body_armor", "name": "Armor"}

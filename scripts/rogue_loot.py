@@ -3,7 +3,7 @@
 from collections import Counter
 from collections.abc import Set
 from dataclasses import dataclass, field
-from functools import cache
+from functools import cached_property
 
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
@@ -29,6 +29,7 @@ class CarriedLoot:
     """Stack quantities and usable equipment relevant to pickup and route choices."""
 
     def __init__(self, turn: Turn):
+        self._turn = turn
         self.by_identity: Counter[str | None] = Counter()
         self.by_category: Counter[str] = Counter()
         self.usable_gear: set[str] = set()
@@ -46,6 +47,30 @@ class CarriedLoot:
                     self.can_wield_shortbow = True
             if item.category in {"armor", "ring"} and item.identity is not None and not item.known_cursed:
                 self.usable_gear.add(item.identity)
+
+    @cached_property
+    def _wanted_rings(self) -> set[str]:
+        return ring_upgrades(self._turn).keys() - self.usable_gear
+
+    @cached_property
+    def _wants_spare_armor(self) -> bool:
+        locked = any(slot.kind == "body_armor" and slot.removal_blocked for slot in self._turn.equipment)
+        if locked and remove_curse_scroll(self._turn) is None:
+            return False
+        return not any(
+            choice.slot.kind == "body_armor" and not choice.item.known_cursed
+            and choice.item.physical_reduction is None
+            for choice in self._turn.equip_choices()
+        )
+
+    def needs_supply(self, item: Item) -> bool:
+        if self.needs_melee_weapon and usable_melee_weapon(item):
+            return True
+        if item.category == "armor":
+            return item.identity not in self.usable_gear and self._wants_spare_armor
+        if item.category == "ring":
+            return not item.known_cursed and item.identity in self._wanted_rings
+        return self.by_category[item.category] < DETOUR_STOCK.get(item.category, 0)
 
 
 def healing_reserve_gain(item: Item, carried: Counter[str | None]) -> int:
@@ -109,21 +134,6 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
         return goals
     carried = CarriedLoot(turn)
 
-    @cache
-    def wanted_rings() -> set[str]:
-        return ring_upgrades(turn).keys() - carried.usable_gear
-
-    @cache
-    def wants_spare_armor() -> bool:
-        if any(slot.kind == "body_armor" and slot.removal_blocked for slot in turn.equipment):
-            if remove_curse_scroll(turn) is None:
-                return False
-        return not any(
-            choice.slot.kind == "body_armor" and not choice.item.known_cursed
-            and choice.item.physical_reduction is None
-            for choice in turn.equip_choices()
-        )
-
     seek_arrows = not turn.hostiles and carried.can_wield_shortbow
     goals.recover_arrows = seek_arrows and not returning
     needs_return_arrows = seek_arrows and returning and carried.by_identity["item.weapon.arrow"] < 8
@@ -138,11 +148,7 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
             continue
         if useful_loot(item) and not turn.cell.stairs_down:
             goals.nearby.add(key)
-        seek_armor = (item.category == "armor" and item.identity not in carried.usable_gear
-                      and wants_spare_armor())
-        seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
-        seek_weapon = carried.needs_melee_weapon and usable_melee_weapon(item)
-        if seek_weapon or seek_armor or seek_ring or carried.by_category[item.category] < DETOUR_STOCK.get(item.category, 0):
+        if carried.needs_supply(item):
             goals.supplies.add(key)
     return goals
 
