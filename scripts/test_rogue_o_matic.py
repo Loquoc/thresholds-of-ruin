@@ -1771,6 +1771,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(turn, action, reason=reason)
         self.assertNotIsInstance(choose(player, turn)[0], Zap)
 
+    def test_control_targets_include_close_drainers_and_rank_only_nearby_threats(self):
+        cells = [cell(str(x), x) for x in range(5)]
+        foes = [{"id": name, "name": name, "position": cells[x]["position"]}
+                for name, x in (("drainer", 1), ("brute", 2), ("scout", 3), ("distant", 4))]
+        turn = player_turn(cells, actors=foes, hostiles=[foe["id"] for foe in foes])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.draining_creatures.add("drainer")
+        player.observed_loss.update(brute=5, scout=4, distant=20)
+        targets = player.control_targets(turn, health=10)
+        self.assertEqual([(foe.target, damage) for foe, damage in targets], [("brute", 5), ("drainer", 0)])
+
     def test_control_wands_respect_priority_and_fall_back_after_a_slow_attempt(self):
         cells = [cell("here"), cell("lane", 1), cell("enemy", 2)]
         foe = {"id": "dragon", "name": "dragon", "position": cells[2]["position"]}

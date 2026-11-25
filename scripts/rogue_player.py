@@ -794,12 +794,7 @@ class Adventurer:
                     devices.append((device, reason))
         if not devices:
             return None
-        for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
-            damage = self.damage_estimate(foe)
-            if turn.distance_to(foe) > 3:
-                continue
-            if 2 * damage < health and foe.name not in self.draining_creatures:
-                continue
+        for foe, damage in self.control_targets(turn, health):
             for device, reason in devices:
                 if reason == MemoryReason.SLOW_APPROACH and foe.target in self.attempted_slow:
                     continue
@@ -809,6 +804,16 @@ class Adventurer:
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
                     return zap, reason
         return None
+
+    def control_targets(self, turn: Turn, health: int) -> list[tuple[Creature, int]]:
+        """Rank nearby drainers and potential two-hit threats by observed damage."""
+        targets = []
+        for foe in turn.hostiles:
+            if turn.distance_to(foe) <= 3:
+                damage = self.damage_estimate(foe)
+                if 2 * damage >= health or foe.name in self.draining_creatures:
+                    targets.append((foe, damage))
+        return sorted(targets, key=lambda target: target[1], reverse=True)
 
     def can_polymorph(self, turn: Turn, foe: Creature, device: Device, lethal: bool) -> bool:
         if not lethal or foe.injury is not Injury.HEALTHY or foe.target in self.attempted_polymorph:
