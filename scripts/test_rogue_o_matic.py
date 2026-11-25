@@ -953,6 +953,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.danger_until["near"] = 900
                 self.assertEqual(player.choose(turn), (Move(expected), "seek_item"))
 
+    def test_food_routes_prefer_an_unguarded_ration_but_can_reach_the_last_guarded_one(self):
+        cells = [cell("here", down=True), cell("near", 1), cell("hall", -1), cell("far", -2)]
+        for hunger, reason in (("nourished", "seek_item"), ("hungry", "forage")):
+            for sites, direction in (((cells[1], cells[3]), Direction.WEST), ((cells[1],), Direction.EAST)):
+                with self.subTest(hunger=hunger, direction=direction):
+                    ground = [{**site, "item": {"id": site["key"], "name": "ration", "class": "food",
+                                                "quantity": 1, "identified": False}, "reachable": False}
+                              for site in sites]
+                    turn = player_turn(cells, ground=ground, stats={"nutrition": {"hunger": hunger}})
+                    player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                    player.supplies_guarded_until["near"] = 900
+                    self.assertEqual(choose(player, turn), (Move(direction), reason))
+
     def test_route_to_guarded_food_avoids_a_second_dangerous_square(self):
         target = cell("ration", 2)
         cells = [cell("here", down=True), cell("shortcut", 1), target,

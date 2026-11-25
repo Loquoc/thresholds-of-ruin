@@ -900,7 +900,8 @@ class Adventurer:
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
         food_cells = memory.cells_with_item(lambda item: item.category == "food")
-        return route_around_danger(turn, memory, food_cells, self.danger_until.keys())
+        avoid = self.danger_until.keys() | self.supplies_guarded_until.keys()
+        return route_around_danger(turn, memory, food_cells, avoid)
 
     def provision(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[Action, str] | None:
         nutrition = turn.nutrition
