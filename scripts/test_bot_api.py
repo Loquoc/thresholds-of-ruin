@@ -218,6 +218,46 @@ class BotApiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             aim(lane, (2, 0), steps=0)
 
+    def test_training_balances_require_the_build_seen_in_the_overview(self):
+        from tor_client_bot import Session, TrainingRefused
+
+        def page(epoch, entries):
+            basis = {"actor": 1, "stream": "s", "branch": "b", "reset": "0", "build_epoch": str(epoch)}
+            return {"status": "confirmed", "page": {"basis": basis, "next": None, "entries": entries}}
+
+        overview = [{"value": {"locked": False, "points": {"unspent": "1"}, "starting_skills": []}}]
+        transport = Mock()
+        transport.advancement.side_effect = [page(4, overview), page(5, []), page(5, overview), page(5, [])]
+        training = Session(transport).training
+        training.overview()
+        with self.assertRaises(TrainingRefused) as refusal:
+            training.pools()
+        self.assertTrue(refusal.exception.result.stale)
+        self.assertEqual(refusal.exception.operation, "balances")
+        self.assertEqual(training.pools(), ())
+        self.assertEqual([call.args for call in transport.advancement.call_args_list],
+                         [("overview",), ("balances",), ("overview",), ("balances",)])
+
+    def test_training_preview_rejects_old_choices_after_a_new_overview(self):
+        from tor_client_bot import PointPool, Session, TrainingKind, TrainingOption, TrainingRefused
+
+        transport = Mock()
+        basis = {"actor": 1, "stream": "s", "branch": "b", "reset": "0", "build_epoch": "5"}
+        overview = {"locked": False, "points": {"unspent": "1"}, "starting_skills": []}
+        transport.advancement.return_value = {"status": "confirmed", "page": {
+            "basis": basis, "next": None, "entries": [{"value": overview}]}}
+        training = Session(transport).training
+        training.overview()
+        old = (1, "b", "s", 0, 4)
+        kind = TrainingKind.TALENT
+        pool = PointPool(2, "advancement", "Advancement", 1, (kind,), old)
+        talent = TrainingOption(kind, "strike", "Strike", (), old)
+        with self.assertRaises(TrainingRefused) as refusal:
+            training.preview(pool, talent)
+        self.assertTrue(refusal.exception.result.stale)
+        self.assertEqual(refusal.exception.operation, "preview")
+        transport.advancement.assert_called_once_with("overview")
+
     def test_rejected_training_preview_reopens_before_another_selection(self):
         from tor_client_bot import Session, TrainingKind, TrainingRefused
         basis = {"actor": 1, "stream": "s", "branch": "b", "reset": "0", "build_epoch": "4"}

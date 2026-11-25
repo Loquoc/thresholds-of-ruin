@@ -114,7 +114,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
             try:
                 purchase = player.train(turn, game.training)
             except TrainingRefused as error:
-                purchase = {"type": "training_preview"}, error.result
+                purchase = {"type": f"training_{error.operation}"}, error.result
         if purchase:
             command, result = purchase
             reason = "earned_training"
