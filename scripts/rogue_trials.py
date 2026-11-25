@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from tor_client_bot import ActivityPhase, Item, ItemUse, Result, Turn
+from tor_client_bot import ActivityPhase, Device, DeviceActivation, Item, ItemUse, Result, Turn
 
 
 def trial_appearance(item: Item) -> str:
@@ -111,3 +111,28 @@ class ScrollTrials:
         if trial.newly_sampled_appearance is not None and stack_is_intact(turn, trial.scroll):
             self.sampled.discard(trial.newly_sampled_appearance)
         self.pending = None
+
+
+@dataclass
+class WandTrials:
+    """Track unknown charges per device and experiments per appearance."""
+
+    tried_without_charge_count: set[str] = field(default_factory=set)
+    sampled: set[str] = field(default_factory=set)
+
+    def can_spend_charge(self, device: Device) -> bool:
+        if device.charges is None:
+            return device.item.target not in self.tried_without_charge_count
+        return device.charges > 0
+
+    def can_experiment(self, device: Device) -> bool:
+        item = device.item
+        return (item.category == "wand" and item.identity is None
+                and device.activation is DeviceActivation.DIRECTION
+                and self.can_spend_charge(device) and trial_appearance(item) not in self.sampled)
+
+    def admitted(self, device: Device, *, experiment: bool) -> None:
+        if device.charges is None:
+            self.tried_without_charge_count.add(device.item.target)
+        if experiment:
+            self.sampled.add(trial_appearance(device.item))

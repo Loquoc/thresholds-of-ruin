@@ -1302,6 +1302,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(policy, floating), (Wait(), "wait_for_ground_contact"))
         self.assertEqual(choose(policy, player_turn(stairs)), (Move(Direction.DOWN), "descend"))
 
+    def test_wand_appearance_and_charge_count_govern_different_retries(self):
+        from dataclasses import replace
+        from rogue_trials import WandTrials
+
+        inventory = [{"id": target, "name": "oak staff", "class": "wand", "quantity": 1, "identified": False}
+                     for target in ("first", "second")]
+        offers = [{"item": item["id"], "zappable": True, "device_activation": "direction"} for item in inventory]
+        first, second = player_turn([cell("here")], inventory=inventory, interactions={"inventory": offers}).devices
+        trials = WandTrials()
+        self.assertTrue(trials.can_experiment(first))
+        trials.admitted(first, experiment=True)
+        self.assertFalse(trials.can_spend_charge(first))
+        self.assertTrue(trials.can_spend_charge(second))
+        self.assertFalse(trials.can_experiment(second))
+        self.assertTrue(trials.can_spend_charge(replace(first, charges=1)))
+        self.assertFalse(trials.can_spend_charge(replace(first, charges=0)))
+
     def test_samples_an_unknown_potion_appearance_once_while_healthy(self):
         item = {"id": "a", "name": "flask", "appearance": "smoky flask", "identified": False,
                 "quantity": 2, "class": "potion"}

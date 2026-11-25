@@ -48,7 +48,7 @@ from rogue_loot import (
     DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
 )
 from rogue_training import purchase_training
-from rogue_trials import PotionTrials, ScrollTrials, trial_appearance
+from rogue_trials import PotionTrials, ScrollTrials, WandTrials
 from rogue_retreat import (
     approach_visible_exit, best_onward_escape, evade_unseen_attacker, route_around_danger, take_corridor,
 )
@@ -209,9 +209,8 @@ class Adventurer:
     observed_loss_by_name: Counter[str] = field(default_factory=Counter)
     potion_trials: PotionTrials = field(default_factory=PotionTrials)
     scroll_trials: ScrollTrials = field(default_factory=ScrollTrials)
-    sampled_wands: set[str] = field(default_factory=set)
+    wand_trials: WandTrials = field(default_factory=WandTrials)
     supplies_guarded_until: dict[str, int] = field(default_factory=dict)
-    tried_unmeasured_devices: set[str] = field(default_factory=set)
     attempted_slow: set[str] = field(default_factory=set)
     polymorph_by_target: dict[str, PolymorphState] = field(default_factory=dict)
     attempted_room_light: set[int] = field(default_factory=set)
@@ -484,11 +483,8 @@ class Adventurer:
                                    if reason in {MemoryReason.RETREAT_UPSTAIRS, MemoryReason.RETREAT_DOWNSTAIRS} else ())
 
     def remember_zap(self, turn: Turn, action: Zap, reason: str | None) -> None:
-        if action.device.charges is None:
-            self.tried_unmeasured_devices.add(action.device.item.target)
-        if reason == MemoryReason.TEST_UNKNOWN_DEVICE:
-            self.sampled_wands.add(trial_appearance(action.device.item))
-        elif reason == MemoryReason.LIGHT_ROOM:
+        self.wand_trials.admitted(action.device, experiment=reason == MemoryReason.TEST_UNKNOWN_DEVICE)
+        if reason == MemoryReason.LIGHT_ROOM:
             self.attempted_room_light.add(self.depth)
         elif isinstance(action.target, Cell):
             targets = (foe.target for foe in turn.hostiles if action.target in turn.cells_of(foe))
@@ -528,11 +524,6 @@ class Adventurer:
     def nearby_drainer(self, turn: Turn, foe: Creature) -> bool:
         # Allow one closing step before a creature can strike in contact.
         return foe.name in self.draining_creatures and turn.distance_to(foe) <= 2
-
-    def can_spend_charge(self, device: Device) -> bool:
-        if device.charges is None:
-            return device.item.target not in self.tried_unmeasured_devices
-        return device.charges > 0
 
     def survival_consumable(self, turn: Turn, *, needs_healing: bool, lethal: bool) -> tuple[UseItem, str] | None:
         """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
@@ -723,7 +714,7 @@ class Adventurer:
     def aim_combat_wand(self, turn: Turn, foes: Iterable[Creature], identities: set[str],
                         *, reflected_ray_range: int | None = None) -> Zap | None:
         devices = [device for device in turn.devices
-                   if device.item.identity in identities and self.can_spend_charge(device)]
+                   if device.item.identity in identities and self.wand_trials.can_spend_charge(device)]
         if not devices:
             return None
         targets = sorted(foes, key=self.damage_estimate, reverse=True)
@@ -740,9 +731,7 @@ class Adventurer:
         if any(turn.distance_to(foe) < 3 for foe in turn.hostiles):
             return None
         for device in turn.devices:
-            item = device.item
-            if (item.category != "wand" or item.identity is not None or device.activation is not DeviceActivation.DIRECTION
-                    or not self.can_spend_charge(device) or trial_appearance(item) in self.sampled_wands):
+            if not self.wand_trials.can_experiment(device):
                 continue
             for foe in turn.hostiles:
                 if turn.distance_to(foe) <= 4:
@@ -756,7 +745,7 @@ class Adventurer:
             if in_melee and reason != MemoryReason.POLYMORPH_THREAT:
                 continue
             for device in turn.devices:
-                if device.item.identity == identity and self.can_spend_charge(device):
+                if device.item.identity == identity and self.wand_trials.can_spend_charge(device):
                     devices.append((device, reason))
         if not devices:
             return None
@@ -1215,7 +1204,7 @@ class Adventurer:
             return None
         for device in turn.devices:
             if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
-                    and self.can_spend_charge(device)):
+                    and self.wand_trials.can_spend_charge(device)):
                 return Zap(device, None)
         return None
 
