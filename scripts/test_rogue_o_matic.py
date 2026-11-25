@@ -2740,6 +2740,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         empty = player_turn([*passage, alcove], ground=[food])
         self.assertEqual(choose(player, empty), (Move(Direction.WEST), "seek_item"))
 
+    def test_objective_route_skirts_a_recently_guarded_supply_until_its_warning_expires(self):
+        room = [cell("here"), cell("guarded", 1), cell("goal", 2)]
+        for x in range(3):
+            row = cell(f"detour-{x}", x)
+            row["position"]["y"] = 1
+            room.append(row)
+        relic = {"id": "relic", "name": AMULET, "class": "amulet", "quantity": 1,
+                 "identified": True, "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        ground = [{**room[2], "item": relic, "reachable": False}]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.supplies_guarded_until["guarded"] = 100
+        for tick, tiles, expected in ((98, room[:3], Direction.EAST), (99, room, Direction.SOUTH_EAST),
+                                      (100, room, Direction.EAST)):
+            with self.subTest(tick=tick):
+                turn = player_turn(tiles, ground=ground, tick=tick)
+                self.assertEqual(choose(player, turn), (Move(expected), "seek_objective"))
+
     def test_retrieves_amulet_and_returns_through_known_stairs(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         item = {"identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET, "id": "disclosed-amulet",

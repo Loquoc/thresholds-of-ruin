@@ -1030,8 +1030,13 @@ class Adventurer:
             return Pickup(item), "take"
         if not returning and not hovering and not turn.hostiles and not trapped:
             objective_cells = memory.cells_with_item(lambda item: item.identity == self.objective)
-            if objective_cells and (step := memory.toward(turn, objective_cells, avoid=self.danger_until.keys())):
-                return step, "seek_objective"
+            if objective_cells:
+                danger = self.danger_until.keys()
+                guarded = self.supplies_guarded_until.keys()
+                if guarded and (step := memory.toward(turn, objective_cells, avoid=danger | guarded)):
+                    return step, "seek_objective"
+                if step := memory.toward(turn, objective_cells, avoid=danger):
+                    return step, "seek_objective"
         if not turn.hostiles and (decision := self.prepare(turn)):
             return decision
         if trapped:
