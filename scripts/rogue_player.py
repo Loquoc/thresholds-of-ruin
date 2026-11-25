@@ -198,6 +198,10 @@ class MeleeRank(NamedTuple):
     damage_from_this_foe: int
 
 
+def is_searchable_dead_end(site: Cell | RememberedCell, memory: FloorMap) -> bool:
+    return not (site.stairs_up or site.stairs_down) and memory.is_dead_end(site.key)
+
+
 class SearchRank(NamedTuple):
     """Higher fields win, in declaration order. Tied sites share a routing query."""
 
@@ -462,7 +466,7 @@ class Adventurer:
         if isinstance(action, UseItem):
             self.remember_item_use(turn, action, receipt, reason)
         if isinstance(action, UseAbility) and action.ability.identity == "rogue.search" and turn.cell:
-            self.remember_search(turn, turn.cell.key, receipt)
+            self.remember_search(turn, turn.cell, receipt)
         if isinstance(action, Shot):
             self.last_shot_tick = turn.tick
 
@@ -509,10 +513,10 @@ class Adventurer:
             return
         self.pending_end_search = None
 
-    def remember_search(self, turn: Turn, origin: str, receipt: Result | None) -> None:
-        self.searches[origin] += 1
-        if receipt and self.maps[self.depth].is_dead_end(origin):
-            self.pending_end_search = origin, receipt
+    def remember_search(self, turn: Turn, origin: Cell, receipt: Result | None) -> None:
+        self.searches[origin.key] += 1
+        if receipt and is_searchable_dead_end(origin, self.maps[self.depth]):
+            self.pending_end_search = origin.key, receipt
         # Credit each visible wall once in the near and middle search bands.
         self.wall_searches.update({
             cell.key for cell in turn.visible_cells
@@ -1074,9 +1078,9 @@ class Adventurer:
 
     def search_dead_end(self, turn: Turn, memory: FloorMap) -> UseAbility | None:
         here = turn.cell
-        if (here is None or here.stairs_up or here.stairs_down or turn.hostiles
+        if (here is None or turn.hostiles
                 or self.completed_end_searches[here.key] >= DEAD_END_SEARCHES
-                or not memory.is_dead_end(here.key)):
+                or not is_searchable_dead_end(here, memory)):
             return None
         return self.ready_search(turn)
 
@@ -1152,7 +1156,7 @@ class Adventurer:
         attempts = self.searches[site.key]
         neighbors = memory.adjacent(site.key)
         walls = [c for c in neighbors if c.wall]
-        dead_end = memory.is_dead_end(site.key) and not (site.stairs_down or site.stairs_up)
+        dead_end = is_searchable_dead_end(site, memory)
         if dead_end:
             remaining = DEAD_END_SEARCHES - self.completed_end_searches[site.key]
             if remaining <= 0 or turn.hostiles:

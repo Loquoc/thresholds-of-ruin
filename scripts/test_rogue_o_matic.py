@@ -3061,6 +3061,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                        ground=[{**pos, "item": item, "reachable": reachable}])
                     self.assertEqual(choose(player, turn)[1], reason)
 
+    def test_resolved_stair_search_counts_as_an_attempt_without_spending_a_dead_end_search(self):
+        from tor_client_bot import Result
+
+        walls = [cell("north", y=-1, wall=True), cell("east", 1, wall=True), cell("south", y=1, wall=True)]
+        ability = {"id": "rogue.search", "name": "Search", "cost": None, "cooldown_remaining": 0,
+                   "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
+        activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": "search", "phase": "queued"}
+        receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
+        for up in (True, False):
+            with self.subTest(up=up):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                turn = player_turn([cell("stairs", up=up, down=not up), cell("hall", -1), *walls], abilities=[ability])
+                player.observe(turn)
+                player.admitted(turn, UseAbility(turn.abilities[0]), receipt)
+                player.observe(Turn({**json.loads(turn.recording()), "finished_intentions": [
+                    dict(activity, phase="resolved")]}))
+                self.assertEqual(player.searches["stairs"], 1)
+                self.assertEqual(player.completed_end_searches["stairs"], 0)
+
     def test_searches_closed_corridor_end_six_times_before_exploring_elsewhere(self):
         import json
         from tor_client_bot import Result
