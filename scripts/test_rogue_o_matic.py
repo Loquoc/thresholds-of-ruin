@@ -1844,6 +1844,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             self.assertEqual(player.search(turn, memory, returning=False), expected)
             self.assertEqual(player.search_return_connection(turn, memory, {"stairs"}), expected)
 
+    def test_exhausted_return_search_sites_do_not_request_a_route(self):
+        from rogue_search import ORDINARY_WALL_SEARCHES
+
+        turn = search_turn([cell("here"), cell("wall", 1, wall=True), cell("stairs", 2, up=True)])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        player.search_history.admissions["here"] = ORDINARY_WALL_SEARCHES
+        memory = player.maps[player.depth]
+        with patch.object(memory, "toward", side_effect=AssertionError("no eligible search destination")):
+            self.assertIsNone(player.search_return_connection(turn, memory, {"stairs"}))
+
     def test_cancelled_return_search_can_be_retried_at_the_same_boundary(self):
         from tor_client_bot import Result
 
