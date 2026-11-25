@@ -7,7 +7,7 @@ from functools import cache
 
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
-from rogue_gear import ring_upgrades
+from rogue_gear import melee_score, ring_upgrades
 from rogue_retreat import route_around_danger
 
 
@@ -31,7 +31,7 @@ def healing_reserve_gain(item: Item, carried: Counter[str | None]) -> int:
 
 def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, objective: str,
                      returning: bool, safe_pickup: bool) -> Item | None:
-    """Take the objective first, then needed healing, then other useful loot in ground order."""
+    """Prioritize the objective, missing healing doses, and a first melee weapon. Ties keep ground order."""
     useful = []
     for ground in ground_items:
         if not ground.reachable:
@@ -50,7 +50,13 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
     carried: Counter[str | None] = Counter()
     for item in turn.inventory:
         carried[item.identity] += item.quantity
-    return max(useful, key=lambda item: healing_reserve_gain(item, carried))
+
+    def usable_melee_weapon(item: Item) -> bool:
+        return not item.known_cursed and melee_score(item) >= 0
+
+    needs_weapon = not any(usable_melee_weapon(item) for item in turn.inventory)
+    return max(useful, key=lambda item: (healing_reserve_gain(item, carried),
+                                         needs_weapon and usable_melee_weapon(item)))
 
 
 @dataclass

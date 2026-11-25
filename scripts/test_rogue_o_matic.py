@@ -675,6 +675,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.item.target, reason), (expected, "take"))
 
+    def test_first_melee_weapon_takes_priority_over_incidental_pickups(self):
+        here = cell("here")
+        spear = {"id": "spear", "identity": "item.weapon.spear", "class": "weapon", "name": "spear",
+                 "quantity": 1, "identified": True}
+        coin = {**spear, "id": "gold", "identity": "item.coin.gold", "class": "coin"}
+        dose = {**spear, "id": "heal", "identity": "item.potion.healing", "class": "potion"}
+        for pack, pile, expected in (([], [coin, spear], "spear"), ([{**spear, "id": "packed"}], [coin, spear], "gold"),
+                                     ([], [coin, spear, dose], "heal")):
+            with self.subTest(expected=expected):
+                ground = [{**here, "item": item, "reachable": True} for item in pile]
+                turn = player_turn([here], inventory=pack, ground=ground)
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.item.target, reason), (expected, "take"))
+
     def test_pickup_fills_the_healing_reserve_in_one_action_when_possible(self):
         here = cell("here")
         dose = {"id": "single", "identity": "item.potion.healing", "class": "potion",
