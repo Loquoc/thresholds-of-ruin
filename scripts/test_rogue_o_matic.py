@@ -501,6 +501,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offers[1]["equipped_slot"] = 0
         self.assertEqual(choose(player, picture())[1], "enchant_weapon")
 
+    def test_returning_player_ascends_past_a_duplicate_objective_amulet(self):
+        relic = {"id": "carried", "name": "Copper seal", "class": "amulet", "identity": "fixture.seal",
+                 "identified": True, "quantity": 1}
+        stairs, hall = cell("stairs", up=True), cell("hall", 1)
+        for site, reachable in ((stairs, True), (hall, False)):
+            with self.subTest(reachable=reachable):
+                turn = player_turn([stairs, hall], inventory=[relic], ground=[
+                    {**site, "item": {**relic, "id": "spare"}, "reachable": reachable}])
+                player = Adventurer(26, relic["identity"], depth=2)
+                self.assertEqual(choose(player, turn), (Move(Direction.UP), "ascend"))
+
     def test_reachable_objective_takes_priority_before_planning_loot_detours(self):
         from unittest.mock import patch
 

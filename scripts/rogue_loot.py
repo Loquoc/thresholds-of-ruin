@@ -35,7 +35,7 @@ def worth_long_detour(objective: str, item: Item, carried: Counter[str | None], 
         return carried[identity] < 2
     if identity == "item.weapon.arrow" and returning and carried["item.weapon.shortbow"]:
         return not under_threat and carried[identity] < 8
-    if identity == objective or item.category == "food":
+    if (identity == objective and not returning) or item.category == "food":
         return True
     if returning:
         return False

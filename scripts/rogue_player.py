@@ -1270,7 +1270,7 @@ class Adventurer:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_STAIR
         return None, "readiness_timeout"
 
-    def choose_pickup(self, turn: Turn, ground_items: tuple[GroundItem, ...]) -> Item | None:
+    def choose_pickup(self, turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: bool) -> Item | None:
         safe_pickup = not turn.hostiles or bool(
             turn.health and recovery_deficit(turn.health) == 0
             and all(turn.distance_to(foe) > 1 for foe in turn.hostiles)
@@ -1280,7 +1280,10 @@ class Adventurer:
             if not ground.reachable:
                 continue
             if ground.item.identity == self.objective:
-                return ground.item
+                if not returning:
+                    return ground.item
+                if ground.item.category == "amulet":
+                    continue
             if safe_pickup and first_useful is None and useful_loot(ground.item):
                 first_useful = ground.item
         return first_useful
@@ -1347,7 +1350,7 @@ class Adventurer:
             return decision
 
         returning = self.carrying_objective(turn)
-        if item := self.choose_pickup(turn, ground_items):
+        if item := self.choose_pickup(turn, ground_items, returning=returning):
             return Pickup(item), "take"
         if not returning and not hovering and not turn.hostiles and not trapped:
             objective_cells = memory.cells_with_item(lambda item: item.identity == self.objective)
