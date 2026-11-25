@@ -895,6 +895,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    ground=[{**tiles[-1], "item": dagger, "reachable": False}])
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
 
+    def test_locked_shortbow_allows_a_melee_weapon_detour_when_the_curse_can_be_removed(self):
+        slot = {"id": "weapon", "name": "Weapon"}
+        tiles = [cell("exit", down=True), cell("hall", 1), cell("hall2", 2), cell("stash", 3)]
+        bow = {"id": "bow", "identity": "item.weapon.shortbow", "class": "weapon",
+               "identified": True, "name": "shortbow", "quantity": 1}
+        blade = {**bow, "id": "blade", "identity": "item.weapon.dagger", "name": "dagger"}
+        cure = {**bow, "id": "cure", "identity": "item.scroll.remove-curse", "class": "scroll"}
+        for readable, expected in ((True, "seek_supplies"), (False, "descend")):
+            with self.subTest(readable=readable):
+                turn = player_turn(tiles, inventory=[bow, cure],
+                                   ground=[{**tiles[-1], "item": blade, "reachable": False}],
+                                   interactions={"slots": [slot], "inventory": [
+                                       {"item": "bow", "slot": slot, "known_cursed": True, "equipped_slot": 0},
+                                       {"item": "cure", "readable": readable}]})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
+
     def test_first_melee_weapon_is_worth_a_short_outbound_detour(self):
         weapon = {"id": "blade", "identity": "item.weapon.dagger", "class": "weapon", "name": "dagger",
                   "quantity": 1, "identified": True}

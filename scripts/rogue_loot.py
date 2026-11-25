@@ -49,8 +49,12 @@ class CarriedLoot:
         self.by_category: Counter[str] = Counter()
         self.usable_gear: set[str] = set()
         weapon_slot = next((slot for slot in turn.equipment if slot.kind == "weapon"), None)
-        weapon_locked = bool(weapon_slot and weapon_slot.removal_blocked)
-        self.needs_melee_weapon = not weapon_locked
+        self.needs_melee_weapon = True
+        if weapon_slot and weapon_slot.removal_blocked:
+            # A locked melee weapon still serves in combat. A locked bow needs a cure before switching.
+            worn = weapon_slot.occupant
+            self.needs_melee_weapon = (worn is not None and melee_score(worn) < 0
+                                       and not turn.hostiles and remove_curse_scroll(turn) is not None)
         for item in turn.inventory:
             self.by_identity[item.identity] += item.quantity
             self.by_category[item.category] += item.quantity
