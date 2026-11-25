@@ -1048,22 +1048,27 @@ class Adventurer:
         search = self.ready_search(turn)
         if turn.cell is None or search is None:
             return None
-        sites: set[str] = set()
-        remaining_stairs = upstairs.copy()
-        while remaining_stairs:
-            passages = {cell.key for cell, _ in memory.reachable(remaining_stairs.pop())}
-            remaining_stairs.difference_update(passages)
-            if turn.cell.key in passages:
-                continue
-            boundary_walls = {cell.key for key in passages for cell in memory.adjacent(key) if cell.wall}
-            for wall in boundary_walls:
-                sites.update(cell.key for cell in memory.adjacent(wall)
-                             if not cell.wall and cell.key not in passages and self.searches[cell.key] < 3)
+        sites = self.return_connection_sites(memory, turn.cell.key, upstairs)
         if turn.cell.key in sites:
             return search, "search"
         if step := route_around_danger(turn, memory, sites, self.danger_until.keys()):
             return step, "search"
         return None
+
+    def return_connection_sites(self, memory: FloorMap, origin: str, upstairs: set[str]) -> set[str]:
+        """Find unexhausted search squares across a wall from a disconnected stair passage."""
+        sites: set[str] = set()
+        remaining_stairs = upstairs.copy()
+        while remaining_stairs:
+            passages = {cell.key for cell, _ in memory.reachable(remaining_stairs.pop())}
+            remaining_stairs.difference_update(passages)
+            if origin in passages:
+                continue
+            boundary_walls = {cell.key for key in passages for cell in memory.adjacent(key) if cell.wall}
+            for wall in boundary_walls:
+                sites.update(cell.key for cell in memory.adjacent(wall)
+                             if not cell.wall and cell.key not in passages and self.searches[cell.key] < 3)
+        return sites
 
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,
                allow_unseen: bool = True, wall_limit: int = 3) -> tuple[Action, str] | None:

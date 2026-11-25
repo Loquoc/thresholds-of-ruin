@@ -3851,6 +3851,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(player.choose(turn), (Move(Direction.SOUTH), "explore"))
 
 
+    def test_return_search_uses_another_stair_passage_after_exhausting_one_boundary(self):
+        cells = [cell(str(x), x, wall=abs(x) == 2, up=abs(x) == 3) for x in range(-3, 4)]
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                   "basic_attack": False, "reach": {"kind": "personal"}, "target_kind": "self"}
+        for exhausted, expected in (("-1", Direction.EAST), ("1", Direction.WEST)):
+            with self.subTest(exhausted=exhausted):
+                turn = player_turn(cells, abilities=[ability])
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                player.searches[exhausted] = 3
+                memory = player.maps[player.depth]
+                self.assertEqual(player.search_return_connection(turn, memory, memory.stairs(Direction.UP)),
+                                 (Move(expected), "search"))
+
     def test_return_search_traverses_a_shared_stair_passage_once(self):
         from unittest.mock import patch
 
