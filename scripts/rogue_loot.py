@@ -48,20 +48,25 @@ class CarriedLoot:
         self.by_identity: Counter[str | None] = Counter()
         self.by_category: Counter[str] = Counter()
         self.usable_gear: set[str] = set()
-        weapon_slot = primary_weapon_slot(turn)
-        self.needs_melee_weapon = True
-        if weapon_slot and weapon_slot.removal_blocked:
-            # A locked melee weapon still serves in combat. A locked bow needs a cure before switching.
-            worn = weapon_slot.occupant
-            self.needs_melee_weapon = (worn is not None and melee_score(worn) < 0
-                                       and not turn.hostiles and remove_curse_scroll(turn) is not None)
         for item in turn.inventory:
             self.by_identity[item.identity] += item.quantity
             self.by_category[item.category] += item.quantity
-            if usable_melee_weapon(item):
-                self.needs_melee_weapon = False
             if item.category in {"armor", "ring"} and item.identity is not None and not item.known_cursed:
                 self.usable_gear.add(item.identity)
+
+    @cached_property
+    def _needs_melee_weapon(self) -> bool:
+        if any(usable_melee_weapon(item) for item in self._turn.inventory):
+            return False
+        slot = primary_weapon_slot(self._turn)
+        if slot is None or not slot.removal_blocked:
+            return True
+        # A locked melee weapon still works. Switching from a locked bow requires a quiet turn and a cure.
+        return (slot.occupant is not None and melee_score(slot.occupant) < 0
+                and not self._turn.hostiles and remove_curse_scroll(self._turn) is not None)
+
+    def wants_first_melee_weapon(self, item: Item) -> bool:
+        return usable_melee_weapon(item) and self._needs_melee_weapon
 
     @cached_property
     def _wanted_rings(self) -> set[str]:
@@ -80,7 +85,7 @@ class CarriedLoot:
         )
 
     def needs_supply(self, item: Item) -> bool:
-        if self.needs_melee_weapon and usable_melee_weapon(item):
+        if self.wants_first_melee_weapon(item):
             return True
         if item.category == "armor":
             return item.identity not in self.usable_gear and self._wants_spare_armor
@@ -123,7 +128,7 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
         return useful[0]
     carried = CarriedLoot(turn)
     return max(useful, key=lambda item: (healing_reserve_gain(item, carried.by_identity),
-                                         carried.needs_melee_weapon and usable_melee_weapon(item)))
+                                         carried.wants_first_melee_weapon(item)))
 
 
 @dataclass

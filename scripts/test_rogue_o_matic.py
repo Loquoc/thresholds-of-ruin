@@ -893,6 +893,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 chosen = player.choose_pickup(turn, turn.ground_items, returning=returning)
                 self.assertEqual(chosen.target if chosen else None, expected)
 
+    def test_comparing_potion_pickups_does_not_inspect_the_weapon_slot(self):
+        here = cell("here")
+        potion = {"id": "water", "name": "water", "class": "potion", "quantity": 1,
+                  "identified": True, "identity": "item.potion.water"}
+        healing = {**potion, "id": "dose", "identity": "item.potion.healing"}
+        ground = [{**here, "item": item, "reachable": True} for item in (potion, healing)]
+        turn = player_turn([here], ground=ground)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        with patch("rogue_loot.primary_weapon_slot", side_effect=AssertionError("no weapon offered")):
+            picked = player.choose_pickup(turn, turn.ground_items, returning=False)
+        self.assertEqual(picked.target, "dose")
+
     def test_known_curse_changes_first_weapon_priority_only_when_the_slot_is_blocked(self):
         mace = {"id": "mace", "identity": "item.weapon.mace", "class": "weapon",
                 "name": "mace", "quantity": 1, "identified": True}
