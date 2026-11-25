@@ -3589,14 +3589,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         after = player_turn([cell("here")], tick=100, stats={"nutrition": dict(nutrition, reserve=40)})
         activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": "eat", "phase": "queued"}
         receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
-        for phase in ("resolved", "failed", "cancelled"):
+        for phase in ("resolved", "failed", "cancelled", None):
             with self.subTest(phase=phase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.admitted(before, UseItem(before.inventory[0], ItemUse.EAT), receipt)
                 paused = Turn({**json.loads(before.recording()), "intentions": [dict(activity, phase="paused")]})
                 player.observe(paused)
                 self.assertIsNotNone(player.pending_meal)
-                finished = Turn({**json.loads(after.recording()), "finished_intentions": [dict(activity, phase=phase)]})
+                history = [dict(activity, phase=phase)] if phase else []
+                finished = Turn({**json.loads(after.recording()), "finished_intentions": history})
                 player.observe(finished)
                 self.assertIsNone(player.pending_meal)
                 self.assertEqual(player.food_value, {"fixture.ration": 30} if phase == "resolved" else {})

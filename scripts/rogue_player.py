@@ -449,10 +449,13 @@ class Adventurer:
             return
         if not turn.can_act or phase not in (None, ActivityPhase.RESOLVED):
             return
+        self.pending_meal = None
+        if meal.receipt and meal.receipt.activity and phase is None:
+            # The activity fell outside retained history. Its outcome is unknown.
+            return
         gain = meal.observed_gain(turn)
         if gain is not None:
             self.food_value[meal.identity] = min(gain, self.food_value.get(meal.identity, gain))
-        self.pending_meal = None
 
     def observe_search(self, turn: Turn) -> None:
         search = self.pending_search
