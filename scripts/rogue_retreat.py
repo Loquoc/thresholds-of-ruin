@@ -7,7 +7,7 @@ from tor_client_bot import Action, Creature, Direction, FloorMap, Move, OpenDoor
 
 def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str]) -> Action | None:
     """Prefer a route outside recent danger, allowing a dangerous route when it is the only option."""
-    if goals and danger:
+    if danger and any(goal not in danger for goal in goals):
         if step := memory.toward(turn, goals, avoid=danger):
             return step
     return memory.toward(turn, goals)

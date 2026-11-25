@@ -3379,6 +3379,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn(cells, ground=ground, stats=hungry)
                 self.assertEqual(choose(player, turn), (Move(expected), "forage"))
 
+    def test_foraging_among_warned_food_cells_still_prefers_the_untrapped_route(self):
+        cells = [cell("near", -1), cell("here"), cell("passage", 1), cell("far", 2)]
+        cells[0]["trap"] = {"id": "pit", "family": None, "reachable": True}
+        ground = [{**tile, "item": {"id": tile["key"], "name": "ration", "class": "food",
+                                    "quantity": 1, "identified": False}, "reachable": False}
+                  for tile in (cells[0], cells[-1])]
+        turn = player_turn(cells, ground=ground, stats={"nutrition": {"hunger": "weak"}})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        player.danger_until.update(near=1200, far=1200)
+        memory = player.maps[player.depth]
+        with patch.object(memory, "toward", wraps=memory.toward) as route:
+            self.assertEqual(player.choose(turn), (Move(Direction.EAST), "forage"))
+            route.assert_called_once()
+
     def test_prioritizes_disclosed_descent_before_the_amulet_depth(self):
         turn = player_turn([cell("here"), cell("frontier", -1), cell("way", 1), cell("stairs", 2, down=True)])
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
