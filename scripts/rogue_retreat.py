@@ -31,16 +31,25 @@ def route_to_recovery_shelter(turn: Turn, memory: FloorMap, danger: Set[str]) ->
 
 def evade_unseen_attacker(turn: Turn, attack_origin: str, memory: FloorMap | None = None) -> Move | None:
     """Favor clear steps away from the attack site, using the mapped route when it leaves sight."""
+    steps = [(direction, cell) for direction in turn.walkable_directions
+             if (cell := turn.cell_at(direction.offset)) is not None and cell.key != attack_origin]
+    if not steps:
+        return None
+
     origin_offsets = [cell.offset for cell in turn.visible_cells if cell.key == attack_origin]
     mapped_distances = {}
     if not origin_offsets and memory is not None:
-        mapped_distances = {cell.key: distance for cell, distance in memory.reachable(attack_origin)}
+        remaining = {cell.key for _, cell in steps}
+        for site, distance in memory.reachable(attack_origin):
+            if site.key in remaining:
+                mapped_distances[site.key] = distance
+                remaining.remove(site.key)
+                if not remaining:
+                    break
+
     best_rank = None
     step = None
-    for direction in turn.walkable_directions:
-        cell = turn.cell_at(direction.offset)
-        if cell is None or cell.key == attack_origin:
-            continue
+    for direction, cell in steps:
         if origin_offsets:
             distance = min(max(abs(a - b) for a, b in zip(cell.offset, origin)) for origin in origin_offsets)
         else:

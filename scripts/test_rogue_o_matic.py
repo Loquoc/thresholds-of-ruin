@@ -617,6 +617,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 decision = choose(player, player_turn(around_player, tick=200))
                 self.assertEqual(decision, (Move(expected), "evade_unseen_attack"))
 
+    def test_unseen_evasion_only_maps_distances_to_available_steps(self):
+        from rogue_retreat import evade_unseen_attacker
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(player_turn([cell(str(x), x) for x in range(6)]))
+        memory = player.maps[1]
+        reachable = memory.reachable
+        for offsets, expected in (((-1, 0, 1), Move(Direction.EAST)), ((0,), None)):
+            with self.subTest(offsets=offsets):
+                turn = player_turn([cell(str(x + 2), x) for x in offsets])
+                visited = []
+                def trace_distances(origin):
+                    for site, distance in reachable(origin):
+                        visited.append(site.key)
+                        yield site, distance
+                with patch.object(memory, "reachable", side_effect=trace_distances):
+                    self.assertEqual(evade_unseen_attacker(turn, "0", memory), expected)
+                self.assertEqual(visited, ["0", "1", "2", "3"] if expected else [])
+
     def test_recognized_melee_weapon_can_fill_an_empty_slot_before_its_stats_are_known(self):
         slot = {"id": "weapon", "name": "Weapon"}
         items = [{"id": name, "name": name, "identity": f"item.weapon.{name}", "identified": True,
