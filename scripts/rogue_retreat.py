@@ -125,18 +125,22 @@ def _stair_distance(offset: tuple[int, int, int], goal: tuple[int, int, int]) ->
     return max(dx, dy), dx + dy
 
 
-def approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: set[str]) -> Move | None:
-    """Approach the best visible stairs while keeping clear of pursuers."""
+def _preferred_visible_stairs(turn: Turn, exits: set[str]) -> list[tuple[int, int, int]]:
+    """Prefer untrapped stairs, then the nearest. Keep ties for the pursuit decision."""
     exits_by_rank = {}
     for cell in turn.visible_cells:
         if cell.key in exits and cell.offset[2] == 0:
             rank = cell.trap is not None, _stair_distance((0, 0, 0), cell.offset)
             exits_by_rank.setdefault(rank, []).append(cell.offset)
-    if not exits_by_rank:
+    return exits_by_rank[min(exits_by_rank)] if exits_by_rank else []
+
+
+def approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: set[str]) -> Move | None:
+    """Approach the best visible stairs while keeping clear of pursuers."""
+    destinations = _preferred_visible_stairs(turn, exits)
+    if not destinations:
         return None
-    best_exit_rank = min(exits_by_rank)
-    destinations = exits_by_rank[best_exit_rank]
-    _, current_distance = best_exit_rank
+    current_distance = _stair_distance((0, 0, 0), destinations[0])
 
     approaches = []
     for direction in turn.walkable_directions:
