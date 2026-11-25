@@ -43,6 +43,11 @@ def west_corridor():
     return cells + approaches, foes
 
 
+def healing_potions():
+    return [{"id": kind, "name": kind, "identity": f"item.potion.{kind}", "class": "potion",
+             "identified": True, "quantity": 1} for kind in ("healing", "extra-healing")]
+
+
 def scroll_trial_turn(cells, *scrolls, **observation):
     items = [{"id": target, "name": appearance, "class": "scroll", "identified": False, "quantity": 1}
              for target, appearance in scrolls]
@@ -3771,8 +3776,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_known_lethal_hit_prioritizes_extra_healing_in_either_inventory_order(self):
         foe = {"id": "foe", "name": "troll", "position": cell("east", 1)["position"]}
-        potions = [{"id": name, "name": name, "identity": "item.potion." + name,
-                    "class": "potion", "identified": True, "quantity": 1} for name in ("healing", "extra-healing")]
+        potions = healing_potions()
         scroll = {"id": "escape", "name": "escape", "identity": "item.scroll.teleportation",
                   "class": "scroll", "identified": True, "quantity": 1}
         offers = [{"item": p["id"], "drinkable": True} for p in potions] + [{"item": "escape", "readable": True}]
@@ -3788,8 +3792,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_injured_player_selects_a_dose_by_two_round_damage_in_either_inventory_order(self):
         foe = {"id": "foe", "name": "orc", "position": cell("east", 1)["position"]}
-        doses = [{"id": kind, "name": kind, "identity": f"item.potion.{kind}", "identified": True,
-                  "class": "potion", "quantity": 1} for kind in ("extra-healing", "healing")]
+        doses = healing_potions()
         for inventory in (doses, doses[::-1]):
             with self.subTest(first=inventory[0]["id"]):
                 turn = player_turn([cell("here"), cell("east", 1)], inventory=inventory, actors=[foe],
@@ -3802,8 +3805,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     self.assertEqual((action.item.target, reason), (expected, "heal"))
 
     def test_unthreatened_healing_preserves_extra_healing_in_either_inventory_order(self):
-        doses = [{"id": kind, "name": kind, "identity": f"item.potion.{kind}", "identified": True,
-                  "class": "potion", "quantity": 1} for kind in ("healing", "extra-healing")]
+        doses = healing_potions()
         for inventory in (doses, doses[::-1]):
             with self.subTest(first=inventory[0]["id"]):
                 turn = player_turn([cell("here")], inventory=inventory, combat={"hp": 3, "max_hp": 10},
@@ -3813,14 +3815,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_healing_while_hallucinating_prefers_a_dose_that_also_cures_the_condition(self):
         condition = {"condition": {"id": "rogue.hallucinating", "name": "Hallucinating"},
-                     "phase": "active", "remaining_ticks": "100"}
-        potions = [{"id": name, "name": name, "identity": f"item.potion.{name}", "class": "potion",
-                    "identified": True, "quantity": 1} for name in ("healing", "extra-healing")]
-        for extra_offered, expected in ((True, "extra-healing"), (False, "healing")):
-            with self.subTest(extra_offered=extra_offered):
+                     "phase": "active"}
+        potions = healing_potions()
+        for remaining, extra_offered, expected in ((100, True, "extra-healing"), (100, False, "healing"),
+                                                   (0, True, "healing")):
+            with self.subTest(remaining=remaining, extra_offered=extra_offered):
                 offers = [{"item": "healing", "drinkable": True}, {"item": "extra-healing", "drinkable": extra_offered}]
                 turn = player_turn([cell("here")], inventory=potions, combat={"hp": 3, "max_hp": 10},
-                                   stats={"conditions": [condition]}, interactions={"inventory": offers})
+                                   stats={"conditions": [dict(condition, remaining_ticks=remaining)]},
+                                   interactions={"inventory": offers})
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.item.target, reason), (expected, "heal"))
 
