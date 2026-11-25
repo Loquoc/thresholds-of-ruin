@@ -279,6 +279,7 @@ def trace_report(path):
             else:
                 last_move = previous_origin = None
             visits.resolve_search(row)
+            progress["amulet_acquired"] |= row.get("amulet_acquired") is True
             if "terminal" in row:
                 terminal = row
                 # Older summaries have no observed position. Their max_depth is a run total.
@@ -289,7 +290,6 @@ def trace_report(path):
             visits.record_observation(row)
             floor = row["floor"]
             progress["max_depth"] = max(progress["max_depth"], floor)
-            progress["amulet_acquired"] |= row.get("amulet_acquired") is True
             if progress["amulet_acquired"]:
                 closest = progress["closest_return_floor"]
                 progress["closest_return_floor"] = floor if closest is None else min(closest, floor)

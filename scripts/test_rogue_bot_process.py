@@ -3786,7 +3786,12 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(replay.returncode, 0, replay.stderr)
         self.assertTrue(report["amulet_acquired"])
 
-        _, progress = trace_report(output / "seed-42" / "turns.jsonl")
+        terminal, progress = trace_report(output / "seed-42" / "turns.jsonl")
+        terminal_trace = self.directory / "terminal-only.jsonl"
+        terminal_trace.write_text(json.dumps(terminal), encoding="utf-8")
+        _, final_observation = trace_report(terminal_trace)
+        self.assertTrue(final_observation["amulet_acquired"])
+        self.assertIsNone(final_observation["closest_return_floor"])
         self.assertTrue(progress["amulet_acquired"])
         self.assertEqual(report["max_depth"], 26)
         self.assertEqual(progress["max_depth"], report["max_depth"])

@@ -413,6 +413,21 @@ assert get_type_hints(play)["player"] is Adventurer
                 _, report = trace_report(path)
                 self.assertEqual(report["closest_return_floor"], expected)
 
+    def test_terminal_acquisition_survives_without_a_final_position(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        rows = [{"action": {"type": "pickup"}, "floor": 3, "cell": "vault", "amulet_acquired": False},
+                {"terminal": "victory", "amulet_acquired": True, "max_depth": 3}]
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "turns.jsonl"
+            trace.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+            _, progress = trace_report(trace)
+        self.assertTrue(progress["amulet_acquired"])
+        self.assertIsNone(progress["closest_return_floor"])
+        self.assertEqual(progress["actions"], 1)
+
     def test_final_landing_updates_return_distance_and_food_reserve(self):
         from pathlib import Path
         import tempfile
