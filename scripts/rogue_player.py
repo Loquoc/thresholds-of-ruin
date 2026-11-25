@@ -284,6 +284,7 @@ class Adventurer:
                 self.corridor_stand = None
         self.observe_end_search(turn)
         self.observe_scroll_trial(turn)
+        self.expire_danger_warnings(turn.tick)
         self.observe_guarded_supplies(turn)
         if self.entered_floor_at is None:
             self.entered_floor_at = turn.tick
@@ -309,10 +310,14 @@ class Adventurer:
         if here and here.lit:
             self.attempted_room_light.discard(self.depth)
 
+    def expire_danger_warnings(self, tick: int) -> None:
+        for warnings in (self.danger_until, self.supplies_guarded_until, self.unsafe_stairs):
+            if warnings:
+                expired = [key for key, deadline in warnings.items() if deadline <= tick]
+                for key in expired:
+                    del warnings[key]
+
     def observe_guarded_supplies(self, turn: Turn) -> None:
-        self.supplies_guarded_until = {
-            key: expiry for key, expiry in self.supplies_guarded_until.items() if expiry > turn.tick
-        }
         guard_cells = [cell for foe in turn.hostiles for cell in foe.cells]
         if not guard_cells:
             return
@@ -344,10 +349,6 @@ class Adventurer:
                 self.polymorph_by_target[target] = PolymorphState.RESISTED
         incoming = report.incoming
         self.record_injury(turn, incoming, loss, lasting_injury=lasting_injury)
-        if self.danger_until:
-            self.danger_until = {
-                key: expiry for key, expiry in self.danger_until.items() if expiry > turn.tick
-            }
         if here and (turn.hostiles or (injured_this_turn and incoming)):
             self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:

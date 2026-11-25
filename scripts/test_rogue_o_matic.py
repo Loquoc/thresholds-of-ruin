@@ -1779,6 +1779,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 later = player_turn(stairs, ground=ground, tick=turn.tick + elapsed)
                 self.assertEqual(choose(player, later), expected)
 
+    def test_repeat_guard_sighting_refreshes_local_danger_without_extending_a_stair_warning(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        room = [cell("here"), cell("scroll", 1), cell("guard", 2)]
+        scroll = {"id": "roll", "class": "scroll", "name": "scroll", "quantity": 1, "identified": False}
+        guard = {"id": "guard", "name": "orc", "position": room[2]["position"]}
+        stair = ("landing", Direction.DOWN)
+        player.unsafe_stairs[stair] = 1200
+        for tick in (0, 100):
+            player.observe(player_turn(room, tick=tick, actors=[guard], hostiles=["guard"],
+                                       ground=[{**room[1], "item": scroll, "reachable": False}]))
+        player.observe(player_turn(room, tick=1200))
+        self.assertNotIn(stair, player.unsafe_stairs)
+        self.assertEqual(player.danger_until, {"here": 1300})
+        self.assertEqual(player.supplies_guarded_until, {"scroll": 1300})
+        player.observe(player_turn(room, tick=1300))
+        self.assertFalse(player.danger_until)
+        self.assertFalse(player.supplies_guarded_until)
+
     def test_guarded_scroll_uses_its_own_position_and_every_cell_of_the_guard(self):
         room = [cell(str(x), x, down=x == 0) for x in range(5)]
         scroll = {"id": "roll", "name": "scroll", "class": "scroll", "quantity": 1, "identified": False}
