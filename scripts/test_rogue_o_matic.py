@@ -2639,6 +2639,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(landing, move, result)
         self.assertEqual(player.stalled(blocked, result), (None, "readiness_timeout"))
 
+    def test_stair_retries_are_limited_per_direction_on_a_shared_landing(self):
+        from tor_client_bot import ActivityChoice, Result
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        landing = player_turn([cell("shared", up=True, down=True)])
+        player.observe(landing)
+        for index, direction in enumerate((Direction.DOWN, Direction.UP, Direction.DOWN, Direction.UP)):
+            with self.subTest(index=index, direction=direction):
+                receipt = {"type": "admitted", "actor": 1, "branch": "game",
+                           "intention": str(index), "phase": "queued"}
+                result = Result.from_reply({"status": "confirmed", "receipt": receipt})
+                player.admitted(landing, Move(direction), result)
+                picture = json.loads(landing.recording())
+                blocked = Turn({**picture, "can_cancel": True, "intentions": [receipt],
+                                "readiness": {"admission": False}})
+                expected = (ActivityChoice.CANCEL, "cancel_stalled_stair") if index < 2 else (None, "readiness_timeout")
+                self.assertEqual(player.stalled(blocked, result), expected)
+                if index < 2:
+                    player.admitted(blocked, ActivityChoice.CANCEL, reason="cancel_stalled_stair")
+                    clear = Turn({**picture, "finished_intentions": [dict(receipt, phase="cancelled")]})
+                    self.assertEqual(choose(player, clear), (Wait(), "wait_after_cancel"))
+                    player.admitted(clear, Wait(), reason="wait_after_cancel")
+
     def test_terminal_depth_counts_only_a_witnessed_final_descent(self):
         from unittest.mock import Mock
         from rogue_runner import play

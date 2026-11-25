@@ -213,7 +213,7 @@ class Adventurer:
     stair_pursuers: tuple[str, ...] = ()
     last_guarded_landing: tuple[str, str] | None = None
     unsafe_stairs: dict[tuple[str, Direction], int] = field(default_factory=dict)
-    cancelled_stair_origin: str | None = None
+    cancelled_stairs: set[tuple[str, Direction]] = field(default_factory=set)
     wait_after_cancel: bool = False
 
     last_unseen_attack: tuple[str, int] | None = None
@@ -394,7 +394,7 @@ class Adventurer:
             self.unsafe_stairs[landing, reverse] = self.danger_until.get(
                 attempt.origin, turn.tick)
         self.finish_food_scout()
-        self.cancelled_stair_origin = None
+        self.cancelled_stairs.clear()
         if attempt.direction is Direction.DOWN:
             self.record_descent_timing(attempt, turn.tick)
             self.depth += 1
@@ -437,7 +437,7 @@ class Adventurer:
         if reason == MemoryReason.CANCEL_STALLED_SCROLL and self.pending_scroll_trial:
             self.mark_scroll_trial_unsuccessful(self.pending_scroll_trial)
         if reason == MemoryReason.CANCEL_STALLED_STAIR and self.pending_stair:
-            self.cancelled_stair_origin = self.pending_stair.origin
+            self.cancelled_stairs.add((self.pending_stair.origin, self.pending_stair.direction))
             self.wait_after_cancel = True
         elif reason == MemoryReason.WAIT_AFTER_CANCEL:
             self.wait_after_cancel = False
@@ -1243,7 +1243,7 @@ class Adventurer:
         if self.pending_scroll_trial and self.pending_scroll_trial.receipt == previous:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_SCROLL
         stair = self.pending_stair
-        if stair and stair.receipt == previous and stair.origin != self.cancelled_stair_origin:
+        if stair and stair.receipt == previous and (stair.origin, stair.direction) not in self.cancelled_stairs:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_STAIR
         return None, "readiness_timeout"
 
