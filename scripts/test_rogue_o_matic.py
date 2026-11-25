@@ -2616,6 +2616,32 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 choice = player.scroll_trial(after, at_exit=True)
                 self.assertEqual(choice[0].item.target if choice else None, expected)
 
+    def test_interrupted_read_keeps_the_appearance_sampled_if_a_scroll_is_missing(self):
+        from tor_client_bot import Result
+
+        for remaining in (0, 1, 2):
+            with self.subTest(remaining=remaining):
+                turn = scroll_trial_turn([cell("here")], ("one", "runed"), ("two", "runed"))
+                picture = json.loads(turn.recording())
+                inventory = picture["state"]["observation"]["inventory"]
+                inventory[0]["quantity"] = 2
+                before = Turn(picture)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                action, reason = choose(player, before)
+                receipt = Result.from_reply({"status": "confirmed", "receipt": read_activity()})
+                player.admitted(before, action, receipt, reason=reason)
+                after = json.loads(before.recording())
+                inventory = after["state"]["observation"]["inventory"]
+                if remaining:
+                    inventory[0]["quantity"] = remaining
+                else:
+                    inventory.pop(0)
+                after["finished_intentions"] = [read_activity("failed")]
+                observed = Turn(after)
+                player.observe(observed)
+                choice = player.scroll_trial(observed, at_exit=True)
+                self.assertEqual(choice[0].item.target if choice else None, "two" if remaining == 2 else None)
+
     def test_failed_emergency_read_allows_a_different_scroll_in_the_same_fight(self):
         import json
         from tor_client_bot import Result

@@ -146,12 +146,17 @@ def trial_appearance(item: Item) -> str:
     return item.appearance or item.name
 
 
+def stack_is_intact(turn: Turn, original: Item) -> bool:
+    """Whether the player still carries the same item stack at its pre-use quantity."""
+    return any(item.target == original.target and item.quantity == original.quantity for item in turn.inventory)
+
+
 @dataclass(frozen=True)
 class PendingScrollTrial:
     floor: int
     submitted_at: int
     receipt: Result
-    target: str
+    scroll: Item
     newly_sampled_appearance: str | None
 
 
@@ -420,7 +425,7 @@ class Adventurer:
         potion, receipt = self.pending_potion_trial
         phase = turn.outcome_of(receipt)
         if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-            if any(item.target == potion.target and item.quantity == potion.quantity for item in turn.inventory):
+            if stack_is_intact(turn, potion):
                 self.sampled_potions.discard(trial_appearance(potion))
         else:
             history_missing = phase is None and turn.can_act and turn.tick != self.last_potion_trial_tick
@@ -434,7 +439,7 @@ class Adventurer:
             return
         phase = turn.outcome_of(trial.receipt)
         if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-            self.mark_scroll_trial_unsuccessful(trial)
+            self.mark_scroll_trial_unsuccessful(turn, trial)
             return
         # Once a later ready picture has lost the receipt, keep the appearance marked
         # as sampled, but allow another trial when the policy would normally permit it.
@@ -443,16 +448,16 @@ class Adventurer:
             self.tried_unknown_scroll = True
             self.pending_scroll_trial = None
 
-    def mark_scroll_trial_unsuccessful(self, trial: PendingScrollTrial) -> None:
-        self.stalled_scrolls.add((trial.floor, trial.target))
-        if trial.newly_sampled_appearance is not None:
+    def mark_scroll_trial_unsuccessful(self, turn: Turn, trial: PendingScrollTrial) -> None:
+        self.stalled_scrolls.add((trial.floor, trial.scroll.target))
+        if trial.newly_sampled_appearance is not None and stack_is_intact(turn, trial.scroll):
             self.sampled_scrolls.discard(trial.newly_sampled_appearance)
         self.pending_scroll_trial = None
 
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
         if reason == MemoryReason.CANCEL_STALLED_SCROLL and self.pending_scroll_trial:
-            self.mark_scroll_trial_unsuccessful(self.pending_scroll_trial)
+            self.mark_scroll_trial_unsuccessful(turn, self.pending_scroll_trial)
         if reason == MemoryReason.CANCEL_STALLED_STAIR and self.pending_stair:
             self.cancelled_stairs.add((self.pending_stair.origin, self.pending_stair.direction))
             self.wait_after_cancel = True
@@ -481,7 +486,7 @@ class Adventurer:
             appearance = trial_appearance(item)
             if receipt and receipt.activity and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
                 newly_sampled = appearance if appearance not in self.sampled_scrolls else None
-                self.pending_scroll_trial = PendingScrollTrial(self.depth, turn.tick, receipt, item.target, newly_sampled)
+                self.pending_scroll_trial = PendingScrollTrial(self.depth, turn.tick, receipt, item, newly_sampled)
             else:
                 self.tried_unknown_scroll = True
             self.sampled_scrolls.add(appearance)
