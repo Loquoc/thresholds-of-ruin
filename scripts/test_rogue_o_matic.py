@@ -4021,6 +4021,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.ascent_ticks_by_floor[1] = 1500
         self.assertEqual(player.choose(turn), (Move(Direction.UP), "ascend"))
 
+    def test_packed_food_offsets_travel_only_up_to_the_cost_of_the_journey(self):
+        from rogue_food import FoodEstimate
+        from tor_client_bot import Nutrition
+
+        nutrition = Nutrition(hunger="nourished", reserve=8, maximum=12, ticks_per_unit=100, elapsed_ticks=60)
+        packed = FoodEstimate(known_reserve=3, has_unmeasured_meals=True, meal_count=2)
+        for travel, remaining in ((0, 0), (299, 0), (300, 0), (301, 1), (1040, 740)):
+            with self.subTest(travel=travel):
+                self.assertEqual(packed.travel_from_current_reserve(nutrition, travel), remaining)
+
     def test_carried_rations_can_cover_travel_while_rest_uses_current_nutrition(self):
         ration = {"id": "food", "identity": "item.food.ration", "name": "ration", "class": "food",
                   "identified": True, "quantity": 2}
