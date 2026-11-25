@@ -182,7 +182,8 @@ class SearchRank(NamedTuple):
 class PendingSearch:
     receipt: Result
     walls: frozenset[str]
-    dead_end: str | None
+    origin: str
+    at_dead_end: bool
 
 
 @dataclass
@@ -195,6 +196,7 @@ class Adventurer:
     corridor_stand: tuple[str, int] | None = None
     last_shot_tick: int | None = None
     searches: Counter[str] = field(default_factory=Counter)
+    unsuccessful_searches: Counter[str] = field(default_factory=Counter)
     completed_end_searches: Counter[str] = field(default_factory=Counter)
     pending_search: PendingSearch | None = None
     wall_searches: Counter[str] = field(default_factory=Counter)
@@ -454,9 +456,11 @@ class Adventurer:
         phase = turn.outcome_of(search.receipt)
         if phase is ActivityPhase.RESOLVED:
             self.wall_searches.update(search.walls)
-            if search.dead_end is not None:
-                self.completed_end_searches[search.dead_end] += 1
-        elif phase not in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+            if search.at_dead_end:
+                self.completed_end_searches[search.origin] += 1
+        elif phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+            self.unsuccessful_searches[search.origin] += 1
+        else:
             return
         self.pending_search = None
 
@@ -467,8 +471,7 @@ class Adventurer:
         if receipt is None or receipt.activity is None:
             self.wall_searches.update(walls)
             return
-        dead_end = origin.key if is_searchable_dead_end(origin, self.maps[self.depth]) else None
-        self.pending_search = PendingSearch(receipt, walls, dead_end)
+        self.pending_search = PendingSearch(receipt, walls, origin.key, is_searchable_dead_end(origin, self.maps[self.depth]))
 
     def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
         if turn.cell is None:
@@ -1025,6 +1028,10 @@ class Adventurer:
         return next((UseAbility(ability) for ability in turn.abilities
                      if ability.identity == "rogue.search" and ability.ready), None)
 
+    def search_attempts_at(self, key: str) -> int:
+        """Count admitted searches toward the site limit unless the game reports failure or cancellation."""
+        return self.searches[key] - self.unsuccessful_searches[key]
+
     def remaining_dead_end_searches(self, site: Cell | RememberedCell, memory: FloorMap) -> int | None:
         """Return the unused completed-search allowance, or None for an ordinary search site."""
         if not is_searchable_dead_end(site, memory):
@@ -1083,7 +1090,7 @@ class Adventurer:
                         continue
                     remaining = self.remaining_dead_end_searches(cell, memory)
                     if remaining is None:
-                        remaining = 3 - self.searches[cell.key]
+                        remaining = 3 - self.search_attempts_at(cell.key)
                     if remaining > 0:
                         sites.add(cell.key)
         return sites
@@ -1117,7 +1124,7 @@ class Adventurer:
 
     def search_site_rank(self, turn: Turn, memory: FloorMap, site: RememberedCell, distance: int, *,
                          returning: bool, allow_unseen: bool, wall_limit: int) -> SearchRank | None:
-        attempts = self.searches[site.key]
+        attempts = self.search_attempts_at(site.key)
         neighbors = memory.adjacent(site.key)
         walls = [c for c in neighbors if c.wall]
         remaining = self.remaining_dead_end_searches(site, memory)
