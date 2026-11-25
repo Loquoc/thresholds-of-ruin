@@ -381,7 +381,7 @@ class WorkflowAdoption(unittest.TestCase):
         self.assertEqual(steps[1]['uses'], 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1')
         self.assertEqual(steps[1]['with'], {'ref': '${{ github.sha }}', 'persist-credentials': 'false'})
         self.assertEqual(steps[2]['run'], 'python3 scripts/ci_usage_review.py')
-        self.assertEqual(steps[3]['uses'], 'EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25')
+        self.assertEqual(steps[3]['uses'], 'EmbarkStudios/cargo-deny-action@17aeb3c839e42274e2b8adf721c8c65edfdc74dd')
         self.assertEqual(steps[3]['with'], {'command': 'check advisories'})
         for step in steps:
             self.assertNotIn('continue-on-error', step)

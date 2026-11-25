@@ -490,10 +490,12 @@ mod execution_trace_tests {
         assert_eq!(positive.sha256, hash(std::slice::from_ref(&valid)));
         for content in [
             JournalContent::IntentionFailed {
+                cause: crate::host::journal::FailureCause::Simulation,
                 admission: EntryId("failed-admission".into()),
                 intention: tor_simulation::IntentionId(8),
             },
             JournalContent::IntentionContinuationFailed {
+                cause: crate::host::journal::FailureCause::Simulation,
                 admission: EntryId("failed-admission".into()),
                 intention: tor_simulation::IntentionId(8),
             },

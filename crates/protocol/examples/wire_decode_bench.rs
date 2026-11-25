@@ -44,11 +44,8 @@ fn measure<T: DeserializeOwned + Serialize + PartialEq + Debug>(
 }
 
 fn snapshot(cells: usize) -> ServerMessage {
-    let fixtures = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v76.json"),
-        tor_protocol::PROTOCOL_VERSION,
-    )
-    .expect("regenerate current wire samples");
+    let fixtures = crate::fixture::current(tor_protocol::PROTOCOL_VERSION)
+        .expect("regenerate current wire samples");
     assert_eq!(fixtures["protocol"], PROTOCOL_VERSION);
     let fixture = fixtures["server"]
         .as_array()

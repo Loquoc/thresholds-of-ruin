@@ -267,3 +267,35 @@ This does not add jobs, triggers, permissions, network destinations, artifact
 retention or test workloads. It keeps the existing external evidence limits
 and both post-merge readers, and avoids an unusable retained plan rather than
 treating missing smoke evidence as success.
+
+## November 25 cargo-deny action update
+
+Both dependency workflows update the same pinned action, from 2.1.1 to
+2.1.3. The wrapper inputs, base image, release download path, permissions,
+destinations and check invocations are unchanged. The embedded cargo-deny
+moves from 0.20.2 to 0.22.0. Its default for unmaintained advisories now
+covers direct workspace dependencies only, so the policy explicitly keeps
+`unmaintained = "all"` to retain transitive coverage. The 0.22.0 advisory
+check reported the old `instant` exception as unused. The current workspace
+uses `minifb` 0.29 and no longer locks `instant`, so the stale exception is
+removed rather than masking a future reintroduction. Vulnerability, unsound,
+yanked, license, ban and source checks are otherwise unchanged. See the
+[upstream default change](https://github.com/EmbarkStudios/cargo-deny/pull/924).
+
+## November 25 Python dependency refresh
+
+Dependabot PR #75 updates Ruff to 0.17.6 and the arena test environment to
+Optuna 5.1.0, NumPy 2.5.5, SQLAlchemy 2.1.9, and PyYAML 6.0.4. The lint
+job still installs its tools from the existing Python registry and lints only
+repository tooling; actionlint and Ruff's configuration are unchanged. The
+arena environment still installs only hash-pinned wheels and runs the existing
+bounded test contracts, not a hosted arena search. The sampler and wheel lock
+agree on exact versions, and the CLI rejects retained sampling histories from
+the superseded environment instead of attempting an inexact replay.
+
+No workflow commands, jobs, runners, triggers, permissions, outbound
+destinations, timeouts, caches, artifacts, or retention change. The usage
+check stopped the original run before application verification because both
+dependency manifests changed; the tooling lint job itself passed. The two
+updated review hashes cover only these manifest changes. The final PR head
+still requires hosted qualification.

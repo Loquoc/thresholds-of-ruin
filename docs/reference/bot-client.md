@@ -70,7 +70,9 @@ stalled run. The exception is a subclass of `TimeoutError`.
 With `game.decisions(include_stalls=True)`, the iterator yields a
 `decision.stalled` picture on timeout. Its `previous` and `previous_phase`
 let the policy check whether its own action is still queued. Submitting a
-permitted cancellation from that picture keeps the same decision stream.
+permitted cancellation from that picture keeps the same decision stream. A committed host rollback sets the finished activity's
+`failure` to `rolled_back` and its `failed_action` to the public action kind.
+A later decision can submit new work.
 
 For a campaign trace, iterate over `game.decisions()`. Each decision
 includes the current `turn`, newly witnessed `combat` events, the preceding

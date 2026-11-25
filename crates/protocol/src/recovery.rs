@@ -313,11 +313,8 @@ mod tests {
     const TEST_BUDGET: usize = MAX_SNAPSHOT_BYTES * 2;
 
     fn snapshot() -> ServerMessage {
-        let samples = crate::fixture::load(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v76.json"),
-            crate::PROTOCOL_VERSION,
-        )
-        .expect("regenerate current wire samples");
+        let samples = crate::fixture::current(crate::PROTOCOL_VERSION)
+            .expect("regenerate current wire samples");
         serde_json::from_value(
             samples["server"]
                 .as_array()

@@ -699,15 +699,8 @@ mod tests {
     }
 
     fn snapshot_message() -> ServerMessage {
-        let samples = crate::fixture::load(
-            format!(
-                "{}/../protocol/tests/fixtures/wire-v{}.json",
-                env!("CARGO_MANIFEST_DIR"),
-                tor_protocol::PROTOCOL_VERSION
-            ),
-            tor_protocol::PROTOCOL_VERSION,
-        )
-        .expect("regenerate current wire samples");
+        let samples = crate::fixture::current(tor_protocol::PROTOCOL_VERSION)
+            .expect("regenerate current wire samples");
         assert_eq!(samples["protocol"], tor_protocol::PROTOCOL_VERSION);
         serde_json::from_value(
             samples["server"]

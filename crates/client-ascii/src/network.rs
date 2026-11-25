@@ -879,13 +879,8 @@ mod tests {
         );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let samples = crate::fixture::load(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-                "../protocol/tests/fixtures/wire-v{PROTOCOL_VERSION}.json"
-            )),
-            PROTOCOL_VERSION,
-        )
-        .expect("regenerate current wire samples");
+        let samples =
+            crate::fixture::current(PROTOCOL_VERSION).expect("regenerate current wire samples");
         assert_eq!(samples["protocol"], PROTOCOL_VERSION);
         let mut overview: AdvancementPage = serde_json::from_value(
             samples["server"]
@@ -1280,13 +1275,8 @@ mod tests {
     #[tokio::test]
     async fn a_confirmed_reply_during_recovery_is_retained_until_the_snapshot() {
         for rejected in [false, true] {
-            let samples = crate::fixture::load(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-                    "../protocol/tests/fixtures/wire-v{PROTOCOL_VERSION}.json"
-                )),
-                PROTOCOL_VERSION,
-            )
-            .expect("regenerate current wire samples");
+            let samples =
+                crate::fixture::current(PROTOCOL_VERSION).expect("regenerate current wire samples");
             assert_eq!(samples["protocol"], PROTOCOL_VERSION);
             let initial: Snapshot = serde_json::from_value(
                 samples["server"]

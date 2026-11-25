@@ -1489,6 +1489,13 @@ impl Service {
     }
 
     fn intention_update(&mut self, result: &crate::CommandResult) {
+        if let (Some(diagnostics), Some((_, OwnerIntentionFailure::RolledBack(action, error)))) =
+            (&self.diagnostics, &result.intention_failure)
+        {
+            diagnostics.warning(&format!(
+                "Rolled back {action:?} after simulation error {error:?}"
+            ));
+        }
         for status in self.engine.intention_updates(result) {
             let recipients: Vec<_> = self
                 .clients
@@ -1512,6 +1519,9 @@ impl Service {
                     UpdateBody::Intention {
                         failure: match owner_failure {
                             Some(OwnerIntentionFailure::Status(reason)) => Some(*reason),
+                            Some(OwnerIntentionFailure::RolledBack(action, _)) => {
+                                Some(tor_protocol::IntentionFailure::RolledBack(*action))
+                            }
                             _ => None,
                         },
                         status: status.clone(),
@@ -2132,10 +2142,14 @@ impl Service {
             }
             // A controller waiting on someone else's work can learn that
             // advancement stopped, but neither the actor nor its action.
-            let reason = if owner == Some(id) {
-                failure.message.clone()
+            let reason = if owner != Some(id) {
+                "Play is paused. Another queued action could not finish.".into()
             } else {
-                "World advancement is blocked. The queued action has not committed.".into()
+                match failure.code {
+                    ErrorCode::StorageFailure => "Play is paused because the game could not save. Your action is still queued.".into(),
+                    ErrorCode::InvalidArchive => "Play is paused because the game could not verify the journal. Your action is still queued.".into(),
+                    _ => format!("{}. Your action is still queued. You can cancel it to choose another action.", failure.message.trim_end_matches('.')),
+                }
             };
             let message = ServerMessage::Error {
                 scope: self.error_scope(id),

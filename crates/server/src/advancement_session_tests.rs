@@ -885,7 +885,7 @@ fn growth_service(
 }
 
 #[test]
-fn real_growth_invariant_refusal_reaches_only_its_controller_and_can_be_cancelled() {
+fn rolled_back_growth_releases_the_queue_and_reports_only_to_its_controller() {
     use crate::engine::growth_capacity_transaction_tests as fixture;
     let mut scenario = fixture::scenario();
     let package = scenario.package.take().unwrap();
@@ -928,27 +928,17 @@ fn real_growth_invariant_refusal_reaches_only_its_controller_and_can_be_cancelle
     ));
     let (mut service, mut owner, mut others) = growth_service(scenario, false);
     admit_capacity_ability(&mut service, &mut owner, ActorId(1), "growth_finisher", 2);
-    let before = fixture::authority(&service.engine);
-    let queued = service.engine.pending_intentions(ActorId(1));
-    assert!(matches!(service.step(), Step::Blocked));
+    let tick = service.engine.observation(ActorId(1)).unwrap().tick;
+    assert!(matches!(service.step(), Step::Progress));
     service.poll_saves();
-    assert_eq!(fixture::authority(&service.engine), before);
+    assert_eq!(service.engine.observation(ActorId(1)).unwrap().tick, tick);
     let messages = drain(&mut owner);
-    let errors: Vec<_> = messages
+    let failure = messages
         .iter()
-        .filter(|message| message["type"] == "error")
-        .collect();
-    assert_eq!(
-        errors.len(),
-        1,
-        "the refused execution must report its invariant failure"
-    );
-    assert_eq!(errors[0]["code"], "invalid_action");
-    assert!(errors[0]["request_id"].is_null());
-    assert_eq!(
-        errors[0]["message"],
-        "Simulation state could not be updated; no changes were committed"
-    );
+        .find_map(|m| m["update"]["body"]["failure"].as_object())
+        .unwrap();
+    assert_eq!(failure["rolled_back"], "use_ability");
+    assert!(messages.iter().all(|m| m["type"] != "error"));
     assert!(
         service.save_warning.is_none(),
         "a simulation refusal is not a storage warning"
@@ -956,25 +946,13 @@ fn real_growth_invariant_refusal_reaches_only_its_controller_and_can_be_cancelle
     for client in &mut others {
         assert!(drain(client)
             .iter()
-            .all(|message| message["type"] != "error"));
+            .all(|m| m["type"] != "error" && m["update"]["body"]["failure"].is_null()));
     }
     assert!(matches!(service.step(), Step::Blocked));
-    assert_eq!(fixture::authority(&service.engine), before);
+    assert_eq!(service.engine.observation(ActorId(1)).unwrap().tick, tick);
     assert!(drain(&mut owner)
         .iter()
         .all(|message| message["type"] != "error"));
-    assert_eq!(service.engine.pending_intentions(ActorId(1)), queued);
-    let request = command(
-        &service,
-        owner.id,
-        json!({
-            "type":"cancel_intention", "intention":queued[0].intention, "step":null
-        }),
-    );
-    service.handle(owner.id, "cancel-refused-growth".into(), request);
-    let messages = drain(&mut owner);
-    assert!(messages.iter().any(|message| message["type"] == "ack"));
-    assert!(messages.iter().all(|message| message["type"] != "error"));
     assert!(service.engine.pending_intentions(ActorId(1)).is_empty());
     assert!(service.engine.alive(ActorId(2)));
 }
@@ -1025,7 +1003,7 @@ fn real_fatal_xp_capacity_failure_reaches_attached_controller_once_without_reatt
     assert_eq!(errors[0]["code"], "resource_limit");
     assert_eq!(
         errors[0]["message"],
-        "Simulation resource capacity exhausted"
+        "Simulation resource capacity exhausted. Your action is still queued. You can cancel it to choose another action."
     );
     let encoded = serde_json::to_string(&messages).unwrap();
     for private in [
@@ -1138,7 +1116,7 @@ fn real_capacity_notice_reaches_a_new_controller_after_suspend_and_resume() {
     assert_eq!(errors[0]["code"], "resource_limit");
     assert_eq!(
         errors[0]["message"],
-        "Simulation resource capacity exhausted"
+        "Simulation resource capacity exhausted. Your action is still queued. You can cancel it to choose another action."
     );
     assert_eq!(errors[0]["scope"]["type"], "attached");
     assert!(drain(&mut first)
@@ -1159,12 +1137,11 @@ fn queued_storage_failure_reaches_each_controller_once_without_exposing_other_wo
     admit_capacity_ability(&mut service, &mut owner, actor, "growth_finisher", 2);
     let queued = service.engine.pending_intentions(actor);
     assert!(!queued.is_empty());
-    for _ in 0..2 {
-        service.report_execution_failure(
-            actor,
-            Failure::new(ErrorCode::InvalidArchive, "private diagnostic"),
-        );
-        service.poll_saves();
+    for code in [ErrorCode::InvalidArchive, ErrorCode::StorageFailure] {
+        for _ in 0..2 {
+            service.report_execution_failure(actor, Failure::new(code, "private diagnostic"));
+            service.poll_saves();
+        }
     }
     let errors = |client: &mut Connection| {
         drain(client)
@@ -1174,12 +1151,21 @@ fn queued_storage_failure_reaches_each_controller_once_without_exposing_other_wo
     };
     let own = errors(&mut owner);
     let other = errors(victim);
-    assert_eq!(own.len(), 1);
-    assert_eq!(other.len(), 1);
-    assert_eq!(own[0]["message"], "private diagnostic");
-    assert_ne!(other[0]["message"], own[0]["message"]);
-    assert_eq!(other[0]["code"], "invalid_archive");
-    assert_eq!(other[0]["scope"]["type"], "attached");
+    assert_eq!(own.len(), 2);
+    assert_eq!(other.len(), 2);
+    assert_eq!(own[0]["message"], "Play is paused because the game could not verify the journal. Your action is still queued.");
+    assert_eq!(
+        own[1]["message"],
+        "Play is paused because the game could not save. Your action is still queued."
+    );
+    for (message, code) in other.iter().zip(["invalid_archive", "storage_failure"]) {
+        assert_eq!(
+            message["message"],
+            "Play is paused. Another queued action could not finish."
+        );
+        assert_eq!(message["code"], code);
+        assert_eq!(message["scope"]["type"], "attached");
+    }
     for spectator in &mut others[1..] {
         assert!(errors(spectator).is_empty());
     }

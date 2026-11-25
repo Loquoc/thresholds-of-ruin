@@ -5092,13 +5092,13 @@ mod tests {
                 super::CONTENT_PACKAGE_FORMAT,
                 crate::arena_evaluation::FORMAT,
             ),
-            (73, 38, "interactions-v72", 27, 10, 35, "tor-arena-run-v6")
+            (74, 38, "interactions-v72", 27, 10, 35, "tor-arena-run-v6")
         );
     }
 
     #[test]
     fn discovery_formats_preserve_physical_envelopes() {
-        assert_eq!(tor_protocol::PROTOCOL_VERSION, 76);
+        assert_eq!(tor_protocol::PROTOCOL_VERSION, 77);
         assert_eq!(super::RULES_INPUT_FORMAT, 27);
         assert_eq!(super::REGION_INPUT_FORMAT, 10);
         // Semantic rule, region and package payload versions advance independently

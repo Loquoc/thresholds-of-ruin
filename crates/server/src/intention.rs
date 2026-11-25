@@ -1198,6 +1198,83 @@ impl Engine {
     pub(super) fn execute_intention_profiled(
         &mut self,
         recorded_id: Option<EntryId>,
+        profile: Option<&mut CommandProfile>,
+        replaying_failure: bool,
+    ) -> Result<Option<CommandResult>, Failure> {
+        let live = recorded_id.is_none();
+        match self.try_execute_intention(recorded_id, profile, replaying_failure) {
+            Err(error)
+                if live
+                    && error.rollback_error.is_some()
+                    && self.next_intention_origin()
+                        == Some(tor_simulation::IntentionOrigin::Human) =>
+            {
+                let actor = self.next_intention_actor().ok_or_else(invalid_archive)?;
+                self.retire_rolled_back_intention(actor, None, error.rollback_error)
+                    .map(Some)
+            }
+            result => result,
+        }
+    }
+
+    /// Start again from the committed world. The failed execution's candidate,
+    /// including its RNG, time, inventory and staged region writes, was discarded.
+    pub(super) fn retire_rolled_back_intention(
+        &mut self,
+        actor: ActorId,
+        recorded_id: Option<EntryId>,
+        reason: Option<tor_simulation::GameError>,
+    ) -> Result<CommandResult, Failure> {
+        let mut candidate = self.capture_command_candidate(None);
+        let (intention, continuation) =
+            retire_selected_human_intention(&mut candidate.game, actor)?;
+        let index = self
+            .history_index
+            .intention_admission(intention)
+            .ok_or_else(invalid_archive)?;
+        let admitted = &self.archive.records[index].entry;
+        let JournalContent::IntentionAdmitted { action, .. } = &admitted.content else {
+            return Err(invalid_archive());
+        };
+        let kind = action.rollback_action();
+        let admission = admitted.id.clone();
+        let cause = crate::journal::FailureCause::HostRollback;
+        let content = if continuation {
+            JournalContent::IntentionContinuationFailed {
+                admission: admission.clone(),
+                intention,
+                cause,
+            }
+        } else {
+            JournalContent::IntentionFailed {
+                admission: admission.clone(),
+                intention,
+                cause,
+            }
+        };
+        let entry = JournalEntry {
+            intention_suspensions: Vec::new(),
+            intention_ends: Vec::new(),
+            id: recorded_id.unwrap_or_else(new_id),
+            branch: candidate.branch().clone(),
+            actor,
+            tick: self.game.tick(),
+            author: Author::Backend {
+                component: "scheduler".into(),
+            },
+            audience: Audience::Actor,
+            content,
+        };
+        validate_preparation_observers(&self.game, &candidate.game, actor)?;
+        let mut result = self.commit_candidate(candidate, entry, None, None)?;
+        result.intention_failure =
+            reason.map(|failure| (admission, OwnerIntentionFailure::RolledBack(kind, failure)));
+        Ok(result)
+    }
+
+    fn try_execute_intention(
+        &mut self,
+        recorded_id: Option<EntryId>,
         mut profile: Option<&mut CommandProfile>,
         replaying_failure: bool,
     ) -> Result<Option<CommandResult>, Failure> {
@@ -1297,11 +1374,13 @@ impl Engine {
                     JournalContent::IntentionContinuationFailed {
                         admission,
                         intention,
+                        cause: crate::journal::FailureCause::Simulation,
                     }
                 } else {
                     JournalContent::IntentionFailed {
                         admission,
                         intention,
+                        cause: crate::journal::FailureCause::Simulation,
                     }
                 }
             }
@@ -1323,4 +1402,27 @@ impl Engine {
         result.intention_failure = intention_failure;
         Ok(Some(result))
     }
+}
+
+/// Live rollback and checkpoint replay must agree on actor, queue selection and phase.
+pub(super) fn retire_selected_human_intention(
+    game: &mut Game,
+    actor: ActorId,
+) -> Result<(tor_simulation::IntentionId, bool), Failure> {
+    let actor = SimActor(actor.0);
+    let queued = game
+        .pending_intention(actor)
+        .filter(|q| {
+            q.origin == tor_simulation::IntentionOrigin::Human
+                && game.next_intention_actor() == Some(actor)
+        })
+        .ok_or_else(invalid_archive)?;
+    let id = queued.id;
+    let continuation = matches!(
+        queued.work,
+        tor_simulation::IntentionWork::ResumePreparation { .. }
+    );
+    game.cancel_intention(actor, id)
+        .map_err(|_| invalid_archive())?;
+    Ok((id, continuation))
 }

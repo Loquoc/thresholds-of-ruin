@@ -486,6 +486,12 @@ The allowlist now matches the lock; additional witnesses reject a 2.1.6 installe
 environment and retained history even with valid integrity hashes. This preserves
 strict reproducibility rather than accepting mixed dependency versions.
 
+The later grouped Python update in PR #75 reproduced that same mismatch on four
+pins in one failing method. The CLI witness now uses the immediately previous
+environment's real package tuple and still checks that rejection preserves the
+input file. The separate CI usage admission failure was the reviewed manifest
+drift check working as intended; the run did not reach sampler tests.
+
 ### Many-actor checkpoint fixture synchronization
 
 Windows debug CI exposed one stale-picture fixture failure in the many-actor
