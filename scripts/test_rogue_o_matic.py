@@ -1318,6 +1318,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                             interactions={"inventory": [{**offer, "item": "b"}]})
         self.assertEqual(choose(policy, other), (Move(Direction.DOWN), "descend"))
 
+    def test_missing_drink_receipt_allows_a_new_appearance_after_time_advances(self):
+        from tor_client_bot import Result
+
+        potions = [{"id": name, "name": name, "class": "potion", "quantity": 1, "identified": False}
+                   for name in ("smoky", "blue")]
+        def scene(tick):
+            return player_turn([cell("stairs", down=True)], tick=tick, inventory=potions, interactions={
+                "inventory": [{"item": potion["id"], "drinkable": True} for potion in potions]})
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        before = scene(100)
+        action, reason = choose(player, before)
+        self.assertEqual(action.item.target, "smoky")
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "drink", "phase": "queued"}
+        player.admitted(before, action, Result.from_reply({"status": "confirmed", "receipt": receipt}), reason=reason)
+        self.assertEqual(choose(player, before)[1], "descend")
+        action, reason = choose(player, scene(200))
+        self.assertEqual((action.item.target, reason), ("blue", "test_unknown_potion"))
+
     def test_potion_trial_retries_only_when_a_failed_drink_left_the_stack_intact(self):
         from tor_client_bot import Result
 

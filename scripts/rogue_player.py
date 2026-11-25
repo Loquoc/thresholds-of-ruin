@@ -48,6 +48,7 @@ from rogue_loot import (
     DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
 )
 from rogue_training import purchase_training
+from rogue_trials import PendingScrollTrial, PotionTrials, stack_is_intact, trial_appearance
 from rogue_retreat import (
     approach_visible_exit, best_onward_escape, evade_unseen_attacker, route_around_danger, take_corridor,
 )
@@ -141,25 +142,6 @@ def choose_projectile(shots: Iterable[Shot], *, can_strike: bool) -> Shot | None
     return best_shot
 
 
-def trial_appearance(item: Item) -> str:
-    """Recognize a sampled item type even when a different instance is offered."""
-    return item.appearance or item.name
-
-
-def stack_is_intact(turn: Turn, original: Item) -> bool:
-    """Whether the player still carries the same item stack at its pre-use quantity."""
-    return any(item.target == original.target and item.quantity == original.quantity for item in turn.inventory)
-
-
-@dataclass(frozen=True)
-class PendingScrollTrial:
-    floor: int
-    submitted_at: int
-    receipt: Result
-    scroll: Item
-    newly_sampled_appearance: str | None
-
-
 @dataclass
 class MeleeExposure:
     """Visible foes in reach of a square and their combined estimated damage."""
@@ -226,9 +208,7 @@ class Adventurer:
     observed_loss: Counter[str] = field(default_factory=Counter)
     observed_loss_by_name: Counter[str] = field(default_factory=Counter)
     tried_unknown_scroll: bool = False
-    sampled_potions: set[str] = field(default_factory=set)
-    pending_potion_trial: tuple[Item, Result] | None = None
-    last_potion_trial_tick: int | None = None
+    potion_trials: PotionTrials = field(default_factory=PotionTrials)
     pending_scroll_trial: PendingScrollTrial | None = None
     stalled_scrolls: set[tuple[int, str]] = field(default_factory=set)
     sampled_scrolls: set[str] = field(default_factory=set)
@@ -272,7 +252,7 @@ class Adventurer:
             if here.key != entrance or turn.tick >= until:
                 self.corridor_stand = None
         self.observe_end_search(turn)
-        self.observe_potion_trial(turn)
+        self.potion_trials.observe(turn)
         self.observe_scroll_trial(turn)
         self.expire_danger_warnings(turn.tick)
         self.observe_guarded_supplies(turn)
@@ -419,20 +399,6 @@ class Adventurer:
         )
         self.entered_floor_at = turn.tick
 
-    def observe_potion_trial(self, turn: Turn) -> None:
-        if self.pending_potion_trial is None:
-            return
-        potion, receipt = self.pending_potion_trial
-        phase = turn.outcome_of(receipt)
-        if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-            if stack_is_intact(turn, potion):
-                self.sampled_potions.discard(trial_appearance(potion))
-        else:
-            history_missing = phase is None and turn.can_act and turn.tick != self.last_potion_trial_tick
-            if phase is not ActivityPhase.RESOLVED and not history_missing:
-                return
-        self.pending_potion_trial = None
-
     def observe_scroll_trial(self, turn: Turn) -> None:
         trial = self.pending_scroll_trial
         if trial is None:
@@ -477,11 +443,7 @@ class Adventurer:
     def remember_item_use(self, turn: Turn, action: UseItem, receipt: Result | None, reason: str | None) -> None:
         item = action.item
         if action.use is ItemUse.DRINK and item.identity is None:
-            appearance = trial_appearance(item)
-            if receipt and receipt.activity and appearance not in self.sampled_potions:
-                self.pending_potion_trial = item, receipt
-                self.last_potion_trial_tick = turn.tick
-            self.sampled_potions.add(appearance)
+            self.potion_trials.admitted(turn, item, receipt)
         elif action.use is ItemUse.READ and item.identity is None:
             appearance = trial_appearance(item)
             if receipt and receipt.activity and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
@@ -1043,11 +1005,8 @@ class Adventurer:
             return improvement
         health = turn.health
         can_experiment = bool(health and recovery_deficit(health) == 0 and not self.carrying_objective(turn))
-        if can_experiment and turn.tick != self.last_potion_trial_tick and self.pending_potion_trial is None:
-            for item in turn.inventory:
-                if (item.identity is None and ItemUse.DRINK in item.uses
-                        and trial_appearance(item) not in self.sampled_potions):
-                    return UseItem(item, ItemUse.DRINK), "test_unknown_potion"
+        if can_experiment and (potion := self.potion_trials.choose(turn)):
+            return UseItem(potion, ItemUse.DRINK), "test_unknown_potion"
         if weapon := ready_weapon(turn, bow=False):
             return weapon
         if can_experiment:

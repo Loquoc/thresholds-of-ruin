@@ -30,6 +30,7 @@ POLICY_FILES = (
     "rogue_retreat.py",
     "rogue_loot.py",
     "rogue_training.py",
+    "rogue_trials.py",
 )
 
 
