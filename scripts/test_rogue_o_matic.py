@@ -2104,7 +2104,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         for actors, should_retreat in (([snake], False), ([body, snake], True)):
             with self.subTest(should_retreat=should_retreat):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
-                player.draining_creatures.add("rattlesnake")
+                player.opponents.draining_names.add("rattlesnake")
                 turn = player_turn(cells, actors=actors, hostiles=["snake"])
                 decision = choose(player, turn)
                 self.assertEqual(decision == (Move(Direction.UP), "retreat_upstairs"), should_retreat)
@@ -2112,7 +2112,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_stair_retreat_does_not_reverse_into_the_same_pursuit(self):
         snake = {"id": "snake", "name": "rattlesnake", "position": {"x": 2, "y": 0, "z": 0}}
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
-        policy.draining_creatures.add("rattlesnake")
+        policy.opponents.draining_names.add("rattlesnake")
         first = player_turn([cell("origin"), cell("detour", 1), cell("stairs", -1, up=True)],
                             actors=[snake], hostiles=["snake"])
         policy.observe(first)
@@ -2134,7 +2134,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn([cell("here"), north, enemy, *exits], actors=[foe], hostiles=["foe"],
                                    combat={"hp": 8, "max_hp": 20})
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss["foe"] = 2
+                player.opponents.damage_by_target["foe"] = 2
                 self.assertEqual(choose(player, turn), (Move(escape), "retreat_to_stairs"))
 
     def test_unguarded_adjacent_retreat_stairs_favor_more_distance_from_pursuit(self):
@@ -2156,7 +2156,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             cells.append(tile)
             foes.append({"id": str(x), "name": "orc", "position": tile["position"]})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observed_loss.update({"-1": 1, "0": 2, "1": 5})
+        player.opponents.damage_by_target.update({"-1": 1, "0": 2, "1": 5})
         for hp, expected in ((6, None), (7, Move(Direction.WEST))):
             with self.subTest(hp=hp):
                 turn = player_turn(cells, actors=foes, hostiles=["-1", "0", "1"], combat={"hp": hp, "max_hp": 10})
@@ -2175,7 +2175,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         for safer, direction in (("-1", Direction.WEST), ("1", Direction.EAST)):
             with self.subTest(safer=safer):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss.update({"-1": 3, "1": 3, safer: 1})
+                player.opponents.damage_by_target.update({"-1": 3, "1": 3, safer: 1})
                 self.assertEqual(choose(player, turn), (Move(direction), "retreat_to_stairs"))
 
     def test_steps_onto_escape_stairs_before_two_open_approaches_reach_melee(self):
@@ -2227,7 +2227,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_uses_down_stair_underfoot_to_escape_a_known_draining_creature(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
-        policy.draining_creatures.add("rattlesnake")
+        policy.opponents.draining_names.add("rattlesnake")
         snake = {"id": "snake", "name": "rattlesnake", "position": {"x": 1, "y": 0, "z": 0}}
         turn = player_turn([cell("escape", down=True), cell("away", -1), cell("snake", 1)],
                            actors=[snake], hostiles=["snake"])
@@ -2258,8 +2258,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         ]
         for hp, damage, guard, expected in cases:
             player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-            player.draining_creatures.add("rattlesnake")
-            player.observed_loss["snake"] = damage
+            player.opponents.draining_names.add("rattlesnake")
+            player.opponents.damage_by_target["snake"] = damage
             player.last_guarded_landing = "landing", guard
             turn = player_turn([cell("landing", up=True), cell("snake", 1)], actors=[snake], hostiles=["snake"],
                                abilities=[strike], combat={"hp": str(hp), "max_hp": "28"})
@@ -2268,7 +2268,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_explores_past_a_landing_when_a_known_drainer_is_distant(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.draining_creatures.add("rattlesnake")
+        player.opponents.draining_names.add("rattlesnake")
         foe = {"id": "snake", "name": "rattlesnake", "position": cell("snake", 9)["position"]}
         turn = player_turn([cell("landing", up=True), cell("hall", -1)], actors=[foe], hostiles=["snake"],
                            combat={"hp": "25", "max_hp": "26"})
@@ -2301,7 +2301,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         room = [cell("here"), cell("escape", 1, down=True), cell("corridor", -1), cell("up", -2, up=True),
                 {**cell("snake"), "position": foe["position"]}]
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
-        player.draining_creatures.add("rattlesnake")
+        player.opponents.draining_names.add("rattlesnake")
         turn = player_turn(room, actors=[foe], hostiles=["poison"])
         self.assertEqual(choose(player, turn), (Move(Direction.EAST), "retreat_to_stairs"))
 
@@ -2426,8 +2426,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     other_event["caster"] = other
                 player.observe(player_turn(room, actors=foes, hostiles=["orc", "bat"],
                                            combat={"hp": 4, "events": [hit, other_event]}))
-                self.assertEqual(dict(player.observed_loss), expected)
-                self.assertEqual(dict(player.observed_loss_by_name), expected)
+                self.assertEqual(dict(player.opponents.damage_by_target), expected)
+                self.assertEqual(dict(player.opponents.damage_by_name), expected)
+
+    def test_damage_from_an_out_of_sight_attacker_stays_specific_to_its_target(self):
+        room = [cell("here"), cell("east", 1)]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(player_turn(room))
+        hit = {"type": "unseen_ability", "target": "player", "caster": "hunter", "outcome": "applied"}
+        player.observe(player_turn(room, combat={"hp": 4, "events": [hit]}))
+        for target, expected in (("hunter", 6), ("other", 0)):
+            with self.subTest(target=target):
+                foe = {"id": target, "name": "orc", "position": room[1]["position"]}
+                sighting = player_turn(room, actors=[foe], hostiles=[target])
+                self.assertEqual(player.opponents.damage_estimate(sighting.hostiles[0]), expected)
 
     def test_damage_learning_excludes_a_reflected_hit_in_the_same_interval(self):
         room = [cell("here"), cell("east", 1)]
@@ -2443,8 +2455,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                      "ability": {"id": "rogue.wand_lightning"}},
                 ]
                 player.observe(player_turn(room, actors=[foe], hostiles=["hunter"], combat={"hp": 4, "events": events}))
-                self.assertEqual(dict(player.observed_loss), expected)
-                self.assertEqual(player.observed_loss_by_name.get("orc"), expected.get("hunter"))
+                self.assertEqual(dict(player.opponents.damage_by_target), expected)
+                self.assertEqual(player.opponents.damage_by_name.get("orc"), expected.get("hunter"))
 
     def test_makes_a_short_safe_detour_for_a_visible_unidentified_potion(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
@@ -2533,7 +2545,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                            hostiles=["hunter"], inventory=[scroll], combat={"hp": 17, "max_hp": 59},
                            interactions={"inventory": [{"item": "escape", "readable": True}]})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observed_loss["hunter"] = 17
+        player.opponents.damage_by_target["hunter"] = 17
         self.assertEqual(choose(player, turn), (UseItem(turn.inventory[0], ItemUse.READ), "escape_pursuit"))
 
     def test_weak_player_chooses_between_food_and_escape_at_the_lethal_damage_threshold(self):
@@ -2553,7 +2565,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                  (10, (UseItem(escape, ItemUse.READ), "escape_pursuit"))):
             with self.subTest(damage=damage):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss["hunter"] = damage
+                player.opponents.damage_by_target["hunter"] = damage
                 self.assertEqual(choose(player, turn), expected)
 
     def test_displaces_a_lethal_contact_before_retreating_to_available_stairs(self):
@@ -2567,7 +2579,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                            inventory=[item], combat={"hp": 5, "max_hp": 39},
                            interactions={"inventory": [offer]})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observed_loss["fang"] = 7
+        player.opponents.damage_by_target["fang"] = 7
         action, reason = choose(player, turn)
         self.assertEqual((action, reason), (Zap(turn.devices[0], turn.cell_at((1, 0, 0))), "displace_threat"))
         player.admitted(turn, action, reason=reason)
@@ -2585,7 +2597,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                               ([cell("here"), cell("east", 1), cell("west", -1)], -1)):
             with self.subTest(target=target):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss.update(west=8, east=3)
+                player.opponents.damage_by_target.update(west=8, east=3)
                 turn = player_turn(tiles, actors=foes, hostiles=["west", "east"], inventory=[wand],
                                    interactions={"inventory": [offer]})
                 self.assertTrue(all(turn.in_contact(foe) for foe in turn.hostiles))
@@ -2605,7 +2617,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn(cells, actors=actors, hostiles=["brute", "scout"], inventory=[wand],
                            interactions={"inventory": [offer]})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observed_loss.update(brute=8, scout=3)
+        player.opponents.damage_by_target.update(brute=8, scout=3)
         self.assertTrue(all(turn.in_contact(foe) for foe in turn.hostiles))
         self.assertEqual(choose(player, turn), (Zap(turn.devices[0], turn.cell_at((-1, 0, 0))), "displace_threat"))
 
@@ -2621,7 +2633,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(warning_until=warning_until):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
                 player.unsafe_stairs["exit", Direction.DOWN] = warning_until
-                player.observed_loss["other"] = 3
+                player.opponents.damage_by_target["other"] = 3
                 action, reason = choose(player, turn)
                 self.assertEqual((reason, action.target.target), ("melee", expected))
 
@@ -2637,7 +2649,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 turn = player_turn(tiles, inventory=pack, actors=enemies, hostiles=["plain", "exit"], abilities=[melee])
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss["plain"] = 1
+                player.opponents.damage_by_target["plain"] = 1
                 action, reason = choose(player, turn)
                 self.assertEqual((reason, action.target.target), ("melee", expected))
 
@@ -2654,9 +2666,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         for dangerous in ("east", "west", None):
             with self.subTest(dangerous=dangerous):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss_by_name["troll"] = 6
+                player.opponents.damage_by_name["troll"] = 6
                 if dangerous:
-                    player.observed_loss[dangerous] = 4
+                    player.opponents.damage_by_target[dangerous] = 4
                 attack, reason = choose(player, turn)
                 self.assertEqual((reason, attack.target.target), ("melee", dangerous or "west"))
 
@@ -2670,7 +2682,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         for actors, should_slow in (([foe], False), ([body, foe], True)):
             with self.subTest(should_slow=should_slow):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss["troll"] = 7
+                player.opponents.damage_by_target["troll"] = 7
                 turn = player_turn(cells, actors=actors, hostiles=["troll"], inventory=[wand],
                                    interactions={"inventory": [offer]})
                 action, reason = choose(player, turn)
@@ -2688,7 +2700,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 "identified": True, "name": "slow staff", "quantity": 1}
         offer = {"item": "slow", "zappable": True, "device_activation": "direction", "charges": 3}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=4)
-        player.observed_loss_by_name["dragon"] = 7
+        player.opponents.damage_by_name["dragon"] = 7
         def picture(extra=(), actors=()):
             return player_turn([here, lane, distant, *extra], actors=[foe, *actors], hostiles=["troll"],
                                inventory=[wand], interactions={"inventory": [offer]})
@@ -2710,7 +2722,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 "identified": True, "quantity": 1}
         offer = {"item": "staff", "zappable": True, "device_activation": "direction", "charges": 2}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observed_loss.update(front=6, rear=9)
+        player.opponents.damage_by_target.update(front=6, rear=9)
         for actors, expected, tick in ((foes, "front", 0), (foes[1:], "rear", 100)):
             turn = player_turn(cells, actors=actors, hostiles=[foe["id"] for foe in actors], tick=tick,
                                inventory=[wand], interactions={"inventory": [offer]})
@@ -2727,8 +2739,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 for name, x in (("drainer", 1), ("brute", 2), ("scout", 3), ("distant", 4))]
         turn = player_turn(cells, actors=foes, hostiles=[foe["id"] for foe in foes])
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.draining_creatures.add("drainer")
-        player.observed_loss.update(brute=5, scout=4, distant=20)
+        player.opponents.draining_names.add("drainer")
+        player.opponents.damage_by_target.update(brute=5, scout=4, distant=20)
         targets = player.control_targets(turn, health=10)
         self.assertEqual([(foe.target, damage) for foe, damage in targets], [("brute", 5), ("drainer", 0)])
 
@@ -2736,7 +2748,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         cells = [cell("here"), cell("lane", 1), cell("enemy", 2)]
         foe = {"id": "dragon", "name": "dragon", "position": cells[2]["position"]}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observed_loss["dragon"] = 7
+        player.opponents.damage_by_target["dragon"] = 7
         # The missile is offered first, but slowing this approach takes priority.
         names = ["magic-missile", "slow"]
         inventory = [{"id": name, "name": name, "class": "wand", "identified": True,
@@ -2796,7 +2808,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         for target, offset in (("west", -4), ("east", 4)):
             with self.subTest(target=target):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss[target] = 5
+                player.opponents.damage_by_target[target] = 5
                 action, reason = choose(player, turn)
                 self.assertEqual((reason, action.target), ("elemental_ray", turn.cell_at((offset, 0, 0))))
 
@@ -2809,7 +2821,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         for damage, injury, expected in [(10, "healthy", True), (5, "healthy", False), (10, "near_death", False)]:
             with self.subTest(damage=damage, injury=injury):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss_by_name["griffin"] = damage
+                player.opponents.damage_by_name["griffin"] = damage
                 turn = player_turn(cells, actors=[foe], inventory=[wand], interactions={"inventory": [offer]},
                                    combat={"actors": [{"actor": "hunter", "hostile": True, "injury": injury}]})
                 action, reason = choose(player, turn)
@@ -2839,7 +2851,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    interactions={"inventory": [{"item": "staff", "zappable": True,
                                      "device_activation": "direction_or_self", "charges": charges}]},
                                    combat={"actors": [{"actor": "hunter", "hostile": True, "injury": "healthy"}]})
-                player.observed_loss_by_name["griffin"] = 10
+                player.opponents.damage_by_name["griffin"] = 10
                 action, reason = choose(player, turn)
                 self.assertEqual(reason, "polymorph_threat")
                 player.admitted(turn, action, reason=reason)
@@ -2861,7 +2873,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 "identified": True, "quantity": 1, "name": "staff"}
         offer = {"item": "fresh", "zappable": True, "device_activation": "direction"}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observed_loss_by_name["griffin"] = 10
+        player.opponents.damage_by_name["griffin"] = 10
         from rogue_player import PolymorphState
         player.polymorph_by_target["hunter"] = PolymorphState.RESISTED
         for charges, retry in ((None, False), (0, False), (1, True)):
@@ -2887,7 +2899,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn(cells, actors=foes, inventory=[wand],
                                    interactions={"inventory": [offer]}, combat=combat)
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss_by_name["troll"] = 19
+                player.opponents.damage_by_name["troll"] = 19
                 action, reason = choose(player, turn)
                 self.assertEqual(reason, "polymorph_threat")
                 self.assertEqual(action.target, turn.cell_at((distance, 0, 0)))
@@ -2965,7 +2977,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                             (35, True, Direction.EAST)]:
             with self.subTest(health=health, side_open=side_open):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=13, recovering_from_pursuit=True)
-                player.observed_loss_by_name["centaur"] = 16
+                player.opponents.damage_by_name["centaur"] = 16
                 cells = [cell("here"), cell("stairs", 1, up=True), {**cell("enemy"), "position": foe["position"]}]
                 if side_open:
                     cells.append(cell("side", -1))
@@ -2986,7 +2998,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             if can_evade:
                 room.append({**cell("side"), "position": {"x": 0, "y": -1, "z": 0}})
             turn = player_turn(room, actors=[enemy], hostiles=["griffin"])
-            player.observed_loss_by_name["griffin"] = 20
+            player.opponents.damage_by_name["griffin"] = 20
             action, reason = choose(player, turn)
             if can_evade:
                 self.assertEqual(reason, "retreat")
@@ -3017,8 +3029,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn(cells, actors=foes, hostiles=["left", "right"], abilities=[strike])
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         preferred = turn.hostiles[1]
-        player.observed_loss_by_name[preferred.name] = 3
-        player.observed_loss[preferred.target] = 3
+        player.opponents.damage_by_name[preferred.name] = 3
+        player.opponents.damage_by_target[preferred.target] = 3
         action, reason = choose(player, turn)
         self.assertEqual((reason, action.target.target), ("melee", preferred.target))
 
@@ -3226,7 +3238,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = scroll_trial_turn([cell("here"), cell("orc", 1)], ("first", "MIR"), ("second", "NAR"),
                                  actors=[foe], hostiles=["orc"], combat={"hp": 1, "max_hp": 10})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.observed_loss["orc"] = 2
+        player.opponents.damage_by_target["orc"] = 2
         action, reason = choose(player, turn)
         self.assertEqual((action.item.target, reason), ("first", "test_unknown_magic"))
         result = Result.from_reply({"status": "confirmed", "receipt": read_activity()})
@@ -3537,7 +3549,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 policy.observe(picture(6 + loss, []))
                 turn = picture(6, [{"type": "ability", "target": "player", "caster": "foe", "outcome": "applied"}])
                 self.assertEqual(choose(policy, turn)[1], expected)
-                self.assertEqual(policy.observed_loss["foe"], loss)
+                self.assertEqual(policy.opponents.damage_by_target["foe"], loss)
 
     def test_known_lethal_hit_prioritizes_extra_healing_in_either_inventory_order(self):
         foe = {"id": "foe", "name": "troll", "position": cell("east", 1)["position"]}
@@ -3552,7 +3564,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    inventory=inventory, combat={"hp": 6, "max_hp": 10},
                                    interactions={"inventory": offers})
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss["foe"] = 6
+                player.opponents.damage_by_target["foe"] = 6
                 action, reason = choose(player, turn)
                 self.assertEqual((action.item.target, reason), ("extra-healing", "heal"))
 
@@ -3567,7 +3579,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    interactions={"inventory": [{"item": p["id"], "drinkable": True} for p in doses]})
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 for damage, expected in ((1, "healing"), (2, "extra-healing")):
-                    player.observed_loss["foe"] = damage
+                    player.opponents.damage_by_target["foe"] = damage
                     action, reason = choose(player, turn)
                     self.assertEqual((action.item.target, reason), (expected, "heal"))
 
@@ -4703,7 +4715,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
         def decision(hp, learned=0):
             player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-            player.observed_loss["foe"] = learned
+            player.opponents.damage_by_target["foe"] = learned
             turn = player_turn(room, actors=[foe], hostiles=["foe"], abilities=[melee], combat={"hp": hp})
             return choose(player, turn)
         self.assertEqual(decision(2), (Move(Direction.WEST), "break_contact"))

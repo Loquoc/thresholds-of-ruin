@@ -86,7 +86,7 @@ def check_wand_encounter(address, *, wand, contact, resists, blocked_ray, second
         before = enemy.observe()
         player = Adventurer(26, "item.amulet.amulet-of-yendor")
         player.observe(turn)
-        player.observed_loss[foe.target] = turn.health.current
+        player.opponents.damage_by_target[foe.target] = turn.health.current
         action, reason = player.choose(turn)
         if blocked_ray:
             assert not isinstance(action, Zap), (action, reason)
@@ -786,7 +786,7 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     if sys.argv[3] == "carrying":
         assert player.carrying_objective(turn) and turn.in_contact(turn.hostiles[0])
     else:
-        player.draining_creatures.add(turn.hostiles[0].name)
+        player.opponents.draining_names.add(turn.hostiles[0].name)
     player.observe(turn)
     step, reason = player.choose(turn)
     if sys.argv[2] == "explore":
@@ -812,7 +812,7 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     assert step is not None and step != Move(Direction.DOWN), (step, reason)
     if turn.in_contact(turn.hostiles[0]):
         # Revisit the stair with the same opponent and a previously observed light hit.
-        player.observed_loss[turn.hostiles[0].target] = 1
+        player.opponents.damage_by_target[turn.hostiles[0].target] = 1
         descent = Move(Direction.DOWN)
         receipt = refuge.submit(descent)
         assert receipt.status is Outcome.CONFIRMED
@@ -993,7 +993,7 @@ try:
     policy.observe(turn)
     exposed = os.environ["BOT_TEST_EXPOSED"] == "1"
     if exposed:
-        policy.observed_loss_by_name[turn.hostiles[0].name] = turn.health.current
+        policy.opponents.damage_by_name[turn.hostiles[0].name] = turn.health.current
     action, reason = policy.choose(turn)
     diagonal = os.environ["BOT_TEST_DIAGONAL"] == "1"
     direction = Direction.NORTH_WEST if diagonal else Direction.NORTH
@@ -1061,7 +1061,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         turn = player.observe()
         policy.observe(turn, journal.read(turn))
         if turn.restorable_losses.strength > 0:
-            assert "rattlesnake" in policy.draining_creatures, policy.draining_creatures
+            assert "rattlesnake" in policy.opponents.draining_names, policy.opponents.draining_names
             break
         enemy = snake.observe()
         if enemy.can_act:
@@ -2699,13 +2699,13 @@ with ExitStack() as clients:
         at_goal = Adventurer(26, "item.amulet.amulet-of-yendor", depth=26)
         at_goal.observe(turn)
         harder = turn.hostiles[1]
-        at_goal.observed_loss[harder.target] = 3
+        at_goal.opponents.damage_by_target[harder.target] = 3
         attack_at_goal, why = at_goal.choose(turn)
         assert why == "melee" and attack_at_goal.target == harder, (attack_at_goal, why)
     blocker_dx = max(x for x, _, _ in turn.body) + 1
     exit_cell = turn.cell_at((blocker_dx, 0, 0))
     other = next(foe for foe in turn.hostiles if exit_cell not in turn.cells_of(foe))
-    player.observed_loss[other.target] = 3
+    player.opponents.damage_by_target[other.target] = 3
     player.unsafe_stairs[exit_cell.key, direction] = turn.tick + 1
     guarded_attack, why = player.choose(turn)
     assert why == "melee" and guarded_attack.target == other, (guarded_attack, why, turn.body, exit_cell, other, turn.hostiles)
@@ -2800,7 +2800,7 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
     assert turn.health.current * 4 > turn.health.maximum
-    player.observed_loss[foe.target] = (turn.health.current + 1) // 2
+    player.opponents.damage_by_target[foe.target] = (turn.health.current + 1) // 2
     step, reason = player.choose(turn)
     assert (step, reason) == (Move(direction), sys.argv[2]), (step, reason)
     assert turn.submit(step).status is Outcome.CONFIRMED
@@ -3172,7 +3172,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
     foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
     policy = Adventurer(26, "item.amulet.amulet-of-yendor")
     policy.observe(turn)
-    policy.observed_loss[foe.target] = 1 if low_damage else hp
+    policy.opponents.damage_by_target[foe.target] = 1 if low_damage else hp
     action, reason = policy.choose(turn)
     if os.environ["BOT_TEST_UNKNOWN_SCROLLS"] == "1":
         assert isinstance(action, UseItem) and action.use is ItemUse.READ and reason == "test_unknown_magic"
@@ -3250,7 +3250,7 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
     threat = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
     action, reason = player.choose(turn)
     assert reason == "retreat", (action, reason)
-    player.observed_loss[threat.target] = turn.health.current
+    player.opponents.damage_by_target[threat.target] = turn.health.current
     action, reason = player.choose(turn)
     assert isinstance(action, Move) and action.direction not in {Direction.UP, Direction.DOWN}
     assert turn.submit(action).status is Outcome.CONFIRMED

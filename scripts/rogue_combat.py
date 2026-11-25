@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -52,6 +54,35 @@ def sole_applied_attacker(incoming: tuple[IncomingAbility, ...]) -> str | None:
 
     sources = {event.caster for event in incoming if event.outcome is AbilityOutcome.APPLIED}
     return sources.pop() if len(sources) == 1 else None
+
+
+@dataclass
+class OpponentHistory:
+    """Highest health loss attributed to each attacker and observed draining effects."""
+
+    damage_by_target: Counter[str] = field(default_factory=Counter)
+    damage_by_name: Counter[str] = field(default_factory=Counter)
+    draining_names: set[str] = field(default_factory=set)
+
+    def record_injury(self, hostiles: tuple[Creature, ...], incoming: tuple[IncomingAbility, ...],
+                      health_loss: int, *, lasting_injury: bool) -> None:
+        if health_loss <= 0 and not lasting_injury:
+            return
+        source = sole_applied_attacker(incoming)
+        if source is None:
+            return
+        if health_loss > 0:
+            self.damage_by_target[source] = max(health_loss, self.damage_by_target[source])
+        for foe in hostiles:
+            if foe.target == source:
+                if health_loss > 0:
+                    self.damage_by_name[foe.name] = max(health_loss, self.damage_by_name[foe.name])
+                if lasting_injury:
+                    self.draining_names.add(foe.name)
+                return
+
+    def damage_estimate(self, foe: Creature) -> int:
+        return max(self.damage_by_target[foe.target], self.damage_by_name[foe.name])
 
 
 def preceding_attack(events_before_death, actor):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -24,7 +23,6 @@ from tor_client_bot import (
     FloorMap,
     GroundItem,
     Health,
-    IncomingAbility,
     Injury,
     Item,
     ItemUse,
@@ -46,7 +44,7 @@ from tor_client_bot import (
 
 from rogue_combat import (
     choose_projectile, has_push_space, includes_self_damage, recovery_deficit,
-    sole_applied_attacker, witnessed_unseen_attack,
+    OpponentHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
     HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot, useful_loot,
@@ -177,8 +175,7 @@ class Adventurer:
 
     last_unseen_attack: tuple[str, int] | None = None
     previous_health: int | None = None
-    observed_loss: Counter[str] = field(default_factory=Counter)
-    observed_loss_by_name: Counter[str] = field(default_factory=Counter)
+    opponents: OpponentHistory = field(default_factory=OpponentHistory)
     potion_trials: PotionTrials = field(default_factory=PotionTrials)
     scroll_trials: ScrollTrials = field(default_factory=ScrollTrials)
     wand_trials: WandTrials = field(default_factory=WandTrials)
@@ -187,7 +184,6 @@ class Adventurer:
     polymorph_by_target: dict[str, PolymorphState] = field(default_factory=dict)
     attempted_room_light: set[int] = field(default_factory=set)
     previous_losses: RestorableLosses | None = None
-    draining_creatures: set[str] = field(default_factory=set)
     danger_until: dict[str, int] = field(default_factory=dict)
     recovering_from_pursuit: bool = False
     recovery_landing: str | None = None
@@ -279,7 +275,7 @@ class Adventurer:
         self.observe_polymorph_resistance(outgoing)
         attributable_loss = 0 if includes_self_damage(outgoing, turn.self_target) else loss
         incoming = report.incoming
-        self.record_injury(turn, incoming, attributable_loss, lasting_injury=lasting_injury)
+        self.opponents.record_injury(turn.hostiles, incoming, attributable_loss, lasting_injury=lasting_injury)
         if here and (turn.hostiles or (injured_this_turn and incoming)):
             self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:
@@ -296,24 +292,6 @@ class Adventurer:
             target = effect.target
             if target is not None and self.polymorph_by_target.get(target) is PolymorphState.ATTEMPTED:
                 self.polymorph_by_target[target] = PolymorphState.RESISTED
-
-    def record_injury(self, turn: Turn, incoming: tuple[IncomingAbility, ...], health_loss: int,
-                      *, lasting_injury: bool) -> None:
-        if health_loss <= 0 and not lasting_injury:
-            return
-
-        source = sole_applied_attacker(incoming)
-        if source is None:
-            return
-        if health_loss > 0:
-            self.observed_loss[source] = max(health_loss, self.observed_loss[source])
-        for foe in turn.hostiles:
-            if foe.target != source:
-                continue
-            if health_loss > 0:
-                self.observed_loss_by_name[foe.name] = max(health_loss, self.observed_loss_by_name[foe.name])
-            if lasting_injury:
-                self.draining_creatures.add(foe.name)
 
     def record_descent_timing(self, attempt: StairAttempt, arrival_tick: int) -> None:
         """Update the estimated return cost and retain the first outbound visit's duration."""
@@ -474,16 +452,13 @@ class Adventurer:
                     return Move(Direction.NORTH), "escape_bear_trap"
         return Wait(), "wait_for_restraint"
 
-    def damage_estimate(self, foe: Creature) -> int:
-        return max(self.observed_loss[foe.target], self.observed_loss_by_name[foe.name])
-
     def melee_exposure(self, turn: Turn, offset: tuple[int, int, int] = (0, 0, 0)) -> MeleeExposure:
         foes = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=offset)]
-        return MeleeExposure(foes, sum(self.damage_estimate(foe) for foe in foes))
+        return MeleeExposure(foes, sum(self.opponents.damage_estimate(foe) for foe in foes))
 
     def nearby_drainer(self, turn: Turn, foe: Creature) -> bool:
         # Allow one closing step before a creature can strike in contact.
-        return foe.name in self.draining_creatures and turn.distance_to(foe) <= 2
+        return foe.name in self.opponents.draining_names and turn.distance_to(foe) <= 2
 
     def survival_consumable(self, turn: Turn, exposure: MeleeExposure) -> tuple[UseItem, str] | None:
         """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
@@ -585,12 +560,12 @@ class Adventurer:
         if len(turn.hostiles) != 1 or not adjacent or turn.cell is None or not turn.cell.stairs_up:
             return None
         guard = adjacent[0]
-        if self.last_guarded_landing != (turn.cell.key, guard.target) or guard.name not in self.draining_creatures:
+        if self.last_guarded_landing != (turn.cell.key, guard.target) or guard.name not in self.opponents.draining_names:
             return None
         health = turn.health
         if health is None or health.current * 4 < health.maximum * 3 or self.carrying_objective(turn):
             return None
-        if not 0 < self.damage_estimate(guard) * 4 < health.current:
+        if not 0 < self.opponents.damage_estimate(guard) * 4 < health.current:
             return None
         attack = turn.attack(guard, technique="rattling_blow") or turn.attack(guard)
         if attack is None:
@@ -636,8 +611,8 @@ class Adventurer:
                 injury_priority=MELEE_INJURY_PRIORITY.get(foe.injury, 0),
                 opens_exit=opens_exit,
                 negative_distance=-turn.distance_to(foe),
-                estimated_damage=self.damage_estimate(foe),
-                damage_from_this_foe=self.observed_loss[foe.target],
+                estimated_damage=self.opponents.damage_estimate(foe),
+                damage_from_this_foe=self.opponents.damage_by_target[foe.target],
             )
 
         for foe in sorted(turn.hostiles, key=attack_order, reverse=True):
@@ -674,7 +649,7 @@ class Adventurer:
                    if device.item.identity in identities and self.wand_trials.can_spend_charge(device)]
         if not devices:
             return None
-        targets = sorted(foes, key=self.damage_estimate, reverse=True)
+        targets = sorted(foes, key=self.opponents.damage_estimate, reverse=True)
         for device in devices:
             for foe in targets:
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True, reflected_ray_range=reflected_ray_range):
@@ -727,8 +702,8 @@ class Adventurer:
         targets = []
         for foe in turn.hostiles:
             if turn.distance_to(foe) <= 3:
-                damage = self.damage_estimate(foe)
-                if 2 * damage >= health or foe.name in self.draining_creatures:
+                damage = self.opponents.damage_estimate(foe)
+                if 2 * damage >= health or foe.name in self.opponents.draining_names:
                     targets.append((foe, damage))
         return sorted(targets, key=lambda target: target[1], reverse=True)
 
