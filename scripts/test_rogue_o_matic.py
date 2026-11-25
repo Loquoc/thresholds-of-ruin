@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 # The public policy and model can be tested from source without loading the native extension.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "crates/client-bot/python"))
@@ -856,6 +857,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                   "identified": True, "id": "carried-amulet", "quantity": "1"}
         self.assertEqual(choose(player, player_turn(room, inventory=[amulet])),
                          (Move(Direction.NORTH_WEST), "seek_stairs"))
+
+    def test_observing_a_known_floor_reuses_its_map_without_allocating_another(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(player_turn([cell("here")]))
+        memory = player.maps[player.depth]
+        with patch("rogue_player.FloorMap", side_effect=AssertionError("unexpected new map")):
+            player.observe(player_turn([cell("here"), cell("exit", 1, down=True)]))
+        self.assertIn("exit", memory.stairs(Direction.DOWN))
 
     def test_routes_to_descent_and_confirms_stair_arrival(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)

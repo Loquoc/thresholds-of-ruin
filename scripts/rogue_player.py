@@ -329,7 +329,9 @@ class Adventurer:
             turn.tick >= scout.deadline or sum(item.quantity for item in edible_items(turn)) > scout.starting_meals
         ):
             self.finish_food_scout()
-        self.maps.setdefault(self.depth, FloorMap()).observe(turn)
+        if self.depth not in self.maps:
+            self.maps[self.depth] = FloorMap()
+        self.maps[self.depth].observe(turn)
         if here and here.lit:
             self.attempted_room_light.discard(self.depth)
 
