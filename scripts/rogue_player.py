@@ -381,6 +381,10 @@ class Adventurer:
     def trapped(turn: Turn) -> bool:
         return turn.has_condition("rogue.bear_trap")
 
+    def restrained(self, turn: Turn) -> bool:
+        """A bear trap or a creature's hold prevents an ordinary retreat step."""
+        return self.trapped(turn) or bool(turn.holds)
+
     @staticmethod
     def respond_to_bear_trap(turn: Turn) -> tuple[Action, str]:
         """Choose how to spend a turn while pinned by an active bear trap."""
@@ -444,7 +448,7 @@ class Adventurer:
 
         needs_distance = (injured or self.recovering_from_pursuit or surrounded or two_hit_threat
                           or any(self.opponents.nearby_drainer(turn, foe) for foe in turn.hostiles))
-        if needs_distance and not self.trapped(turn) and not turn.holds:
+        if needs_distance and not self.restrained(turn):
             if decision := self.evade(turn):
                 return decision
 
@@ -474,7 +478,7 @@ class Adventurer:
             return escape
         pursuers = [(foe, distance) for foe, distance in distances if distance <= 3]
         approaching_group = not in_contact and len(pursuers) >= 2
-        if approaching_group and not self.trapped(turn):
+        if approaching_group and not self.restrained(turn):
             if step := take_corridor(turn, pursuers):
                 return step, MemoryReason.TAKE_CORRIDOR
         if turn.hostiles and not in_contact and health and (decision := self.counter_threat(turn, health.current)):
@@ -559,7 +563,7 @@ class Adventurer:
         if action := reveal_unseen_attacker(turn):
             return action, "reveal_attacker"
 
-        if turn.holds or self.trapped(turn):
+        if self.restrained(turn):
             return None
         if step := evade_unseen_attacker(turn, origin, self.maps.get(self.depth)):
             return step, "evade_unseen_attack"
@@ -643,7 +647,7 @@ class Adventurer:
                 if self.stair_is_safe(key, direction, turn.tick)}
 
     def retreat_to_stairs(self, turn: Turn, *, pressed: bool = False) -> tuple[Action, str] | None:
-        if not turn.hostiles or self.trapped(turn) or turn.holds:
+        if not turn.hostiles or self.restrained(turn):
             return None
         if turn.has_condition("rogue.levitation"):
             return None
@@ -815,7 +819,7 @@ class Adventurer:
             return None
         if here.key in self.danger_until or not self.stair_is_safe(here.key, Direction.DOWN, turn.tick):
             return None
-        if turn.holds or self.trapped(turn) or turn.has_condition("rogue.levitation"):
+        if self.restrained(turn) or turn.has_condition("rogue.levitation"):
             return None
         if any(item.identity is None and item.category in {"wand", "ring", "potion"} for item in turn.inventory):
             return self.scroll_trial(turn, at_exit=True)

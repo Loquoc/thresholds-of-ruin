@@ -1062,6 +1062,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 pinned.admitted(turn, action, reason=reason)
                 self.assertIsNone(pinned.corridor_stand)
 
+        held = json.loads(player_turn(cells, actors=foes, hostiles=["0", "1"]).recording())
+        held["state"]["observation"]["linked_holds"] = [{"holder": "unseen", "target": "hold"}]
+        turn = Turn(held)
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], "escape_hold")
+
         # The lead body cell gains a step of clearance even though the new distance
         # only equals the distance the pursuers previously had from the player's origin.
         extended_body = {"id": "player", "name": "you", "position": tile(1, 0)["position"]}
