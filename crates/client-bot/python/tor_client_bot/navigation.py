@@ -184,10 +184,15 @@ class FloorMap:
                avoid: Set[str] = frozenset(), max_steps: int | None = None) -> Move | OpenDoor | None:
         """Choose a first step on a known route within the optional horizontal step limit."""
         if prefer_safe and self._traps:
-            step = self._route(turn, goals, self._traps | avoid, max_steps)
+            step = self.toward_avoiding_traps(turn, goals, avoid=avoid, max_steps=max_steps)
             if step is not None:
                 return step
         return self._route(turn, goals, avoid, max_steps)
+
+    def toward_avoiding_traps(self, turn: Turn, goals: set[str], *, avoid: Set[str] = frozenset(),
+                              max_steps: int | None = None) -> Move | OpenDoor | None:
+        """Return a step only if the entire route avoids known traps and excluded cells."""
+        return self._route(turn, goals, self._traps | avoid, max_steps)
 
     def _route(self, turn: Turn, goals: set[str], excluded: Set[str], max_steps: int | None) -> Move | OpenDoor | None:
         here = turn.cell

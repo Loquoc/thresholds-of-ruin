@@ -25,8 +25,7 @@ def route_to_recovery_shelter(turn: Turn, memory: FloorMap, danger: Set[str]) ->
     step = route_around_danger(turn, memory, shelters, danger)
     if isinstance(step, OpenDoor):
         doors = {cell.key for cell in turn.visible_cells if cell.door and cell.door.reachable and not cell.door.open}
-        traps = memory.known_traps
-        if detour := memory.toward(turn, shelters, avoid=danger | doors | traps):
+        if detour := memory.toward_avoiding_traps(turn, shelters, avoid=danger | doors):
             return detour
     return step
 

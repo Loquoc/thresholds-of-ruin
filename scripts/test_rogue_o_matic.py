@@ -981,6 +981,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.supplies_guarded_until["1"] = 900
                 self.assertEqual(choose(player, turn), expected)
 
+    def test_loot_detours_cross_a_known_pit_only_for_essential_supplies(self):
+        hall = [cell(str(x), x, down=x == 0) for x in range(4)]
+        hall[2]["trap"] = {"id": "pit", "family": None, "reachable": False}
+        for kind, identity, expected in (
+            ("weapon", "item.weapon.spear", (Move(Direction.DOWN), "descend")),
+            ("potion", None, (Move(Direction.DOWN), "descend")),
+            ("food", None, (Move(Direction.EAST), "seek_item")),
+        ):
+            with self.subTest(kind=kind):
+                item = {"id": "item", "name": kind, "class": kind, "identity": identity,
+                        "identified": identity is not None, "quantity": 1}
+                turn = player_turn(hall, ground=[{**hall[3], "item": item, "reachable": False}])
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), expected)
+
     def test_route_to_guarded_food_avoids_a_second_dangerous_square(self):
         target = cell("ration", 2)
         cells = [cell("here", down=True), cell("shortcut", 1), target,

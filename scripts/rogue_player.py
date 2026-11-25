@@ -979,8 +979,8 @@ class Adventurer:
             destination = turn.cell_at(step.direction.offset)
             if destination and destination.key == self.last_exploration_origin:
                 # Only avoid doubling back when the whole detour is clear.
-                blocked = avoid | memory.known_traps | {destination.key}
-                detour = memory.toward(turn, memory.frontier, avoid=blocked, max_steps=3, prefer_safe=False)
+                blocked = avoid | {destination.key}
+                detour = memory.toward_avoiding_traps(turn, memory.frontier, avoid=blocked, max_steps=3)
                 return detour or step
         return step
 
