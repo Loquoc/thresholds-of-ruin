@@ -2054,6 +2054,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn(hall, inventory=[bow, relic], ground=ground, tick=tick)
                 self.assertEqual(choose(player, turn), expected)
 
+    def test_optional_loot_detours_respect_guard_warnings_on_the_way_to_a_clear_stash(self):
+        hall = [cell("stairs", down=True), cell("passage", 1), cell("stash", 2)]
+        bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow",
+               "class": "weapon", "identified": True, "quantity": 1}
+        for category, identity, reason in (("weapon", "item.weapon.arrow", "recover_arrows"),
+                                           ("potion", None, "seek_supplies")):
+            item = {"id": "loot", "name": "loot", "class": category, "identity": identity,
+                    "identified": identity is not None, "quantity": 1}
+            player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+            player.supplies_guarded_until["passage"] = 100
+            for tick, expected in ((99, (Move(Direction.DOWN), "descend")), (100, (Move(Direction.EAST), reason))):
+                with self.subTest(category=category, tick=tick):
+                    turn = player_turn(hall, ground=[{**hall[2], "item": item, "reachable": False}],
+                                       inventory=[bow], tick=tick)
+                    self.assertEqual(choose(player, turn), expected)
+
     def test_remembered_arrow_detour_respects_guard_warning_until_expiry(self):
         hall = [cell(str(x), x, down=x == 0) for x in range(6)]
         bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
