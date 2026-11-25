@@ -689,6 +689,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.item.target, reason), (expected, "take"))
 
+    def test_first_melee_weapon_keeps_ground_order_when_only_identities_are_known(self):
+        here = cell("here")
+        for names in (("dagger", "spear"), ("spear", "dagger")):
+            with self.subTest(names=names):
+                ground = [{**here, "reachable": True, "item": {
+                    "id": name, "identity": f"item.weapon.{name}", "class": "weapon",
+                    "name": name, "quantity": 1, "identified": True}} for name in names]
+                turn = player_turn([here], ground=ground)
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.item.target, reason), (names[0], "take"))
+
     def test_pickup_fills_the_healing_reserve_in_one_action_when_possible(self):
         here = cell("here")
         dose = {"id": "single", "identity": "item.potion.healing", "class": "potion",

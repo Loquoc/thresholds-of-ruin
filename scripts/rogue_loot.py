@@ -1,7 +1,7 @@
 """Choose reachable Rogue loot and route to more distant supplies."""
 
 from collections import Counter
-from collections.abc import Set
+from collections.abc import Iterable, Set
 from dataclasses import dataclass, field
 from functools import cache
 
@@ -23,6 +23,23 @@ def useful_loot(item: Item) -> bool:
 
 def usable_melee_weapon(item: Item) -> bool:
     return not item.known_cursed and melee_score(item) >= 0
+
+
+class CarriedLoot:
+    """Stack quantities and usable equipment relevant to pickup and route choices."""
+
+    def __init__(self, items: Iterable[Item]):
+        self.by_identity: Counter[str | None] = Counter()
+        self.by_category: Counter[str] = Counter()
+        self.usable_gear: set[str] = set()
+        self.has_melee_weapon = False
+        for item in items:
+            self.by_identity[item.identity] += item.quantity
+            self.by_category[item.category] += item.quantity
+            if usable_melee_weapon(item):
+                self.has_melee_weapon = True
+            if item.category in {"armor", "ring"} and item.identity is not None and not item.known_cursed:
+                self.usable_gear.add(item.identity)
 
 
 def healing_reserve_gain(item: Item, carried: Counter[str | None]) -> int:
@@ -51,13 +68,9 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
 
     if len(useful) < 2:
         return useful[0] if useful else None
-    carried: Counter[str | None] = Counter()
-    for item in turn.inventory:
-        carried[item.identity] += item.quantity
-
-    needs_weapon = not any(usable_melee_weapon(item) for item in turn.inventory)
-    return max(useful, key=lambda item: (healing_reserve_gain(item, carried),
-                                         needs_weapon and usable_melee_weapon(item)))
+    carried = CarriedLoot(turn.inventory)
+    return max(useful, key=lambda item: (healing_reserve_gain(item, carried.by_identity),
+                                         not carried.has_melee_weapon and usable_melee_weapon(item)))
 
 
 @dataclass
@@ -89,21 +102,11 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
     goals = LootGoals()
     if turn.has_condition("rogue.levitation"):
         return goals
-    carried: Counter[str | None] = Counter()
-    stock: Counter[str] = Counter()
-    usable_gear: set[str] = set()
-    has_melee_weapon = False
-    for item in turn.inventory:
-        carried[item.identity] += item.quantity
-        stock[item.category] += item.quantity
-        if usable_melee_weapon(item):
-            has_melee_weapon = True
-        if item.category in {"armor", "ring"} and item.identity is not None and not item.known_cursed:
-            usable_gear.add(item.identity)
+    carried = CarriedLoot(turn.inventory)
 
     @cache
     def wanted_rings() -> set[str]:
-        return ring_upgrades(turn).keys() - usable_gear
+        return ring_upgrades(turn).keys() - carried.usable_gear
 
     @cache
     def has_spare_armor_to_identify() -> bool:
@@ -113,23 +116,23 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
             for choice in turn.equip_choices()
         )
 
-    goals.recover_arrows = not returning and not turn.hostiles and carried["item.weapon.shortbow"] > 0
+    goals.recover_arrows = not returning and not turn.hostiles and carried.by_identity["item.weapon.shortbow"] > 0
     for ground in ground_items:
         if ground.reachable or ground.cell is None:
             continue
         item = ground.item
         key = ground.cell.key
-        if worth_long_detour(objective, item, carried, returning=returning, under_threat=bool(turn.hostiles)):
+        if worth_long_detour(objective, item, carried.by_identity, returning=returning, under_threat=bool(turn.hostiles)):
             goals.wanted.add(key)
         if returning or turn.hostiles or key in guarded or item.identity in HEALING_POTIONS:
             continue
         if useful_loot(item) and not turn.cell.stairs_down:
             goals.nearby.add(key)
-        seek_armor = (item.category == "armor" and item.identity not in usable_gear
+        seek_armor = (item.category == "armor" and item.identity not in carried.usable_gear
                       and not has_spare_armor_to_identify())
         seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
-        seek_weapon = not has_melee_weapon and usable_melee_weapon(item)
-        if seek_weapon or seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
+        seek_weapon = not carried.has_melee_weapon and usable_melee_weapon(item)
+        if seek_weapon or seek_armor or seek_ring or carried.by_category[item.category] < DETOUR_STOCK.get(item.category, 0):
             goals.supplies.add(key)
     return goals
 
