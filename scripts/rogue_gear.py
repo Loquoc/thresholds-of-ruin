@@ -190,13 +190,13 @@ def improve_worn_gear(turn: Turn) -> tuple[Action, str] | None:
 
 def melee_score(item: Item) -> float:
     """Rank weapons by accuracy-adjusted damage per tick across wind-up and recovery."""
-    if item.category != "weapon" and item.identity != "item.weapon.mace":
+    if item.category != "weapon" and item.identity not in MELEE_WEAPONS:
         return -1
     if item.identity == "item.weapon.shortbow":
         return -1
     attack = item.weapon_attack
     if attack is None:
-        return 0 if item.identity == "item.weapon.mace" else -1
+        return 0 if item.identity in MELEE_WEAPONS else -1
     accuracy = max(0.1, 1 + attack.accuracy_bonus / 20)
     return accuracy * attack.mean_damage / (attack.wind_up + attack.recovery)
 

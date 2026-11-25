@@ -561,6 +561,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 decision = choose(player, player_turn(around_player, tick=200))
                 self.assertEqual(decision, (Move(expected), "evade_unseen_attack"))
 
+    def test_recognized_melee_weapon_can_fill_an_empty_slot_before_its_stats_are_known(self):
+        slot = {"id": "weapon", "name": "Weapon"}
+        items = [{"id": name, "name": name, "identity": f"item.weapon.{name}", "identified": True,
+                  "quantity": 1, "class": "weapon"} for name in ("dart", "spear", "dagger")]
+        for equipped, expected in ((None, "equip_melee"), (2, "descend")):
+            with self.subTest(equipped=equipped):
+                offers = [{"item": item["id"], "slot": slot, "equipped_slot": 0 if i == equipped else None}
+                          for i, item in enumerate(items)]
+                turn = player_turn([cell("stairs", down=True)], inventory=items,
+                                   interactions={"slots": [slot], "inventory": offers})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason, expected)
+                if equipped is None:
+                    self.assertEqual(action.item.target, "spear")
+
     def test_melee_upgrade_compares_disclosed_damage_accuracy_and_timing(self):
         from tor_client_bot import Equip, Unequip
 

@@ -3282,6 +3282,37 @@ finally:
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_unarmed_bot_equips_a_recognized_spear_with_undisclosed_stats(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        character, = contents["manifest"]["characters"]
+        character.update(loadout=[], known_identities=["item.weapon.spear"])
+        region, = contents["regions"]
+        region.update(actors=[], items=[{"id": 10, "at": [1, 2, 0], "archetype": "rogue.spear", "quantity": 1}])
+        self.check_policy_scenario(contents, "unarmed-spear", """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import Equip, Outcome, Pickup, Session
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    take, reason = player.choose(turn)
+    assert isinstance(take, Pickup) and reason == "take", (take, reason)
+    assert turn.submit(take).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    action, reason = player.choose(turn)
+    assert isinstance(action, Equip) and reason == "equip_melee", (action, reason)
+    assert action.item.identity == "item.weapon.spear" and action.item.weapon_attack is None
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    weapon = next(slot for slot in after.equipment if slot.kind == "weapon")
+    assert weapon.occupant.identity == "item.weapon.spear"
+""")
+
     def test_bot_stocks_throwable_darts_with_the_bundled_weapon_loadout(self):
         self.check_stocked_pickup(renamed_spear=False)
 
