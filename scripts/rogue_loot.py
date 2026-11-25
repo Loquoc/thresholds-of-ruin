@@ -7,7 +7,6 @@ from functools import cache
 
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
-from rogue_food import carried_quantity
 from rogue_gear import ring_upgrades
 from rogue_retreat import route_around_danger
 
@@ -20,6 +19,14 @@ HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
 
 def useful_loot(item: Item) -> bool:
     return item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
+
+
+def healing_reserve_gain(item: Item, carried: Counter[str | None]) -> int:
+    """Number of missing reserve doses this stack can supply."""
+    if item.identity not in HEALING_POTIONS:
+        return 0
+    missing = HEALING_RESERVE_PER_KIND - carried[item.identity]
+    return max(0, min(item.quantity, missing))
 
 
 def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, objective: str,
@@ -38,14 +45,12 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
         if safe_pickup and useful_loot(item):
             useful.append(item)
 
-    def healing_reserve_gain(item: Item) -> int:
-        if item.identity not in HEALING_POTIONS:
-            return 0
-        missing = HEALING_RESERVE_PER_KIND - carried_quantity(turn, item.identity)
-        return max(0, min(item.quantity, missing))
-
-    return max(useful, key=healing_reserve_gain, default=None)
-
+    if len(useful) < 2:
+        return useful[0] if useful else None
+    carried: Counter[str | None] = Counter()
+    for item in turn.inventory:
+        carried[item.identity] += item.quantity
+    return max(useful, key=lambda item: healing_reserve_gain(item, carried))
 
 
 @dataclass
@@ -61,7 +66,7 @@ def worth_long_detour(objective: str, item: Item, carried: Counter[str | None], 
     """Items worth routing to beyond the short supply-detour radius."""
     identity = item.identity
     if identity in HEALING_POTIONS:
-        return carried[identity] < HEALING_RESERVE_PER_KIND
+        return healing_reserve_gain(item, carried) > 0
     if identity == "item.weapon.arrow" and returning and carried["item.weapon.shortbow"]:
         return not under_threat and carried[identity] < 8
     if (identity == objective and not returning) or item.category == "food":

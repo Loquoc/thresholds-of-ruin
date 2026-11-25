@@ -1467,6 +1467,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    ground=[{**cells[-1], "item": flask, "reachable": False}])
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), expected)
 
+    def test_pickup_and_detour_count_separate_stacks_of_each_healing_kind(self):
+        here, shelf = cell("stairs", down=True), cell("shelf", 1)
+        healing = {"id": "heal", "name": "healing", "identity": "item.potion.healing",
+                   "class": "potion", "identified": True, "quantity": 1}
+        extra = {**healing, "id": "extra", "identity": "item.potion.extra-healing"}
+        stock = [{**healing, "id": "first"}, {**healing, "id": "second"}]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        ground = [{**here, "item": item, "reachable": True} for item in (healing, extra)]
+        turn = player_turn([here, shelf], inventory=stock, ground=ground)
+        self.assertEqual(player.choose_pickup(turn, turn.ground_items, returning=False).target, "extra")
+
+        other_shelf = cell("other-shelf", -1)
+        turn = player_turn([here, shelf, other_shelf], inventory=stock, ground=[
+            {**shelf, "item": healing, "reachable": False}, {**other_shelf, "item": extra, "reachable": False}])
+        self.assertEqual(player.loot_goals(turn, turn.ground_items, returning=False).wanted, {"other-shelf"})
+
     def test_recovers_reachable_arrows_when_carrying_the_bow(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         def weapon(name):
