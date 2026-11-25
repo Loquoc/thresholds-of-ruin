@@ -60,7 +60,7 @@ from rogue_search import (
     ORDINARY_WALL_SEARCHES, SearchHistory, SearchRank, squares_across_stair_walls,
 )
 from rogue_food import (
-    MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
+    MEAL_HUNGER, URGENT_HUNGER, FoodScout, MealHistory, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     FloorTravelTimes,
 )
 from rogue_gear import (
@@ -160,8 +160,7 @@ class Adventurer:
     last_shot_tick: int | None = None
     search_history: SearchHistory = field(default_factory=SearchHistory)
     travel_times: FloorTravelTimes = field(default_factory=FloorTravelTimes)
-    food_value: dict[str, int] = field(default_factory=dict)
-    pending_meal: PendingMeal | None = None
+    meals: MealHistory = field(default_factory=MealHistory)
     # A missing floor can start a detour. None records a finished detour.
     food_scouts: dict[int, FoodScout | None] = field(default_factory=dict)
     pending_stair: StairAttempt | None = None
@@ -224,7 +223,7 @@ class Adventurer:
         self.observe_guarded_supplies(turn)
         if self.travel_times.entered_at is None:
             self.travel_times.entered_at = turn.tick
-        self.observe_meal(turn)
+        self.meals.observe(turn)
         self.observe_combat(turn, turn.recent_combat if combat is None else combat)
         self.observe_stair(turn)
         if self.pending_stair:
@@ -367,28 +366,7 @@ class Adventurer:
             trial = reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}
             self.scroll_trials.admitted(turn, self.depth, item, receipt if trial else None)
         elif action.use is ItemUse.EAT:
-            self.pending_meal = PendingMeal.before_eating(turn, item, receipt)
-
-    def observe_meal(self, turn: Turn) -> None:
-        """Measure at resolution, or at the next ready observation for an immediate meal."""
-        meal = self.pending_meal
-        if meal is None:
-            return
-        if meal.receipt and meal.receipt.activity:
-            phase = turn.outcome_of(meal.receipt)
-            if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED) or (phase is None and turn.can_act):
-                self.pending_meal = None
-                return
-            if phase is not ActivityPhase.RESOLVED:
-                return
-            if turn.nutrition is None and not turn.can_act:
-                return
-        elif not turn.can_act:
-            return
-        self.pending_meal = None
-        gain = meal.observed_gain(turn)
-        if gain is not None:
-            self.food_value[meal.identity] = min(gain, self.food_value.get(meal.identity, gain))
+            self.meals.pending = PendingMeal.before_eating(turn, item, receipt)
 
     def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
         if turn.cell is None:
@@ -461,7 +439,7 @@ class Adventurer:
             if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):
                 return teleport, "escape_pursuit"
         elif turn.hostiles and turn.hunger in URGENT_HUNGER:
-            if meal := choose_meal(turn, self.food_value):
+            if meal := choose_meal(turn, self.meals.gains):
                 return UseItem(meal, ItemUse.EAT), "eat"
         return None
 
@@ -826,7 +804,7 @@ class Adventurer:
             return available
         travel = self.travel_times.return_ticks(through_floor=self.depth if direction is Direction.UP else None)
         # Meals can pay for later travel. A rest must still fit the current food clock.
-        packed = estimate_carried_food(edible_items(turn), self.food_value)
+        packed = estimate_carried_food(edible_items(turn), self.meals.gains)
         return available - packed.travel_from_current_reserve(nutrition, travel)
 
     def recovery_stair_step(self, turn: Turn, memory: FloorMap, stairs: set[str]) -> Action | None:
@@ -1058,10 +1036,10 @@ class Adventurer:
                           *, can_forage: bool) -> tuple[Action, str] | None:
         if turn.hunger not in MEAL_HUNGER:
             return None
-        if meal := choose_meal(turn, self.food_value):
+        if meal := choose_meal(turn, self.meals.gains):
             return UseItem(meal, ItemUse.EAT), "eat"
         reachable_food = (ground.item for ground in ground_items if ground.reachable and ground.item.category == "food")
-        if meal := choose_meal(turn, self.food_value, candidates=reachable_food):
+        if meal := choose_meal(turn, self.meals.gains, candidates=reachable_food):
             return Pickup(meal), "take"
         if can_forage and (step := self.route_to_food(turn, memory)):
             return step, "forage"
@@ -1083,7 +1061,7 @@ class Adventurer:
         required = self.estimated_journey_ticks(returning)
         if nutrition.ticks_until_empty >= required:
             return None
-        packed = estimate_carried_food(edible_items(turn), self.food_value)
+        packed = estimate_carried_food(edible_items(turn), self.meals.gains)
         if packed.has_unmeasured_meals:
             return None
         if nutrition.ticks_until_empty >= packed.travel_from_current_reserve(nutrition, required):

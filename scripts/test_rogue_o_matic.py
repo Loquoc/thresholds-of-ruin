@@ -2949,7 +2949,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             for foes in ([], [foe]):
                 with self.subTest(reserve=reserve, in_combat=bool(foes)):
                     player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                    player.food_value.update(snack=10, feast=80, ration=40)
+                    player.meals.gains.update(snack=10, feast=80, ration=40)
                     turn = player_turn([cell("here"), cell("east", 1)], actors=foes, hostiles=["foe"] if foes else [],
                                        inventory=meals, interactions={"inventory": [
                                            {"item": meal["id"], "edible": True} for meal in meals]},
@@ -2967,7 +2967,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             for order in (ground, ground[::-1]):
                 with self.subTest(reserve=reserve, first=order[0]["item"]["id"]):
                     player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                    player.food_value.update(snack=10, ration=40, feast=80)
+                    player.meals.gains.update(snack=10, ration=40, feast=80)
                     turn = player_turn([here], ground=order, stats={"nutrition": {
                         "kind": "required", "hunger": "weak", "reserve": reserve,
                         "maximum": 100, "unit_ticks": 100, "elapsed": 0}})
@@ -4123,12 +4123,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.admitted(before, UseItem(before.inventory[0], ItemUse.EAT), receipt)
                 paused = Turn({**json.loads(before.recording()), "intentions": [dict(activity, phase="paused")]})
                 player.observe(paused)
-                self.assertIsNotNone(player.pending_meal)
+                self.assertIsNotNone(player.meals.pending)
                 history = [dict(activity, phase=phase)] if phase else []
                 finished = Turn({**json.loads(after.recording()), "finished_intentions": history})
                 player.observe(finished)
-                self.assertIsNone(player.pending_meal)
-                self.assertEqual(player.food_value, {"fixture.ration": 30} if phase == "resolved" else {})
+                self.assertIsNone(player.meals.pending)
+                self.assertEqual(player.meals.gains, {"fixture.ration": 30} if phase == "resolved" else {})
 
     def test_resolved_meal_is_measured_before_recovery_drains_the_reserve(self):
         from tor_client_bot import ItemUse, Result, UseItem
@@ -4150,10 +4150,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         partial = json.loads(player_turn([cell("here")], tick=100).recording())
         partial.update(readiness=picture["readiness"], finished_intentions=picture["finished_intentions"])
         player.observe(Turn(partial))
-        self.assertIsNotNone(player.pending_meal)
+        self.assertIsNotNone(player.meals.pending)
+        # A later observation can disclose nutrition after the finished receipt has aged out.
+        picture["finished_intentions"] = []
         player.observe(Turn(picture))
         player.observe(player_turn([cell("here")], tick=200, stats={"nutrition": dict(nutrition, reserve=39)}))
-        self.assertEqual(player.food_value, {"fixture.ration": 30})
+        self.assertEqual(player.meals.gains, {"fixture.ration": 30})
 
     def test_food_estimate_uses_the_lowest_observed_gain_after_consumption(self):
         from tor_client_bot import ItemUse, UseItem
@@ -4183,11 +4185,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(starting_reserve=starting_reserve, count=count, reserve=reserve):
                 before = picture(2, starting_reserve)
                 player.admitted(before, UseItem(before.inventory[0], ItemUse.EAT))
-                previous = player.food_value.get(identity)
+                previous = player.meals.gains.get(identity)
                 player.observe(picture(1, starting_reserve + 1, preparing=True))
-                self.assertEqual(player.food_value.get(identity), previous)
+                self.assertEqual(player.meals.gains.get(identity), previous)
                 player.observe(picture(count, reserve))
-                self.assertEqual(player.food_value.get(identity), expected)
+                self.assertEqual(player.meals.gains.get(identity), expected)
 
     def test_provisions_known_return_route_before_taking_stairs(self):
         nutrition = {"kind": "required", "unit_ticks": "100", "elapsed": "0",
@@ -4255,7 +4257,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
                 player.travel_times.ascent[2] = 20000
                 if gain is not None:
-                    player.food_value[ration["identity"]] = gain
+                    player.meals.gains[ration["identity"]] = gain
                 turn = player_turn(cells, stats={"nutrition": dict(nutrition, elapsed=elapsed)}, inventory=[ration],
                                    interactions={"inventory": [{"item": "meal", "edible": True}]})
                 self.assertEqual(choose(player, turn)[1], reason)
@@ -4659,7 +4661,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
                 player.travel_times.ascent[1] = 2000
                 if value is not None:
-                    player.food_value[ration["identity"]] = value
+                    player.meals.gains[ration["identity"]] = value
                 self.assertEqual(choose(player, turn)[1], expected)
 
     def test_guarded_stair_keeps_its_travel_reserve_while_resting(self):

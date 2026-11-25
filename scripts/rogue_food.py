@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from statistics import median_low
 
-from tor_client_bot import Direction, FloorMap, Item, ItemUse, Nutrition, Result, StairAttempt, Turn
+from tor_client_bot import ActivityPhase, Direction, FloorMap, Item, ItemUse, Nutrition, Result, StairAttempt, Turn
 
 
 URGENT_HUNGER = frozenset({"weak", "empty"})
@@ -35,12 +35,13 @@ def carried_quantity(turn: Turn, identity: str) -> int:
     return sum(item.quantity for item in turn.inventory if item.identity == identity)
 
 
-@dataclass(frozen=True)
+@dataclass
 class PendingMeal:
     identity: str
     quantity_before: int
     reserve_before: int
     receipt: Result | None = None
+    resolved: bool = False
 
     @classmethod
     def before_eating(cls, turn: Turn, item: Item, receipt: Result | None = None) -> "PendingMeal | None":
@@ -59,6 +60,36 @@ class PendingMeal:
             return None
         gain = nutrition.reserve - self.reserve_before
         return gain if gain > 0 else None
+
+
+@dataclass
+class MealHistory:
+    """Keep the lowest measured net reserve gain for each recognized meal."""
+
+    gains: dict[str, int] = field(default_factory=dict)
+    pending: PendingMeal | None = None
+
+    def observe(self, turn: Turn) -> None:
+        meal = self.pending
+        if meal is None:
+            return
+        if meal.receipt and meal.receipt.activity:
+            if not meal.resolved:
+                phase = turn.outcome_of(meal.receipt)
+                if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED) or (phase is None and turn.can_act):
+                    self.pending = None
+                    return
+                if phase is not ActivityPhase.RESOLVED:
+                    return
+                meal.resolved = True
+            if turn.nutrition is None and not turn.can_act:
+                return
+        elif not turn.can_act:
+            return
+        self.pending = None
+        gain = meal.observed_gain(turn)
+        if gain is not None:
+            self.gains[meal.identity] = min(gain, self.gains.get(meal.identity, gain))
 
 
 @dataclass(frozen=True)

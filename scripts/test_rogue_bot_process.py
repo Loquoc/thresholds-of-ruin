@@ -3820,7 +3820,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert player.choose(turn)[0] == Move(direction)
     player.travel_times.ascent[2] = (turn.nutrition.reserve + 1) * turn.nutrition.ticks_per_unit
     if scouting:
-        assert player.food_value["item.food.ration"] > 0
+        assert player.meals.gains["item.food.ration"] > 0
         player.travel_times.descent[2] = 110000
     action, reason = player.choose(turn)
     assert isinstance(action, Move) and action.direction.offset[0] == (1 if scouting else -1), (action, reason)
