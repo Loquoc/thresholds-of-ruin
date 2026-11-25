@@ -70,6 +70,16 @@ class BotApiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             memory.stairs(Direction.EAST)
 
+    def test_item_search_finds_matches_anywhere_in_a_remembered_pile(self):
+        from tor_client_bot.navigation import RememberedItem
+
+        ration = RememberedItem("ration", None, "food", 1)
+        arrow = RememberedItem("arrow", "item.weapon.arrow", "weapon", 3)
+        memory = FloorMap()
+        memory.items.update(mixed=(arrow, ration), pantry=(ration,), quiver=(arrow,))
+        self.assertEqual(memory.cells_with_item(lambda item: item.category == "food"), {"mixed", "pantry"})
+        self.assertEqual(memory.cells_with_item(lambda item: item.identity == arrow.identity), {"mixed", "quiver"})
+
     def test_recovery_estimate_accounts_for_elapsed_ticks_and_a_stopped_clock(self):
         from tor_client_bot import Recovery
 

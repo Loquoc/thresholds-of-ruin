@@ -1144,7 +1144,7 @@ class Adventurer:
         return None
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
-        food_cells = {key for key, items in memory.items.items() if any(item.category == "food" for item in items)}
+        food_cells = memory.cells_with_item(lambda item: item.category == "food")
         return self.food_route(turn, memory, food_cells)
 
     def food_route(self, turn: Turn, memory: FloorMap, goals: set[str]) -> Action | None:
@@ -1286,8 +1286,7 @@ class Adventurer:
         if action := memory.toward(turn, goals.wanted):
             return action, "seek_item"
         if goals.recover_arrows:
-            arrows = {key for key, items in memory.items.items()
-                      if any(item.identity == "item.weapon.arrow" for item in items)}
+            arrows = memory.cells_with_item(lambda item: item.identity == "item.weapon.arrow")
             if arrows and (action := memory.toward(turn, arrows, avoid=self.danger_until.keys(), max_steps=6)):
                 return action, "recover_arrows"
         if goals.nearby and (action := memory.toward(turn, goals.nearby, max_steps=2)):
@@ -1342,8 +1341,7 @@ class Adventurer:
         if item := self.choose_pickup(turn, ground_items):
             return Pickup(item), "take"
         if not returning and not hovering and not turn.hostiles and not trapped:
-            objective_cells = {key for key, items in memory.items.items()
-                               if any(item.identity == self.objective for item in items)}
+            objective_cells = memory.cells_with_item(lambda item: item.identity == self.objective)
             if objective_cells and (step := memory.toward(turn, objective_cells, avoid=self.danger_until.keys())):
                 return step, "seek_objective"
         if not turn.hostiles and (decision := self.prepare(turn)):

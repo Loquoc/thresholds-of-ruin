@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterator, Set
+from collections.abc import Callable, Iterator, Set
 from dataclasses import dataclass
 
 from .game import Turn
@@ -102,6 +102,10 @@ class FloorMap:
             for key, sides in self._neighbors.items()
             if len(sides) < 4 and not self.cells[key].wall and key not in self.visited
         }
+
+    def cells_with_item(self, matches: Callable[[RememberedItem], bool]) -> set[str]:
+        """Keys of cells last seen containing at least one matching item."""
+        return {key for key, items in self.items.items() if any(matches(item) for item in items)}
 
     def stairs(self, direction: Direction) -> set[str]:
         """Cell keys last seen with stairs leading in the given vertical direction."""
