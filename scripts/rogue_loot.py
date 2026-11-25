@@ -1,4 +1,4 @@
-"""Select Rogue loot destinations and route to them in priority order."""
+"""Choose reachable Rogue loot and route to more distant supplies."""
 
 from collections import Counter
 from collections.abc import Set
@@ -7,6 +7,7 @@ from functools import cache
 
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
+from rogue_food import carried_quantity
 from rogue_gear import ring_upgrades
 from rogue_retreat import route_around_danger
 
@@ -19,6 +20,28 @@ HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
 
 def useful_loot(item: Item) -> bool:
     return item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
+
+
+def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, objective: str,
+                     returning: bool, safe_pickup: bool) -> Item | None:
+    """Take the objective first, then needed healing, then other useful loot in ground order."""
+    useful = []
+    for ground in ground_items:
+        if not ground.reachable:
+            continue
+        item = ground.item
+        if item.identity == objective:
+            if not returning:
+                return item
+            if item.category == "amulet":
+                continue
+        if safe_pickup and useful_loot(item):
+            useful.append(item)
+    if len(useful) > 1:
+        for item in useful:
+            if item.identity in HEALING_POTIONS and carried_quantity(turn, item.identity) < HEALING_RESERVE_PER_KIND:
+                return item
+    return useful[0] if useful else None
 
 
 @dataclass

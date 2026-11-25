@@ -45,14 +45,14 @@ from tor_client_bot import (
 
 from rogue_combat import SELF_DAMAGE_ABILITIES, sole_applied_attacker
 from rogue_loot import (
-    DETOUR_STOCK, HEALING_POTIONS, HEALING_RESERVE_PER_KIND, LootGoals, loot_goals, route_to_loot, useful_loot,
+    DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
 )
 from rogue_training import purchase_training
 from rogue_retreat import (
     approach_visible_exit, best_onward_escape, evade_unseen_attacker, route_around_danger, take_corridor,
 )
 from rogue_food import (
-    MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food,
+    MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     estimate_round_trip_ticks,
 )
 from rogue_gear import (
@@ -1248,22 +1248,8 @@ class Adventurer:
             turn.health and recovery_deficit(turn.health) == 0
             and all(turn.distance_to(foe) > 1 for foe in turn.hostiles)
         )
-        useful = []
-        for ground in ground_items:
-            if not ground.reachable:
-                continue
-            if ground.item.identity == self.objective:
-                if not returning:
-                    return ground.item
-                if ground.item.category == "amulet":
-                    continue
-            if safe_pickup and useful_loot(ground.item):
-                useful.append(ground.item)
-        if len(useful) > 1:
-            for item in useful:
-                if item.identity in HEALING_POTIONS and carried_quantity(turn, item.identity) < HEALING_RESERVE_PER_KIND:
-                    return item
-        return useful[0] if useful else None
+        return preferred_pickup(turn, ground_items, objective=self.objective, returning=returning,
+                                safe_pickup=safe_pickup)
 
     def loot_goals(self, turn: Turn, ground_items: tuple[GroundItem, ...], returning: bool) -> LootGoals:
         return loot_goals(turn, ground_items, returning=returning, objective=self.objective,

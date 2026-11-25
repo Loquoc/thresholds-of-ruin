@@ -553,6 +553,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.item.target, reason), (expected, "take"))
 
+    def test_unsafe_pickup_allows_only_a_reachable_outbound_objective(self):
+        here = cell("here")
+        foe = {"id": "foe", "name": "orc", "position": cell("east", 1)["position"]}
+        potion = {"id": "dose", "identity": "item.potion.healing", "class": "potion",
+                  "name": "healing", "quantity": 1, "identified": True}
+        relic = {**potion, "id": "prize", "identity": DEFAULT_OBJECTIVE_IDENTITY, "class": "amulet"}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for reachable, returning, expected in ((True, False, "prize"), (False, False, None), (True, True, None)):
+            with self.subTest(reachable=reachable, returning=returning):
+                ground = [{**here, "item": potion, "reachable": True}, {**here, "item": relic, "reachable": reachable}]
+                turn = player_turn([here, cell("east", 1)], ground=ground, actors=[foe], hostiles=["foe"])
+                chosen = player.choose_pickup(turn, turn.ground_items, returning=returning)
+                self.assertEqual(chosen.target if chosen else None, expected)
+
     def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
         here, near = cell("exit", down=True), cell("ring", 1)
         slot = {"id": "ring", "name": "Finger"}
