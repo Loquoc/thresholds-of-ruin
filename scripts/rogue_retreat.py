@@ -152,16 +152,19 @@ def _stair_distance(offset: tuple[int, int, int], goal: tuple[int, int, int]) ->
 def _preferred_visible_stairs(turn: Turn, memory: FloorMap, exits: set[str],
                              avoid: set[str]) -> list[Cell]:
     """Rank reachable visible stairs by traps, mapped walking distance, then geometry."""
-    visible = {cell.key: cell for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0}
-    if not visible or turn.cell is None:
+    views_by_exit: dict[str, list[Cell]] = {}
+    for cell in turn.visible_cells:
+        if cell.key in exits and cell.offset[2] == 0:
+            views_by_exit.setdefault(cell.key, []).append(cell)
+    if not views_by_exit or turn.cell is None:
         return []
     exits_by_rank = {}
     for site, steps in memory.reachable(turn.cell.key, avoid=avoid):
-        if cell := visible.pop(site.key, None):
+        for cell in views_by_exit.pop(site.key, ()):
             rank = cell.trap is not None, steps, _stair_distance((0, 0, 0), cell.offset)
             exits_by_rank.setdefault(rank, []).append(cell)
-            if not visible:
-                break
+        if not views_by_exit:
+            break
     return exits_by_rank[min(exits_by_rank)] if exits_by_rank else []
 
 
