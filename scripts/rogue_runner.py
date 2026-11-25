@@ -31,6 +31,18 @@ def trace_position(turn: Turn, player: Adventurer) -> dict:
     }
 
 
+def trace_navigation(player: Adventurer) -> dict:
+    """Describe the floor where the player exhausted its disclosed routes."""
+    memory = player.maps[player.depth]
+    return {
+        "floor": player.depth,
+        "visited_cells": len(memory.visited),
+        "known_up_stairs": len(memory.stairs(Direction.UP)),
+        "known_down_stairs": len(memory.stairs(Direction.DOWN)),
+        "searches_admitted": sum(player.searches[key] for key in memory.cells),
+    }
+
+
 def trace_decision(decision: Decision, player: Adventurer, *, record_decisions: bool) -> dict:
     """Describe what was visible when the player chose the current action."""
     turn = decision.turn
@@ -102,13 +114,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
                     detail.update(health=asdict(turn.health) if turn.health else None,
                                   conditions=[asdict(condition) for condition in turn.conditions])
                 elif reason == "no_disclosed_route":
-                    memory = player.maps[player.depth]
-                    detail["navigation"] = {
-                        "floor": player.depth,
-                        "visited_cells": len(memory.visited),
-                        "known_down_stairs": len(memory.stairs(Direction.DOWN)),
-                        "searches_admitted": sum(player.searches[key] for key in memory.cells),
-                    }
+                    detail["navigation"] = trace_navigation(player)
                 break
             result = turn.submit(action)
             command = describe_action(action)

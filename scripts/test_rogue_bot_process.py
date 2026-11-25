@@ -618,6 +618,7 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         navigation = turns[-1]["navigation"]
         depth = 2 if after_descent else 1
         self.assertEqual((navigation["floor"], navigation["visited_cells"]), (depth, 1))
+        self.assertEqual(navigation["known_up_stairs"], 1 if after_descent else 0)
         self.assertEqual(navigation["known_down_stairs"], 0)
         searches = sum(row["action"].get("id") == "rogue.search" for row in turns[:-1])
         self.assertEqual(navigation["searches_admitted"], searches)

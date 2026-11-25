@@ -919,6 +919,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             player.admitted(turn, action)
         self.assertEqual(player.choose(turn), (None, "no_disclosed_route"))
 
+    def test_navigation_report_counts_only_the_current_floor(self):
+        from rogue_runner import trace_navigation
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(player_turn([cell("start", down=True)]))
+        player.depth = 2
+        player.observe(player_turn([cell("landing", up=True), cell("exit", 1, down=True)]))
+        player.searches.update({"start": 4, "landing": 2})
+        self.assertEqual(trace_navigation(player), {
+            "floor": 2, "visited_cells": 1, "known_up_stairs": 1, "known_down_stairs": 1, "searches_admitted": 2,
+        })
+
     def test_search_credits_disclosed_nearby_walls_on_the_current_floor(self):
         search = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                   "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
