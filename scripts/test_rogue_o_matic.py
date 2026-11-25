@@ -2859,7 +2859,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         room = [here, cell("hall", -1), *walls]
         turn = player_turn(room, abilities=[ability])
-        for index, phase in enumerate(["failed"] + ["resolved"] * 6):
+        outcomes = ["failed", "cancelled"] + ["resolved"] * 6
+        for index, phase in enumerate(outcomes):
             action, reason = choose(player, turn)
             self.assertEqual(reason, "search")
             activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": str(index), "phase": "queued"}
@@ -2868,6 +2869,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             picture = json.loads(turn.recording())
             picture["finished_intentions"] = [{**activity, "phase": phase}]
             turn = Turn(picture)
+            # Reobserving the same outcome must not credit the dead end twice.
+            player.observe(turn)
+            player.observe(turn)
+            self.assertEqual(player.searches["end"], index + 1)
+            self.assertEqual(player.completed_end_searches["end"], outcomes[:index + 1].count("resolved"))
         self.assertEqual(choose(player, turn)[1], "explore")
         player.completed_end_searches["end"] = 1
         walls[1]["wall"] = False

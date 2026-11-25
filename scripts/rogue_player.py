@@ -292,13 +292,7 @@ class Adventurer:
             entrance, until = self.corridor_stand
             if here.key != entrance or turn.tick >= until:
                 self.corridor_stand = None
-        if self.pending_end_search:
-            origin, receipt = self.pending_end_search
-            phase = turn.outcome_of(receipt)
-            if phase is ActivityPhase.RESOLVED:
-                self.completed_end_searches[origin] += 1
-            if phase in (ActivityPhase.RESOLVED, ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-                self.pending_end_search = None
+        self.observe_end_search(turn)
         self.observe_scroll_trial(turn)
         self.observe_guarded_supplies(turn)
         if self.entered_floor_at is None:
@@ -499,6 +493,18 @@ class Adventurer:
             self.sampled_scrolls.add(appearance)
         elif action.use is ItemUse.EAT and item.identity and turn.nutrition:
             self.pending_meal = PendingMeal(item.identity, carried_quantity(turn, item.identity), turn.nutrition.reserve)
+
+    def observe_end_search(self, turn: Turn) -> None:
+        """Only a completed search spends one of the attempts budgeted for a dead end."""
+        if self.pending_end_search is None:
+            return
+        origin, receipt = self.pending_end_search
+        phase = turn.outcome_of(receipt)
+        if phase is ActivityPhase.RESOLVED:
+            self.completed_end_searches[origin] += 1
+        elif phase not in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+            return
+        self.pending_end_search = None
 
     def remember_search(self, turn: Turn, origin: str, receipt: Result | None) -> None:
         self.searches[origin] += 1
