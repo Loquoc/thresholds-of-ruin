@@ -2890,6 +2890,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(player, turn)
         self.assertEqual((action.device.item.target, reason), ("magic-missile", "magic_missile"))
 
+    def test_combat_wands_check_each_lane_with_the_first_directional_offer(self):
+        from unittest.mock import patch
+
+        identity = "item.wand.wand-cold"
+        modes = ("self_target", "direction_or_self", "direction")
+        wands = [{"id": mode, "name": mode, "class": "wand", "identity": identity, "identified": True,
+                  "quantity": 1} for mode in modes]
+        offers = [{"item": mode, "device_activation": mode, "zappable": True, "charges": 1} for mode in modes]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for blocked in (False, True):
+            with self.subTest(blocked=blocked):
+                cells = [cell(str(x), x, wall=blocked and x == 2) for x in range(7)]
+                foe = {"id": "emu", "name": "emu", "position": cells[3]["position"]}
+                turn = player_turn(cells, actors=[foe], hostiles=["emu"], inventory=wands,
+                                   interactions={"inventory": offers})
+                with patch.object(turn, "aim_device", wraps=turn.aim_device) as aim:
+                    shot = player.aim_combat_wand(turn, turn.hostiles, {identity}, reflected_ray_range=6)
+                if blocked:
+                    self.assertIsNone(shot)
+                else:
+                    self.assertEqual(shot.device.item.target, "direction_or_self")
+                aim.assert_called_once()
+
     def test_elemental_wand_requires_a_recognized_effect_and_an_available_charge(self):
         cells = [cell(str(i), i) for i in range(6)]
         foe = {"id": "foe", "name": "hunter", "position": cells[3]["position"]}

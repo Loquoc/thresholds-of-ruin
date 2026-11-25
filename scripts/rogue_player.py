@@ -558,15 +558,15 @@ class Adventurer:
 
     def aim_combat_wand(self, turn: Turn, foes: Iterable[Creature], identities: set[str],
                         *, reflected_ray_range: int | None = None) -> Zap | None:
-        devices = [device for device in turn.devices
-                   if device.item.identity in identities and self.wand_trials.can_spend_charge(device)]
-        if not devices:
+        # These wands share a ray range, so the first usable offer can test every target.
+        device = next((wand for wand in turn.devices
+                       if wand.item.identity in identities and wand.activation is not DeviceActivation.SELF_TARGET
+                       and self.wand_trials.can_spend_charge(wand)), None)
+        if device is None:
             return None
-        targets = sorted(foes, key=self.opponents.damage_estimate, reverse=True)
-        for device in devices:
-            for foe in targets:
-                if zap := turn.aim_device(device, foe, clear_horizontal_ray=True, reflected_ray_range=reflected_ray_range):
-                    return zap
+        for foe in sorted(foes, key=self.opponents.damage_estimate, reverse=True):
+            if zap := turn.aim_device(device, foe, clear_horizontal_ray=True, reflected_ray_range=reflected_ray_range):
+                return zap
         return None
 
     def try_unknown_wand(self, turn: Turn) -> Zap | None:
