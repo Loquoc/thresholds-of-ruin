@@ -1086,11 +1086,11 @@ class Adventurer:
         if decision := self.combat(turn):
             return decision
 
-        if self.holding_corridor(turn.cell, turn.tick) and turn.hunger not in URGENT_HUNGER:
+        trapped = self.trapped(turn)
+        if not trapped and self.holding_corridor(turn.cell, turn.tick) and turn.hunger not in URGENT_HUNGER:
             return Wait(), "hold_corridor"
 
         memory = self.maps[self.depth]
-        trapped = self.trapped(turn)
         hovering = turn.has_condition("rogue.levitation")
         ground_items = () if hovering else turn.ground_items
         if decision := self.respond_to_hunger(turn, memory, ground_items, can_forage=not hovering and not trapped):

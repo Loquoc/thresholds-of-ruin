@@ -1111,6 +1111,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(deadline)
         self.assertIsNone(player.corridor_stand)
 
+    def test_untimed_bear_trap_interrupts_a_corridor_stand_on_arrival(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        start = player_turn([cell("room"), cell("entrance", -1)])
+        player.observe(start)
+        player.admitted(start, Move(Direction.WEST), reason="take_corridor")
+
+        trap = {"condition": {"id": "rogue.bear_trap", "name": "Bear trap"}, "phase": "active",
+                "remaining_ticks": None}
+        arrival = player_turn([cell("entrance")], tick=100, stats={"conditions": [trap]})
+        self.assertEqual(choose(player, arrival), (Move(Direction.NORTH), "escape_bear_trap"))
+
     def test_missed_corridor_move_does_not_reserve_the_entrance_for_a_later_visit(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         start = player_turn([cell("room"), cell("entrance", -1)])
