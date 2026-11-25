@@ -4734,15 +4734,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.travel_times.ascent[1] = 1500
         self.assertEqual(player.choose(turn), (Move(Direction.UP), "ascend"))
 
-    def test_packed_food_offsets_travel_only_up_to_the_cost_of_the_journey(self):
+    def test_spare_ticks_are_capped_by_the_food_clock_and_expose_a_journey_shortfall(self):
         from rogue_food import FoodEstimate
         from tor_client_bot import Nutrition
 
         nutrition = Nutrition(hunger="nourished", reserve=8, maximum=12, ticks_per_unit=100, elapsed_ticks=60)
         packed = FoodEstimate(known_reserve=3, has_unmeasured_meals=True, meal_count=2)
-        for travel, remaining in ((0, 0), (299, 0), (300, 0), (301, 1), (1040, 740)):
+        for travel, spare in ((0, 740), (299, 740), (300, 740), (301, 739), (1040, 0), (1041, -1)):
             with self.subTest(travel=travel):
-                self.assertEqual(packed.travel_from_current_reserve(nutrition, travel), remaining)
+                self.assertEqual(packed.spare_ticks_after_travel(nutrition, travel), spare)
 
     def test_carried_rations_can_cover_travel_while_rest_uses_current_nutrition(self):
         ration = {"id": "food", "identity": "item.food.ration", "name": "ration", "class": "food",

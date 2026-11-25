@@ -771,14 +771,12 @@ class Adventurer:
         nutrition = turn.nutrition
         if nutrition is None:
             return None
-        available = nutrition.ticks_until_empty
         # Even a temporarily guarded stair will cost food to return through.
         if not memory.stairs(direction):
-            return available
+            return nutrition.ticks_until_empty
         travel = self.travel_times.return_ticks(through_floor=self.depth if direction is Direction.UP else None)
-        # Meals can pay for later travel. A rest must still fit the current food clock.
         packed = estimate_carried_food(edible_items(turn), self.meals.gains)
-        return available - packed.travel_from_current_reserve(nutrition, travel)
+        return packed.spare_ticks_after_travel(nutrition, travel)
 
     def recovery_stair_step(self, turn: Turn, memory: FloorMap, stairs: set[str]) -> Action | None:
         """Detour around recent danger when recovery can continue on familiar ground."""
@@ -1031,7 +1029,7 @@ class Adventurer:
         packed = estimate_carried_food(edible_items(turn), self.meals.gains)
         if packed.has_unmeasured_meals:
             return None
-        if nutrition.ticks_until_empty >= packed.travel_from_current_reserve(nutrition, required):
+        if packed.spare_ticks_after_travel(nutrition, required) >= 0:
             return None
         if step := self.route_to_food(turn, memory):
             return step, "forage"

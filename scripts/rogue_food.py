@@ -98,10 +98,11 @@ class FoodEstimate:
     has_unmeasured_meals: bool
     meal_count: int
 
-    def travel_from_current_reserve(self, nutrition: Nutrition, travel_ticks: int) -> int:
-        """Travel ticks the current food clock must cover after measured packed meals."""
+    def spare_ticks_after_travel(self, nutrition: Nutrition, travel_ticks: int) -> int:
+        """Current food-clock ticks free for rest. A negative result is a journey shortfall."""
         packed_ticks = self.known_reserve * nutrition.ticks_per_unit
-        return max(0, travel_ticks - packed_ticks)
+        travel_on_current_reserve = max(0, travel_ticks - packed_ticks)
+        return nutrition.ticks_until_empty - travel_on_current_reserve
 
 
 @dataclass(frozen=True)
