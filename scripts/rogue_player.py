@@ -222,6 +222,8 @@ class Adventurer:
     observed_loss_by_name: Counter[str] = field(default_factory=Counter)
     tried_unknown_scroll: bool = False
     sampled_potions: set[str] = field(default_factory=set)
+    pending_potion_trial: tuple[Item, Result] | None = None
+    last_potion_trial_tick: int | None = None
     pending_scroll_trial: PendingScrollTrial | None = None
     stalled_scrolls: set[tuple[int, str]] = field(default_factory=set)
     sampled_scrolls: set[str] = field(default_factory=set)
@@ -265,6 +267,7 @@ class Adventurer:
             if here.key != entrance or turn.tick >= until:
                 self.corridor_stand = None
         self.observe_end_search(turn)
+        self.observe_potion_trial(turn)
         self.observe_scroll_trial(turn)
         self.expire_danger_warnings(turn.tick)
         self.observe_guarded_supplies(turn)
@@ -411,6 +414,20 @@ class Adventurer:
         )
         self.entered_floor_at = turn.tick
 
+    def observe_potion_trial(self, turn: Turn) -> None:
+        if self.pending_potion_trial is None:
+            return
+        potion, receipt = self.pending_potion_trial
+        phase = turn.outcome_of(receipt)
+        if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+            if any(item.target == potion.target and item.quantity == potion.quantity for item in turn.inventory):
+                self.sampled_potions.discard(trial_appearance(potion))
+        else:
+            history_missing = phase is None and turn.can_act and turn.tick != self.last_potion_trial_tick
+            if phase is not ActivityPhase.RESOLVED and not history_missing:
+                return
+        self.pending_potion_trial = None
+
     def observe_scroll_trial(self, turn: Turn) -> None:
         trial = self.pending_scroll_trial
         if trial is None:
@@ -455,7 +472,11 @@ class Adventurer:
     def remember_item_use(self, turn: Turn, action: UseItem, receipt: Result | None, reason: str | None) -> None:
         item = action.item
         if action.use is ItemUse.DRINK and item.identity is None:
-            self.sampled_potions.add(trial_appearance(item))
+            appearance = trial_appearance(item)
+            if receipt and receipt.activity and appearance not in self.sampled_potions:
+                self.pending_potion_trial = item, receipt
+                self.last_potion_trial_tick = turn.tick
+            self.sampled_potions.add(appearance)
         elif action.use is ItemUse.READ and item.identity is None:
             appearance = trial_appearance(item)
             if receipt and receipt.activity and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
@@ -1017,7 +1038,7 @@ class Adventurer:
             return improvement
         health = turn.health
         can_experiment = bool(health and recovery_deficit(health) == 0 and not self.carrying_objective(turn))
-        if can_experiment:
+        if can_experiment and turn.tick != self.last_potion_trial_tick and self.pending_potion_trial is None:
             for item in turn.inventory:
                 if (item.identity is None and ItemUse.DRINK in item.uses
                         and trial_appearance(item) not in self.sampled_potions):

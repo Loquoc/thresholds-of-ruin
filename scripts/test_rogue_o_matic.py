@@ -1318,6 +1318,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                             interactions={"inventory": [{**offer, "item": "b"}]})
         self.assertEqual(choose(policy, other), (Move(Direction.DOWN), "descend"))
 
+    def test_potion_trial_retries_only_when_a_failed_drink_left_the_stack_intact(self):
+        from tor_client_bot import Result
+
+        item = {"id": "flask", "name": "blue flask", "class": "potion", "quantity": 2, "identified": False}
+        def scene(quantity, tick):
+            return player_turn([cell("stairs", down=True)], inventory=[dict(item, quantity=quantity)], tick=tick,
+                               interactions={"inventory": [{"item": "flask", "drinkable": True}]})
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "drink", "phase": "queued"}
+        for phase, quantity, expected in (("failed", 2, "test_unknown_potion"), ("cancelled", 2, "test_unknown_potion"),
+                                          ("resolved", 2, "descend"), ("failed", 1, "descend")):
+            with self.subTest(phase=phase, quantity=quantity):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                before = scene(2, 0)
+                action, reason = choose(player, before)
+                player.admitted(before, action, Result.from_reply({"status": "confirmed", "receipt": receipt}), reason=reason)
+                for tick, next_reason in ((0, "descend"), (100, expected)):
+                    after = json.loads(scene(quantity, tick).recording())
+                    after["finished_intentions"] = [dict(receipt, phase=phase)]
+                    self.assertEqual(choose(player, Turn(after))[1], next_reason)
+
     def test_collects_a_healing_reserve_and_bounds_unknown_supplies(self):
         potion = {"id": "flask", "name": "cerulean potion", "identified": False,
                   "quantity": 1, "class": "potion"}
