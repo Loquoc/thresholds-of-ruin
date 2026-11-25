@@ -2912,7 +2912,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         injury = "item.potion.fixture.injury"
         add_injury_potion(manifest, damage=2, stackable=True)
         character["loadout"] = [{"archetype": name, "quantity": quantity} for name, quantity in (
-            ("rogue.healing", 1), ("rogue.extra_healing", 1), ("rogue.hallucination", 1), ("injury", 20))]
+            ("rogue.extra_healing", 1), ("rogue.healing", 1), ("rogue.hallucination", 1), ("injury", 20))]
         character["known_identities"].extend((injury, "item.potion.healing", "item.potion.extra-healing",
                                               "item.potion.hallucination"))
         contents["regions"][0]["actors"] = []
@@ -2927,12 +2927,16 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
         return player.wait_for_decision()
 
-    turn = drink(player.wait_for_decision(), "item.potion.hallucination")
+    turn = player.wait_for_decision()
     while turn.health.current * 2 >= turn.health.maximum:
         turn = drink(turn, "item.potion.fixture.injury")
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
+    policy.observe(turn)
+    action, reason = policy.choose(turn)
+    assert reason == "heal" and action.item.identity == "item.potion.healing", (action, reason)
+    turn = drink(turn, "item.potion.hallucination")
     assert turn.has_condition("rogue.hallucinating") and not turn.hostiles
     assert any(item.identity == "item.potion.healing" and ItemUse.DRINK in item.uses for item in turn.inventory)
-    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
     policy.observe(turn)
     action, reason = policy.choose(turn)
     assert reason == "heal" and action.item.identity == "item.potion.extra-healing", (action, reason)
