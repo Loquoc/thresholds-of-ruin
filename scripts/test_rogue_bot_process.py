@@ -2989,20 +2989,26 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_bot_heals_above_half_health_when_cornered_by_a_lethal_threat(self):
         self.check_cornered_policy(unknown_scrolls=False)
 
+    def test_injured_bot_conserves_extra_healing_against_a_low_damage_contact(self):
+        self.check_cornered_policy(unknown_scrolls=False, low_damage=True)
+
     def test_bot_attacks_after_one_unidentified_scroll_in_a_fight(self):
         self.check_cornered_policy(unknown_scrolls=True)
 
-    def check_cornered_policy(self, *, unknown_scrolls):
+    def check_cornered_policy(self, *, unknown_scrolls, low_damage=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
         manifest = contents["manifest"]
         manifest["archetypes"]["rogue.extra_healing"]["name"] = "Restorative draught"
-        add_injury_potion(manifest)
+        add_injury_potion(manifest, stackable=True)
         character, = manifest["characters"]
         gear = ("rogue.enchant_armor", "rogue.protect_armor") if unknown_scrolls else ("rogue.healing", "rogue.extra_healing")
-        character["loadout"] = [{"archetype": name, "quantity": 1} for name in ("injury", *gear)]
+        if low_damage:
+            gear = tuple(reversed(gear))
+        character["loadout"] = [{"archetype": "injury", "quantity": 20 if low_damage else 1},
+                                *({"archetype": name, "quantity": 1} for name in gear)]
         character["known_identities"].extend(("item.potion.fixture.injury", "item.potion.healing", "item.potion.extra-healing"))
         region, = contents["regions"]
         region.update(walls=[[x, y, z] for x, y in ((0, 2), (1, 1), (1, 3)) for z in range(2)],
@@ -3022,12 +3028,17 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
     assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
     assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
     turn = player.wait_for_decision()
+    low_damage = os.environ["BOT_TEST_LOW_DAMAGE"] == "1"
+    while low_damage and turn.health.current * 2 >= turn.health.maximum:
+        dose = next(item for item in turn.inventory if item.identity == "item.potion.fixture.injury")
+        assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+        turn = player.wait_for_decision()
     hp = turn.health.current
-    assert turn.health.maximum > hp and hp * 2 >= turn.health.maximum
+    assert turn.health.maximum > hp and ((hp * 2 < turn.health.maximum) == low_damage)
     foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
     policy = Adventurer(26, "item.amulet.amulet-of-yendor")
     policy.observe(turn)
-    policy.observed_loss[foe.target] = hp
+    policy.observed_loss[foe.target] = 1 if low_damage else hp
     action, reason = policy.choose(turn)
     if os.environ["BOT_TEST_UNKNOWN_SCROLLS"] == "1":
         assert isinstance(action, UseItem) and action.use is ItemUse.READ and reason == "test_unknown_magic"
@@ -3044,14 +3055,18 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         assert player.wait_for_decision().tick > turn.tick
     else:
         assert isinstance(action, UseItem) and action.use is ItemUse.DRINK and reason == "heal"
-        assert action.item.name == "Restorative draught" and action.item.identity == "item.potion.extra-healing"
+        if low_damage:
+            assert hp > 2 and action.item.identity == "item.potion.healing", action
+        else:
+            assert action.item.name == "Restorative draught" and action.item.identity == "item.potion.extra-healing"
         assert turn.submit(action).status is Outcome.CONFIRMED
         assert player.wait_for_decision().health.current > hp
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
-                 "BOT_TEST_ADDRESS": self.address, "BOT_TEST_UNKNOWN_SCROLLS": str(int(unknown_scrolls))},
+                 "BOT_TEST_ADDRESS": self.address, "BOT_TEST_LOW_DAMAGE": str(int(low_damage)),
+                 "BOT_TEST_UNKNOWN_SCROLLS": str(int(unknown_scrolls))},
             text=True, capture_output=True, timeout=55,
         )
         server.stop(save=False)

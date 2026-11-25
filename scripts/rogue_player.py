@@ -114,15 +114,13 @@ CONTROL_DEVICES = (
 )
 
 
-def choose_healing_potion(turn: Turn, *, lethal: bool) -> Item | None:
-    """Save extra healing in safety and prefer it against lethal damage or hallucination."""
+def choose_healing_potion(turn: Turn, *, two_hit_threat: bool) -> Item | None:
+    """Reserve extra healing for hallucination or a threat that can kill within two rounds."""
     doses = (item for item in turn.inventory if item.identity in HEALING_POTIONS and ItemUse.DRINK in item.uses)
-    if lethal or turn.has_condition("rogue.hallucinating"):
+    if two_hit_threat or turn.has_condition("rogue.hallucinating"):
         preferred = "item.potion.extra-healing"
-    elif not turn.hostiles:
-        preferred = "item.potion.healing"
     else:
-        return next(doses, None)
+        preferred = "item.potion.healing"
     return max(doses, key=lambda item: item.identity == preferred, default=None)
 
 
@@ -515,10 +513,11 @@ class Adventurer:
         # Allow one closing step before a creature can strike in contact.
         return foe.name in self.draining_creatures and turn.distance_to(foe) <= 2
 
-    def survival_consumable(self, turn: Turn, *, needs_healing: bool, lethal: bool) -> tuple[UseItem, str] | None:
+    def survival_consumable(self, turn: Turn, *, needs_healing: bool, lethal: bool,
+                            two_hit_threat: bool) -> tuple[UseItem, str] | None:
         """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
         if needs_healing:
-            if potion := choose_healing_potion(turn, lethal=lethal):
+            if potion := choose_healing_potion(turn, two_hit_threat=two_hit_threat):
                 return UseItem(potion, ItemUse.DRINK), "heal"
 
         if lethal:
@@ -538,7 +537,8 @@ class Adventurer:
         lethal = exposure.threatens(health, rounds=1)
         two_hit_threat = exposure.threatens(health, rounds=2)
         needs_healing = injured or lethal or (surrounded and health is not None and health.current * 4 < health.maximum * 3)
-        if decision := self.survival_consumable(turn, needs_healing=needs_healing, lethal=lethal):
+        if decision := self.survival_consumable(turn, needs_healing=needs_healing, lethal=lethal,
+                                                two_hit_threat=two_hit_threat):
             return decision
 
         if adjacent and (two_hit_threat or injured or surrounded):

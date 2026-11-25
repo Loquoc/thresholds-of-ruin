@@ -3226,6 +3226,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(player, turn)
                 self.assertEqual((action.item.target, reason), ("extra-healing", "heal"))
 
+    def test_injured_player_selects_a_dose_by_two_round_damage_in_either_inventory_order(self):
+        foe = {"id": "foe", "name": "orc", "position": cell("east", 1)["position"]}
+        doses = [{"id": kind, "name": kind, "identity": f"item.potion.{kind}", "identified": True,
+                  "class": "potion", "quantity": 1} for kind in ("extra-healing", "healing")]
+        for inventory in (doses, doses[::-1]):
+            with self.subTest(first=inventory[0]["id"]):
+                turn = player_turn([cell("here"), cell("east", 1)], inventory=inventory, actors=[foe],
+                                   hostiles=["foe"], combat={"hp": 4, "max_hp": 10},
+                                   interactions={"inventory": [{"item": p["id"], "drinkable": True} for p in doses]})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                for damage, expected in ((1, "healing"), (2, "extra-healing")):
+                    player.observed_loss["foe"] = damage
+                    action, reason = choose(player, turn)
+                    self.assertEqual((action.item.target, reason), (expected, "heal"))
+
     def test_unthreatened_healing_preserves_extra_healing_in_either_inventory_order(self):
         doses = [{"id": kind, "name": kind, "identity": f"item.potion.{kind}", "identified": True,
                   "class": "potion", "quantity": 1} for kind in ("healing", "extra-healing")]
