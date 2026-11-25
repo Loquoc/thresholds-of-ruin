@@ -3358,6 +3358,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                              if turn.in_contact(foe, from_offset=action.direction.offset)]
                 self.assertEqual(remaining, [weaker])
 
+    def test_retreat_reuses_contact_checks_when_comparing_damage(self):
+        room = [tile(x, y) for x in (-1, 0, 1) for y in (0, 1)]
+        foes = [{"id": name, "name": name, "position": tile(x, 1)["position"]}
+                for name, x in (("west", -1), ("east", 1))]
+        turn = player_turn(room, actors=foes, hostiles=["west", "east"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.opponents.damage_by_target.update(west=8, east=1)
+        with patch.object(turn, "in_contact", wraps=turn.in_contact) as contact:
+            action, reason = player.evade(turn, player.opponents)
+        self.assertEqual((action.direction.offset[0], reason), (1, "retreat"))
+        checks = [(call.args[0].target, call.kwargs["from_offset"]) for call in contact.call_args_list]
+        self.assertEqual(len(checks), len(set(checks)))
+
     def test_public_policy_steps_out_of_one_of_two_melee_contacts(self):
         room = [tile(x, y) for x, y in [(0, 0), (1, 0), (0, -1), (0, 1), (1, 1)]]
         foes = [{"id": name, "name": name, "position": {"x": x, "y": y, "z": 0}}

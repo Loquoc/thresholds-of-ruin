@@ -103,10 +103,13 @@ def choose_retreat_step(turn: Turn, damage_estimate: Callable[[Creature], int] |
         return None
 
     @cache
+    def contacts_at(offset: tuple[int, int, int]) -> tuple[Creature, ...]:
+        return tuple(foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=offset))
+
+    @cache
     def safety(offset: tuple[int, int, int]) -> tuple[int, int]:
-        contacts = sum(turn.in_contact(foe, from_offset=offset) for foe in turn.hostiles)
         clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
-        return -contacts, clearance
+        return -len(contacts_at(offset)), clearance
 
     current = safety((0, 0, 0))
     best = max(safety(direction.offset) for direction in turn.walkable_directions)
@@ -125,8 +128,7 @@ def choose_retreat_step(turn: Turn, damage_estimate: Callable[[Creature], int] |
         # Compare measured damage only when every remaining contact has an estimate.
         costs = {}
         for direction in candidates:
-            hits = [damage_estimate(foe) for foe in turn.hostiles
-                    if turn.in_contact(foe, from_offset=direction.offset)]
+            hits = [damage_estimate(foe) for foe in contacts_at(direction.offset)]
             if all(hits):
                 costs[direction] = sum(hits)
         if len(costs) == len(candidates):
