@@ -1378,10 +1378,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.check_policy_scenario(contents, "objective-detour", f"""
 import os
 from rogue_player import Adventurer, RECENT_DANGER_TICKS
-from tor_client_bot import Move, Outcome, Pickup, Session
+from tor_client_bot import Direction, Move, Outcome, Pickup, Session
 
 with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
-    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=2)
     turn = game.wait_for_decision()
     player.observe(turn)
     direct, reason = player.choose(turn)
@@ -1414,17 +1414,21 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         for _ in range(8):
             action, reason = player.choose(turn)
             if reason == "ascend":
-                assert turn.cell.stairs_up
-                break
-            assert isinstance(action, Move) and reason == "seek_stairs", (action, reason)
-            assert turn.cell_at(action.direction.offset).key not in traps, action
+                assert turn.cell.stairs_up and action == Move(Direction.UP), action
+            else:
+                assert isinstance(action, Move) and reason == "seek_stairs", (action, reason)
+                assert turn.cell_at(action.direction.offset).key not in traps, action
             result = turn.submit(action)
             assert result.status is Outcome.CONFIRMED, result
             player.admitted(turn, action, result, reason=reason)
             turn = game.wait_for_decision()
             player.observe(turn)
+            if reason == "ascend":
+                assert turn.cell.stairs_down and player.depth == 1
+                assert player.pending_stair is None and player.carrying_objective(turn)
+                break
         else:
-            raise AssertionError("Carrier did not reach the upstairs")
+            raise AssertionError("Carrier did not ascend with the objective")
 """)
 
     def test_bot_cli_retrieves_a_custom_canonical_objective(self):
