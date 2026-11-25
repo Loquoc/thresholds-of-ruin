@@ -294,6 +294,20 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual(death_cause({"last_combat_events": events, "self_target": "player"}),
                          "rogue.venomous_bite")
 
+    def test_multiple_deaths_without_a_player_target_leave_attack_attribution_unresolved(self):
+        from rogue_o_matic_cohort import death_cause
+
+        events = [
+            {"type": "died", "actor": "snake", "cause": "starvation"},
+            {"type": "ability", "caster": "orc", "target": "hero", "outcome": "applied",
+             "ability": {"id": "strike"}},
+            {"type": "died", "actor": "hero", "cause": "injury"},
+        ]
+        report = {"last_combat_events": events}
+        self.assertEqual(death_cause(report), "undisclosed")
+        self.assertEqual(death_cause(dict(report, self_target="snake")), "starvation")
+        self.assertEqual(death_cause(dict(report, self_target="hero")), "strike")
+
     def test_only_the_players_interruptions_can_bridge_an_attack_and_death(self):
         from rogue_o_matic_cohort import death_cause
 

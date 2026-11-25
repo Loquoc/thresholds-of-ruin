@@ -52,10 +52,16 @@ def preceding_attack(events_before_death, actor):
 
 
 def death_cause(report):
+    history = report.get("last_combat_events", [])
     player = report.get("self_target")
-    events = reversed(report.get("last_combat_events", []))
+    if player is None:
+        # Older reports omit the player target. Their events are usable only for a single victim.
+        victims = {event["actor"] for event in history if event["type"] == "died"}
+        if len(victims) == 1:
+            player = victims.pop()
+    events = reversed(history)
     for event in events:
-        if event["type"] != "died" or (player is not None and event["actor"] != player):
+        if event["type"] != "died" or player is None or event["actor"] != player:
             continue
         if event.get("cause") == "starvation":
             return "starvation"
