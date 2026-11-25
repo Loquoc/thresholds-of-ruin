@@ -32,6 +32,17 @@ def player_turn(cells, *, inventory=(), ground=(), actors=(), hostiles=(), abili
     return Turn({"state": picture, "readiness": {"admission": True}})
 
 
+def tile(x, y, *, wall=False):
+    return cell(f"{x},{y}", x, y, wall=wall)
+
+
+def west_corridor():
+    cells = [tile(0, 0), tile(-1, 0), tile(-2, 0), tile(-1, -1, wall=True), tile(-1, 1, wall=True)]
+    approaches = [tile(2, 0), tile(2, 1)]
+    foes = [{"id": str(i), "name": "troll", "position": site["position"]} for i, site in enumerate(approaches)]
+    return cells + approaches, foes
+
+
 def scroll_trial_turn(cells, *scrolls, **observation):
     items = [{"id": target, "name": appearance, "class": "scroll", "identified": False, "quantity": 1}
              for target, appearance in scrolls]
@@ -1037,11 +1048,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(player.choose(turn), (Move(Direction.EAST), "explore"))
 
     def test_take_corridor_before_two_foes_make_contact(self):
-        def tile(x, y, wall=False):
-            return {**cell(f"{x},{y}", x), "position": {"x": x, "y": y, "z": 0}, "wall": wall}
-        cells = [tile(0, 0), tile(-1, 0), tile(-2, 0), tile(-1, -1, True), tile(-1, 1, True),
-                 tile(2, 0), tile(2, 1)]
-        foes = [{"id": str(i), "name": "troll", "position": c["position"]} for i, c in enumerate(cells[-2:])]
+        cells, foes = west_corridor()
         turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         move, reason = choose(player, turn)
@@ -1051,6 +1058,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(player, player_turn(entrance, tick=599)), (Wait(), "hold_corridor"))
         self.assertNotEqual(choose(player, player_turn(entrance, tick=600))[1], "hold_corridor")
 
+    def test_trapped_player_cannot_claim_a_corridor(self):
+        cells, foes = west_corridor()
         for remaining, expected in ((None, "escape_bear_trap"), (500, "wait_for_restraint")):
             with self.subTest(remaining=remaining):
                 pinned = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
@@ -1062,11 +1071,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 pinned.admitted(turn, action, reason=reason)
                 self.assertIsNone(pinned.corridor_stand)
 
+    def test_held_player_escapes_the_hold_before_taking_a_corridor(self):
+        cells, foes = west_corridor()
         held = json.loads(player_turn(cells, actors=foes, hostiles=["0", "1"]).recording())
         held["state"]["observation"]["linked_holds"] = [{"holder": "unseen", "target": "hold"}]
         turn = Turn(held)
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], "escape_hold")
 
+    def test_corridor_clearance_is_measured_from_the_players_outer_body(self):
+        cells, foes = west_corridor()
         # The lead body cell gains a step of clearance even though the new distance
         # only equals the distance the pursuers previously had from the player's origin.
         extended_body = {"id": "player", "name": "you", "position": tile(1, 0)["position"]}
@@ -1076,24 +1089,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Move(Direction.WEST), "take_corridor"))
 
+    def test_corridor_requires_clear_ground_beyond_the_entrance(self):
+        cells, foes = west_corridor()
         pit = {"id": "pit", "family": None, "reachable": True}
         for obstruction in ({"wall": True}, {"trap": pit}):
             with self.subTest(obstruction=obstruction):
                 blocked = [*cells]
                 blocked[2] = {**cells[2], **obstruction}
                 turn = player_turn(blocked, actors=foes, hostiles=["0", "1"])
-                self.assertNotEqual(choose(player, turn)[1], "take_corridor")
+                self.assertNotEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], "take_corridor")
 
     def test_claims_a_northbound_corridor_only_at_its_entrance(self):
-        def tile(x, y, wall=False):
-            return {**cell(f"{x},{y}", x), "position": {"x": x, "y": y, "z": 0}, "wall": wall}
-
-        corridor = [tile(0, 0), tile(0, -1), tile(0, -2), tile(-1, -1, True), tile(1, -1, True)]
+        corridor = [tile(0, 0), tile(0, -1), tile(0, -2), tile(-1, -1, wall=True), tile(1, -1, wall=True)]
         pursuers = [tile(0, 2), tile(1, 2)]
         foes = [{"id": str(i), "name": "troll", "position": site["position"]} for i, site in enumerate(pursuers)]
         for enclosed in (False, True):
             with self.subTest(enclosed=enclosed):
-                sides = [tile(-1, 0, enclosed), tile(1, 0, enclosed)]
+                sides = [tile(-1, 0, wall=enclosed), tile(1, 0, wall=enclosed)]
                 turn = player_turn([*corridor, *sides, *pursuers], actors=foes, hostiles=["0", "1"])
                 decision = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual(decision == (Move(Direction.NORTH), "take_corridor"), not enclosed)
@@ -3210,11 +3222,6 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual((action, reason), (OpenDoor(turn.cell_at((1, 0, 0)).door), "retreat_to_stairs"))
 
     def test_public_policy_steps_out_of_one_of_two_melee_contacts(self):
-        def tile(x, y):
-            result = cell(f"{x},{y}", x)
-            result["position"]["y"] = y
-            return result
-
         room = [tile(x, y) for x, y in [(0, 0), (1, 0), (0, -1), (0, 1), (1, 1)]]
         foes = [{"id": name, "name": name, "position": {"x": x, "y": y, "z": 0}}
                 for name, x, y in [("east", 1, 0), ("north", 0, -1)]]
