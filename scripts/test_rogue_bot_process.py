@@ -1531,10 +1531,11 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
 
         contents = fixture()
         character, = contents["manifest"]["characters"]
-        character.update(loadout=[], known_identities=["item.potion.healing"])
+        character.update(loadout=[], known_identities=["item.potion.healing", "item.potion.extra-healing"])
         room, = contents["regions"]
         room.update(actors=[], items=[{"id": 9, "archetype": "rogue.gold", "at": [1, 2, 0]},
-                                      {"id": 10, "archetype": "rogue.healing", "at": [1, 2, 0]}])
+                                      {"id": 10, "archetype": "rogue.healing", "at": [1, 2, 0]},
+                                      {"id": 11, "archetype": "rogue.extra_healing", "at": [1, 2, 0], "quantity": 2}])
         self.server(scenario=write_package(self, contents, "healing-before-gold"))
         self.install_bot_extension()
         result = subprocess.run(
@@ -1548,7 +1549,8 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual((action["reason"], action["result"]["status"], terminal["terminal"]),
                          ("take", "confirmed", "action_budget"))
         inventory = json.loads(terminal["recording"])["state"]["observation"]["inventory"]
-        self.assertEqual([item["identity"] for item in inventory], ["item.potion.healing"])
+        self.assertEqual([(item["identity"], int(item["quantity"])) for item in inventory],
+                         [("item.potion.extra-healing", 2)])
 
     def test_bot_collects_nearby_gold_before_distant_visible_arrows(self):
         from discovery_package import write_package

@@ -37,11 +37,15 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
                 continue
         if safe_pickup and useful_loot(item):
             useful.append(item)
-    if len(useful) > 1:
-        for item in useful:
-            if item.identity in HEALING_POTIONS and carried_quantity(turn, item.identity) < HEALING_RESERVE_PER_KIND:
-                return item
-    return useful[0] if useful else None
+
+    def healing_reserve_gain(item: Item) -> int:
+        if item.identity not in HEALING_POTIONS:
+            return 0
+        missing = HEALING_RESERVE_PER_KIND - carried_quantity(turn, item.identity)
+        return max(0, min(item.quantity, missing))
+
+    return max(useful, key=healing_reserve_gain, default=None)
+
 
 
 @dataclass

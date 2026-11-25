@@ -583,6 +583,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.item.target, reason), (expected, "take"))
 
+    def test_pickup_fills_the_healing_reserve_in_one_action_when_possible(self):
+        here = cell("here")
+        dose = {"id": "single", "identity": "item.potion.healing", "class": "potion",
+                "name": "healing", "quantity": 1, "identified": True}
+        pair = {**dose, "id": "pair", "quantity": 2}
+        for order in ((dose, pair), (pair, dose)):
+            for stock, expected in ((0, "pair"), (1, order[0]["id"])):
+                with self.subTest(first=order[0]["id"], stock=stock):
+                    ground = [{**here, "item": item, "reachable": True} for item in order]
+                    inventory = [{**dose, "id": "carried"}] if stock else []
+                    turn = player_turn([here], ground=ground, inventory=inventory)
+                    action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                    self.assertEqual((action.item.target, reason), (expected, "take"))
+
     def test_unsafe_pickup_allows_only_a_reachable_outbound_objective(self):
         here = cell("here")
         foe = {"id": "foe", "name": "orc", "position": cell("east", 1)["position"]}
