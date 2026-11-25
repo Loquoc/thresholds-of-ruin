@@ -155,6 +155,21 @@ class RogueBotProcess(ProcessTestCase):
         extension = "_native.pyd" if os.name == "nt" else "_native.so"
         shutil.copyfile(Path(build) / library, package / extension)
 
+    def check_policy_scenario(self, contents, name, code):
+        from discovery_package import write_package
+
+        self.install_bot_extension()
+        server = self.server(scenario=write_package(self, contents, name))
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", code], cwd=self.directory,
+                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
+                     "BOT_TEST_ADDRESS": self.address}, text=True, capture_output=True, timeout=55,
+            )
+        finally:
+            server.stop(save=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_lost_reply_identifies_the_single_durable_action(self):
         self.server(seed=None, spectator=False)
         self.install_bot_extension()
@@ -2302,6 +2317,54 @@ with ExitStack() as stack:
     def test_bot_enters_a_corridor_before_two_hostiles_reach_it(self):
         self.check_outnumbered_move(True)
 
+    def test_injured_bot_escapes_an_untimed_trap_then_recovers_in_place(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        add_injury_potion(manifest)
+        character, = manifest["characters"]
+        character["loadout"] = [{"archetype": "injury", "quantity": 1}]
+        character["known_identities"].append("item.potion.fixture.injury")
+        region, = contents["regions"]
+        region.update(anchors={"start": [2, 1, 0]}, actors=[], traps=[{
+            "id": 1, "at": [2, 2, 0], "dc": 100, "avoidance_dc": 100,
+            "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0},
+        }])
+        code = """
+import os
+from rogue_player import Adventurer, recovery_deficit
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem, Wait
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
+    turn = game.wait_for_decision()
+    dose, = turn.inventory
+    assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert turn.submit(Move(Direction.SOUTH)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert policy.trapped(turn) and recovery_deficit(turn.health) > 0
+    policy.observe(turn)
+    step, reason = policy.choose(turn)
+    assert isinstance(step, Move) and reason == "escape_bear_trap", (step, reason)
+    receipt = turn.submit(step)
+    assert receipt.status is Outcome.CONFIRMED
+    policy.admitted(turn, step, receipt, reason=reason)
+    released = game.wait_for_decision()
+    assert released.cell.key == turn.cell.key and not policy.trapped(released)
+    hp = released.health.current
+    due = released.tick + released.recovery.ticks_to_regain(1)
+    while released.tick < due:
+        policy.observe(released)
+        action, reason = policy.choose(released)
+        assert (action, reason) == (Wait(), "recover"), (action, reason)
+        assert released.submit(action).status is Outcome.CONFIRMED
+        released = game.wait_for_decision()
+    assert released.cell.key == turn.cell.key and released.health.current > hp
+"""
+        self.check_policy_scenario(contents, "injured-trap-escape", code)
+
     def test_trapped_bot_does_not_claim_a_corridor_while_pursuers_approach(self):
         self.check_outnumbered_move(True, trapped=True)
 
@@ -2828,7 +2891,6 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_injured_bot_cures_hallucination_with_extra_healing(self):
-        from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
@@ -2841,8 +2903,6 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         character["known_identities"].extend((injury, "item.potion.healing", "item.potion.extra-healing",
                                               "item.potion.hallucination"))
         contents["regions"][0]["actors"] = []
-        server = self.server(scenario=write_package(self, contents, "rogue-bot-hallucination-healing"))
-        self.install_bot_extension()
         code = """
 import os
 from rogue_player import Adventurer
@@ -2869,13 +2929,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert any(item.identity == "item.potion.healing" for item in after.inventory)
     assert all(item.identity != "item.potion.extra-healing" for item in after.inventory)
 """
-        result = subprocess.run(
-            [sys.executable, "-c", code], cwd=self.directory,
-            env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
-                 "BOT_TEST_ADDRESS": self.address}, text=True, capture_output=True, timeout=55,
-        )
-        server.stop(save=False)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.check_policy_scenario(contents, "rogue-bot-hallucination-healing", code)
 
     def test_bot_heals_above_half_health_when_cornered_by_a_lethal_threat(self):
         self.check_cornered_policy(unknown_scrolls=False)
