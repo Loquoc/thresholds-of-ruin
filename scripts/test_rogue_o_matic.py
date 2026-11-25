@@ -1145,6 +1145,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.searches["here"] += 1
         self.assertIsNone(player.search(turn, memory, returning=False))
 
+    def test_equivalent_wall_searches_prefer_a_route_outside_recent_danger(self):
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": 0, "cost": None,
+                   "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        turn = player_turn([cell("here"), cell("west", -1), cell("east", 1),
+                            cell("west-wall", -2, wall=True), cell("east-wall", 2, wall=True)], abilities=[ability])
+        for hazard, escape in (("east", Direction.WEST), ("west", Direction.EAST)):
+            with self.subTest(hazard=hazard):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                player.danger_until[hazard] = 100
+                self.assertEqual(player.search(turn, player.maps[1], returning=False), (Move(escape), "search"))
+
     def test_equivalent_wall_searches_prefer_the_route_without_a_disclosed_trap(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}

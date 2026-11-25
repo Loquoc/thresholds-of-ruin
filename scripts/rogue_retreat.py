@@ -1,6 +1,16 @@
 """Choose retreat steps from visible terrain and pursuer positions."""
 
-from tor_client_bot import Creature, Direction, Move, Turn
+from collections.abc import Set
+
+from tor_client_bot import Action, Creature, Direction, FloorMap, Move, Turn
+
+
+def route_around_danger(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str]) -> Action | None:
+    """Prefer a route outside recent danger, allowing a dangerous route when it is the only option."""
+    if goals and danger:
+        if step := memory.toward(turn, goals, avoid=danger):
+            return step
+    return memory.toward(turn, goals)
 
 
 def evade_unseen_attacker(turn: Turn, attack_origin: str) -> Move | None:

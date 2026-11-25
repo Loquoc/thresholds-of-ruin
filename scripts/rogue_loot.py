@@ -8,6 +8,7 @@ from functools import cache
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
 from rogue_gear import ring_upgrades
+from rogue_retreat import route_around_danger
 
 
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
@@ -89,16 +90,8 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
     return goals
 
 
-def supply_route(turn: Turn, memory: FloorMap, goals: set[str], danger: Set[str]) -> Action | None:
-    """Prefer a route outside recent danger, allowing a dangerous route when it is the only option."""
-    if goals and danger:
-        if step := memory.toward(turn, goals, avoid=danger):
-            return step
-    return memory.toward(turn, goals)
-
-
 def route_to_loot(turn: Turn, memory: FloorMap, goals: LootGoals, danger: Set[str]) -> tuple[Action, str] | None:
-    if action := supply_route(turn, memory, goals.wanted, danger):
+    if action := route_around_danger(turn, memory, goals.wanted, danger):
         return action, "seek_item"
     if goals.recover_arrows:
         arrows = memory.cells_with_item(lambda item: item.identity == "item.weapon.arrow")

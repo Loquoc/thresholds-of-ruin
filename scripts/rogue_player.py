@@ -48,8 +48,8 @@ from tor_client_bot import (
     Zap,
 )
 
-from rogue_loot import DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, route_to_loot, supply_route, useful_loot
-from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_corridor
+from rogue_loot import DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, route_to_loot, useful_loot
+from rogue_retreat import approach_visible_exit, evade_unseen_attacker, route_around_danger, take_corridor
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     estimate_round_trip_ticks,
@@ -1120,7 +1120,7 @@ class Adventurer:
                              if not cell.wall and cell.key not in passages and self.searches[cell.key] < 3)
         if turn.cell.key in sites:
             return search, "search"
-        if step := memory.toward(turn, sites):
+        if step := route_around_danger(turn, memory, sites, self.danger_until.keys()):
             return step, "search"
         return None
 
@@ -1134,7 +1134,7 @@ class Adventurer:
         for sites in self.ranked_search_sites(turn, memory, returning, allow_unseen, wall_limit):
             if turn.cell.key in sites:
                 return search, "search"
-            if step := memory.toward(turn, sites):
+            if step := route_around_danger(turn, memory, sites, self.danger_until.keys()):
                 return step, "search"
         return None
 
@@ -1205,7 +1205,7 @@ class Adventurer:
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
         food_cells = memory.cells_with_item(lambda item: item.category == "food")
-        return supply_route(turn, memory, food_cells, self.danger_until.keys())
+        return route_around_danger(turn, memory, food_cells, self.danger_until.keys())
 
     def finish_food_scout(self) -> None:
         """A completed scout stays closed on later visits to the same floor."""
@@ -1238,7 +1238,7 @@ class Adventurer:
             )
         scout = self.food_scouts[self.depth]
         if scout is not None and turn.tick < scout.deadline:
-            if step := supply_route(turn, memory, memory.frontier, self.danger_until.keys()):
+            if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys()):
                 return step, "scout_for_food"
         return None
 
