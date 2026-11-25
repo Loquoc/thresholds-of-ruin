@@ -715,7 +715,7 @@ class Adventurer:
         targets = sorted(foes, key=self.damage_estimate, reverse=True)
         for device in devices:
             for foe in targets:
-                if zap := turn.aim_device(device, foe, reflected_ray_range=reflected_ray_range):
+                if zap := turn.aim_device(device, foe, clear_horizontal_ray=True, reflected_ray_range=reflected_ray_range):
                     return zap
         return None
 

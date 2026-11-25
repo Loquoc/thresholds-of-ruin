@@ -2081,6 +2081,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(player, turn), (Zap(turn.devices[0], turn.cell_at((target, 0, 0))),
                                                         "displace_threat"))
 
+    def test_displacement_skips_an_off_axis_foe_touching_the_players_extended_body(self):
+        from tor_client_bot import Zap
+
+        cells = [cell("here"), cell("body", 1), cell("east", 2), cell("south", 1, 1),
+                 cell("brute", 2, 1), cell("scout", -1)]
+        actors = [{"id": actor, "name": actor, "position": tile["position"]}
+                  for actor, tile in (("player", cells[1]), ("brute", cells[4]), ("scout", cells[5]))]
+        wand = {"id": "rod", "class": "wand", "name": "rod", "quantity": 1, "identified": True,
+                "identity": "item.wand.wand-teleport-away"}
+        offer = {"item": "rod", "zappable": True, "device_activation": "direction", "charges": 1}
+        turn = player_turn(cells, actors=actors, hostiles=["brute", "scout"], inventory=[wand],
+                           interactions={"inventory": [offer]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss.update(brute=8, scout=3)
+        self.assertTrue(all(turn.in_contact(foe) for foe in turn.hostiles))
+        self.assertEqual(choose(player, turn), (Zap(turn.devices[0], turn.cell_at((-1, 0, 0))), "displace_threat"))
+
     def test_when_pinned_attacks_the_equally_healthy_foe_blocking_the_down_stair(self):
         melee = {"id": "basic_melee", "name": "Attack", "cooldown_remaining": "0", "cost": None,
                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
