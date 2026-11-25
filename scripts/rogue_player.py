@@ -844,6 +844,10 @@ class Adventurer:
         direction = Direction.UP if returning else Direction.DOWN
         stairs = self.safe_stairs(turn, direction)
         if not stairs:
+            # A temporary warning on the only exit can expire while we wait on this side.
+            if (returning and turn.cell.stairs_up and not turn.hostiles and turn.cell.key not in self.danger_until
+                    and self.unsafe_stairs.get((turn.cell.key, Direction.UP), 0) > turn.tick):
+                return Wait(), "wait_for_safe_ascent"
             return None
         if turn.cell.key in stairs:
             if turn.has_condition("rogue.levitation"):

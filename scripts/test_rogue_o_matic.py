@@ -4774,6 +4774,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             self.assertEqual(traverse.call_count, 1)
         self.assertEqual(upstairs, {"first", "second"})
 
+    def test_returning_player_saves_teleport_when_the_current_upstairs_warning_will_expire(self):
+        items = [{"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
+                  "quantity": 1, "identified": True},
+                 {"id": "scroll", "identity": "item.scroll.teleportation", "name": "Wayfarer",
+                  "quantity": 1, "class": "scroll", "identified": True}]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=4)
+        player.unsafe_stairs["here", Direction.UP] = 100
+        for tick, expected in ((99, (Wait(), "wait_for_safe_ascent")), (100, (Move(Direction.UP), "ascend"))):
+            with self.subTest(tick=tick):
+                turn = player_turn([cell("here", up=True)], tick=tick, inventory=items,
+                                   interactions={"inventory": [{"item": "scroll", "readable": True}]})
+                self.assertEqual(choose(player, turn), expected)
+
     def test_uses_known_teleportation_when_the_remembered_return_route_is_disconnected(self):
         items = [{"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
                   "quantity": 1, "identified": True},
