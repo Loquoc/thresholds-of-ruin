@@ -1788,6 +1788,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(reason, expected)
                 self.assertEqual(action.item.target, target)
 
+    def test_nearest_foe_sets_the_range_for_drawing_a_bow(self):
+        inventory = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
+                      "identified": True, "quantity": 1} for name in ("shortbow", "arrow")]
+        slot = {"id": "weapon", "name": "Weapon"}
+        for nearest, expected in ((4, None), (5, "equip_bow")):
+            with self.subTest(nearest=nearest):
+                foes = [{"id": str(x), "name": "orc", "position": cell(str(x), x)["position"]}
+                        for x in (8, nearest)]
+                turn = player_turn([cell("here")], actors=foes, hostiles=[foe["id"] for foe in foes],
+                                   inventory=inventory, interactions={"slots": [slot],
+                                   "inventory": [{"item": "shortbow", "slot": slot}]})
+                decision = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY).ranged_combat(turn, [])
+                self.assertEqual(decision[1] if decision else None, expected)
+
     def test_replaces_empty_bow_while_an_enemy_is_visible(self):
         from tor_client_bot import Unequip
 

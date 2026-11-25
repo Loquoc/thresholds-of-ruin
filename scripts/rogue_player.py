@@ -67,7 +67,7 @@ from rogue_food import (
 )
 from rogue_gear import (
     can_identify_carried_item, choose_armor, choose_ring, improve_worn_gear,
-    identification_target, offered_item_use, ready_weapon, reveal_unseen_attacker,
+    identification_target, offered_item_use, ready_weapon, ready_weapon_for_range, reveal_unseen_attacker,
 )
 
 
@@ -645,9 +645,8 @@ class Adventurer:
 
         if self.has_arrows(turn):
             nearest = min(turn.distance_to(foe) for foe in turn.hostiles)
-            if nearest >= 5 or nearest <= 2:
-                if weapon := ready_weapon(turn, bow=nearest >= 5):
-                    return weapon
+            if weapon := ready_weapon_for_range(turn, nearest):
+                return weapon
 
         if self.last_shot_tick is not None and turn.tick <= self.last_shot_tick:
             return None

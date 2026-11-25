@@ -201,6 +201,15 @@ def melee_score(item: Item) -> float:
     return accuracy * attack.mean_damage / (attack.wind_up + attack.recovery)
 
 
+def ready_weapon_for_range(turn: Turn, nearest: int) -> tuple[Action, str] | None:
+    """With arrows available, keep the current weapon at three or four cells."""
+    if nearest <= 2:
+        return ready_weapon(turn, bow=False)
+    if nearest >= 5:
+        return ready_weapon(turn, bow=True)
+    return None
+
+
 def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     slot = next((s for s in turn.equipment if s.kind == "weapon"), None)
     if slot is None or (slot.removal_blocked and turn.hostiles):
