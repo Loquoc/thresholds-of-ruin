@@ -8,7 +8,6 @@ from enum import StrEnum
 from typing import NamedTuple
 
 from tor_client_bot import (
-    AbilityOutcome,
     Action,
     ActivityChoice,
     ActivityPhase,
@@ -26,7 +25,6 @@ from tor_client_bot import (
     Item,
     ItemUse,
     Move,
-    OutgoingAbility,
     Pickup,
     RememberedCell,
     RestorableLosses,
@@ -43,7 +41,7 @@ from tor_client_bot import (
 
 from rogue_combat import (
     choose_projectile, has_push_space, includes_self_damage, recovery_deficit,
-    MeleeExposure, OpponentHistory, witnessed_unseen_attack,
+    MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
     HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot, useful_loot,
@@ -76,12 +74,6 @@ MELEE_INJURY_PRIORITY = {
 RECENT_DANGER_TICKS = 1200
 ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
 ELEMENTAL_RAY_RANGE = 6
-
-
-class PolymorphState(StrEnum):
-    ATTEMPTED = "attempted"
-    RESISTED = "resisted"
-    RETRIED = "retried"
 
 
 class MemoryReason(StrEnum):
@@ -165,7 +157,7 @@ class Adventurer:
     wand_trials: WandTrials = field(default_factory=WandTrials)
     supplies_guarded_until: dict[str, int] = field(default_factory=dict)
     attempted_slow: set[str] = field(default_factory=set)
-    polymorph_by_target: dict[str, PolymorphState] = field(default_factory=dict)
+    polymorph: PolymorphHistory = field(default_factory=PolymorphHistory)
     attempted_room_light: set[int] = field(default_factory=set)
     previous_losses: RestorableLosses | None = None
     danger_until: dict[str, int] = field(default_factory=dict)
@@ -254,7 +246,7 @@ class Adventurer:
         lasting_injury = losses is not None and previous is not None and losses.increased_since(previous)
         injured_this_turn = loss > 0 or lasting_injury
         outgoing = report.outgoing
-        self.observe_polymorph_resistance(outgoing)
+        self.polymorph.observe(outgoing)
         attributable_loss = 0 if includes_self_damage(outgoing, turn.self_target) else loss
         incoming = report.incoming
         self.opponents.record_injury(turn.hostiles, incoming, attributable_loss, lasting_injury=lasting_injury)
@@ -266,14 +258,6 @@ class Adventurer:
         injury_from_incoming = attributable_loss > 0 or lasting_injury
         if here and witnessed_unseen_attack(incoming, turn.hostiles, injured=injury_from_incoming):
             self.last_unseen_attack = here.key, turn.tick
-
-    def observe_polymorph_resistance(self, outgoing: tuple[OutgoingAbility, ...]) -> None:
-        for effect in outgoing:
-            if effect.ability != "rogue.wand_polymorph" or effect.outcome is not AbilityOutcome.UNAFFECTED:
-                continue
-            target = effect.target
-            if target is not None and self.polymorph_by_target.get(target) is PolymorphState.ATTEMPTED:
-                self.polymorph_by_target[target] = PolymorphState.RESISTED
 
     def observe_stair(self, turn: Turn) -> None:
         """Retire a failed attempt immediately. Confirm arrival on a ready or terminal picture."""
@@ -379,11 +363,7 @@ class Adventurer:
             if reason == MemoryReason.SLOW_APPROACH:
                 self.attempted_slow.update(targets)
             elif reason == MemoryReason.POLYMORPH_THREAT:
-                for target in targets:
-                    if self.polymorph_by_target.get(target) is PolymorphState.RESISTED:
-                        self.polymorph_by_target[target] = PolymorphState.RETRIED
-                    else:
-                        self.polymorph_by_target.setdefault(target, PolymorphState.ATTEMPTED)
+                self.polymorph.admitted(targets)
 
     def carrying_objective(self, turn: Turn) -> bool:
         return any(item.identity == self.objective for item in turn.inventory)
@@ -622,7 +602,7 @@ class Adventurer:
                 if reason == MemoryReason.SLOW_APPROACH and foe.target in self.attempted_slow:
                     continue
                 if (reason == MemoryReason.POLYMORPH_THREAT
-                        and not self.can_polymorph(turn, foe, device, lethal=damage >= health)):
+                        and not self.polymorph.permits_cast(turn, foe, device, lethal=damage >= health)):
                     continue
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
                     return zap, reason
@@ -648,19 +628,6 @@ class Adventurer:
                 if 2 * damage >= health or foe.name in self.opponents.draining_names:
                     targets.append((foe, damage))
         return sorted(targets, key=lambda target: target[1], reverse=True)
-
-    def can_polymorph(self, turn: Turn, foe: Creature, device: Device, lethal: bool) -> bool:
-        if not lethal or foe.injury is not Injury.HEALTHY:
-            return False
-        state = self.polymorph_by_target.get(foe.target)
-        if state is None:
-            return True
-        if state is not PolymorphState.RESISTED:
-            return False
-        # A witnessed resistance permits one retry with a measured charge and no other foe in contact.
-        return device.charges is not None and not any(
-            other.target != foe.target and turn.in_contact(other) for other in turn.hostiles
-        )
 
     def stair_is_safe(self, key: str, direction: Direction, tick: int) -> bool:
         return (self.unsafe_stairs.get((key, direction), 0) <= tick

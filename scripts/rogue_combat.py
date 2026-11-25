@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tor_client_bot import Creature, Health, IncomingAbility, OutgoingAbility, Shot, Turn
+    from tor_client_bot import Creature, Device, Health, IncomingAbility, OutgoingAbility, Shot, Turn
 
 
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
@@ -55,6 +56,50 @@ def sole_applied_attacker(incoming: tuple[IncomingAbility, ...]) -> str | None:
     sources = {event.caster for event in incoming if event.outcome is AbilityOutcome.APPLIED}
     return sources.pop() if len(sources) == 1 else None
 
+
+class PolymorphState(StrEnum):
+    ATTEMPTED = "attempted"
+    RESISTED = "resisted"
+    RETRIED = "retried"
+
+
+@dataclass
+class PolymorphHistory:
+    """Track the cast and single permitted retry separately for each opponent."""
+
+    by_target: dict[str, PolymorphState] = field(default_factory=dict)
+
+    def admitted(self, targets: Iterable[str]) -> None:
+        for target in targets:
+            if self.by_target.get(target) is PolymorphState.RESISTED:
+                self.by_target[target] = PolymorphState.RETRIED
+            else:
+                self.by_target.setdefault(target, PolymorphState.ATTEMPTED)
+
+    def observe(self, outgoing: tuple[OutgoingAbility, ...]) -> None:
+        from tor_client_bot import AbilityOutcome
+
+        for effect in outgoing:
+            if effect.ability != "rogue.wand_polymorph" or effect.outcome is not AbilityOutcome.UNAFFECTED:
+                continue
+            target = effect.target
+            if target is not None and self.by_target.get(target) is PolymorphState.ATTEMPTED:
+                self.by_target[target] = PolymorphState.RESISTED
+
+    def permits_cast(self, turn: Turn, foe: Creature, device: Device, lethal: bool) -> bool:
+        from tor_client_bot import Injury
+
+        if not lethal or foe.injury is not Injury.HEALTHY:
+            return False
+        state = self.by_target.get(foe.target)
+        if state is None:
+            return True
+        if state is not PolymorphState.RESISTED:
+            return False
+        # A witnessed resistance permits one retry with a measured charge and no other foe in contact.
+        return device.charges is not None and not any(
+            other.target != foe.target and turn.in_contact(other) for other in turn.hostiles
+        )
 
 @dataclass
 class MeleeExposure:

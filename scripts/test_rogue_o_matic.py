@@ -2982,6 +2982,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.observe(turn, report)
                     self.assertNotEqual(player.choose(turn)[1], "polymorph_threat")
 
+    def test_polymorph_resistance_only_updates_the_opponent_previously_targeted(self):
+        from rogue_combat import PolymorphHistory, PolymorphState
+        from tor_client_bot import AbilityOutcome, OutgoingAbility
+
+        history = PolymorphHistory()
+        history.admitted(["orc", "troll"])
+        history.observe(tuple(OutgoingAbility(target, "rogue.wand_polymorph", AbilityOutcome.UNAFFECTED, None)
+                              for target in ("troll", "griffin")))
+        self.assertEqual(history.by_target, {"orc": PolymorphState.ATTEMPTED, "troll": PolymorphState.RESISTED})
+
     def test_resisted_polymorph_requires_disclosed_charges_even_on_a_fresh_wand(self):
         cells = [cell("here"), cell("enemy", 1)]
         foe = {"id": "hunter", "name": "griffin", "position": cells[1]["position"]}
@@ -2990,8 +3000,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offer = {"item": "fresh", "zappable": True, "device_activation": "direction"}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.opponents.damage_by_name["griffin"] = 10
-        from rogue_player import PolymorphState
-        player.polymorph_by_target["hunter"] = PolymorphState.RESISTED
+        from rogue_combat import PolymorphState
+        player.polymorph.by_target["hunter"] = PolymorphState.RESISTED
         for charges, retry in ((None, False), (0, False), (1, True)):
             with self.subTest(charges=charges):
                 turn = player_turn(cells, actors=[foe], inventory=[wand],
