@@ -123,8 +123,19 @@ def observed_reserve(row: dict) -> int | None:
 @dataclass(frozen=True)
 class TraceSite:
     floor: int
-    known_cells: int
     cell: str
+    known_cells: int | None
+
+    @classmethod
+    def from_trace(cls, row):
+        if row.get("floor") is None or row.get("cell") is None:
+            return None
+        count = row.get("known_cells")
+        return cls(row["floor"], row["cell"], count if type(count) is int and count >= 0 else None)
+
+    def retraces_without_discovery(self, start, via) -> bool:
+        """The two steps returned to their start with unchanged map coverage."""
+        return self.known_cells is not None and self == start and self.known_cells == via.known_cells
 
 
 @dataclass(frozen=True)
@@ -249,12 +260,13 @@ def trace_report(path):
                 visits.previous_floor = None
                 visits.previous_reserve = None
                 continue
-            if row.get("floor") is not None and row.get("cell") is not None and row.get("known_cells") is not None:
+            site = TraceSite.from_trace(row)
+            if site is not None:
                 detours = progress.setdefault("supply_detours", {"ticks": 0, "reserve_spent": 0, "resolved_steps": 0})
-                progress.setdefault("reversals_without_new_terrain", 0)
-                site = TraceSite(row["floor"], row["known_cells"], row["cell"])
+                if site.known_cells is not None:
+                    progress.setdefault("reversals_without_new_terrain", 0)
                 if last_move and last_move.resolved_at(row, site):
-                    if previous_origin == site and last_move.origin.known_cells == site.known_cells:
+                    if site.retraces_without_discovery(previous_origin, last_move.origin):
                         progress["reversals_without_new_terrain"] += 1
                     previous_origin = last_move.origin
                     if last_move.reason == "seek_supplies":

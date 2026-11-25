@@ -1674,6 +1674,12 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertGreater(final["tick"], move["tick"])
         self.assertEqual(progress["supply_detours"]["ticks"], final["tick"] - move["tick"])
 
+        for row in rows:
+            del row["known_cells"]
+        path.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+        _, partial = trace_report(path)
+        self.assertEqual(partial["supply_detours"], progress["supply_detours"])
+
     def run_supply_detour(self, archetype, known, *, budget):
         from discovery_package import write_package
         from utility_potions_package import fixture

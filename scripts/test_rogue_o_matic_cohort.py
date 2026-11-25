@@ -481,6 +481,24 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual(progress["supply_detours"], {"ticks": 100, "reserve_spent": 2, "resolved_steps": 1})
         self.assertEqual(progress["reversals_without_new_terrain"], 1)
 
+    def test_supply_cost_survives_missing_terrain_samples_on_a_round_trip(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        rows = [
+            {"floor": 1, "cell": cell, "tick": tick, "reason": "seek_supplies",
+             "action": {"type": "move"}, "result": {"status": "confirmed", "receipt": {"intention": str(tick)}},
+             "previous_intention_id": str(tick - 10), "previous_intention_phase": "resolved"}
+            for tick, cell in [(10, "hall"), (20, "door"), (30, "hall")]
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "turns.jsonl"
+            trace.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+            _, progress = trace_report(trace)
+        self.assertEqual(progress["supply_detours"], {"ticks": 20, "reserve_spent": 0, "resolved_steps": 2})
+        self.assertEqual(progress.get("reversals_without_new_terrain", 0), 0)
+
     def test_move_without_a_receipt_preserves_floor_totals_and_has_no_resolved_cost(self):
         from pathlib import Path
         import tempfile
