@@ -34,7 +34,7 @@ def needs_identification(item: Item, turn: Turn) -> bool:
 
 
 def identification_target(turn: Turn, candidates: Iterable[Item]) -> Item | None:
-    """Prefer a larger unknown consumable stack, preserving offer order on a tie."""
+    """Prefer a larger unknown consumable stack. Equal scores keep candidate order."""
     def revealed_units(item: Item) -> int:
         if item.identity is None and item.category in {"potion", "scroll", "food"}:
             return item.quantity
@@ -54,8 +54,7 @@ def can_identify_carried_item(scroll: Item, turn: Turn) -> bool:
     categories = identification_categories(scroll)
     if not categories:
         return False
-    matching_items = (item for item in turn.inventory if item.category in categories)
-    return identification_target(turn, matching_items) is not None
+    return any(item.category in categories and needs_identification(item, turn) for item in turn.inventory)
 
 
 def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | None:
