@@ -796,6 +796,18 @@ class BotApiTests(unittest.TestCase):
         rows[0]["wall"] = True
         self.assertIsNone(Turn({"state": {"observation": view}, "readiness": {}}).step(Direction.WEST))
 
+    def test_route_starts_from_the_live_destination_when_the_origin_has_two_views(self):
+        cells = [{"key": key, "position": {"x": x, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False}
+                 for x, key in ((0, "home"), (1, "east"), (5, "home"), (6, "other"))]
+        turn = Turn({"state": {"observation": {"visible_cells": cells, "visible_actors": [],
+                                               "ground_items": [], "interactions": {}}}, "readiness": {}})
+        memory = FloorMap()
+        memory.observe(turn)
+        self.assertIsNone(memory.toward(turn, {"other"}, max_steps=1))
+        self.assertEqual(memory.toward(turn, {"east"}, max_steps=1), Move(Direction.EAST))
+        self.assertIsNone(memory.toward(turn, {"other"}, avoid={"east"}))
+
     def test_navigation_opens_reachable_door_and_never_cuts_unknown_corner(self):
         def tile(key, x, y, door=None):
             return {
