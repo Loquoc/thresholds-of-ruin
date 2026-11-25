@@ -852,6 +852,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     chosen = player.choose_pickup(turn, turn.ground_items, returning=False)
                 self.assertEqual(chosen.target if chosen else None, "prize" if reachable else None)
 
+    def test_distant_guard_allows_healing_pickup_at_the_recovery_threshold(self):
+        here, far = cell("here"), cell("far", 3)
+        foe = {"id": "orc", "name": "orc", "position": far["position"]}
+        dose = {"id": "dose", "identity": "item.potion.healing", "class": "potion",
+                "name": "healing", "quantity": 1, "identified": True}
+        gold = {"id": "gold", "identity": "item.coin.gold", "class": "coin",
+                "name": "gold", "quantity": 1, "identified": True}
+        ground = [{**here, "item": item, "reachable": True} for item in (gold, dose)]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for hp, expected in ((7, None), (8, "dose")):
+            with self.subTest(hp=hp):
+                turn = player_turn([here, far], actors=[foe], hostiles=["orc"], ground=ground,
+                                   combat={"hp": hp, "max_hp": 10})
+                picked = player.choose_pickup(turn, turn.ground_items, returning=False)
+                self.assertEqual(picked.target if picked else None, expected)
+
     def test_unsafe_pickup_allows_only_a_reachable_outbound_objective(self):
         here = cell("here")
         foe = {"id": "foe", "name": "orc", "position": cell("east", 1)["position"]}

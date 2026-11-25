@@ -94,7 +94,7 @@ def healing_reserve_gain(item: Item, carried: Counter[str | None]) -> int:
 
 
 def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, objective: str,
-                     returning: bool, safe_pickup: bool | None = None) -> Item | None:
+                     returning: bool) -> Item | None:
     """Prioritize the objective, missing healing doses, and a first melee weapon. Ties keep ground order."""
     useful = []
     for ground in ground_items:
@@ -109,9 +109,9 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
         if useful_loot(item):
             useful.append(item)
 
-    if not useful or safe_pickup is False:
+    if not useful:
         return None
-    if safe_pickup is None and turn.hostiles:
+    if turn.hostiles:
         health = turn.health
         if health is None or recovery_deficit(health) or any(turn.distance_to(foe) <= 1 for foe in turn.hostiles):
             return None
