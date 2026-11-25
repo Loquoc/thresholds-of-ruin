@@ -662,6 +662,34 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         training.preview.assert_called_once_with(pool, talent)
         training.options.assert_called_once_with(kind)
 
+    def test_training_skips_refused_previews_but_stops_on_stale_context(self):
+        from unittest.mock import Mock
+        from tor_client_bot import Outcome, PointPool, Result, Training, TrainingKind, TrainingOption, TrainingRefused
+
+        kind = TrainingKind.TALENT
+        pool = PointPool(1, "growth", "Growth", 1, (kind,), ())
+        options = tuple(TrainingOption(kind, name, name, (), ()) for name in ("rattling_blow", "dislocating_strike"))
+        for code in ("ineligible", "stale_context"):
+            with self.subTest(code=code):
+                training = Mock(spec=Training)
+                training.overview.return_value = Mock(locked=False, unspent=1, starting_skills=())
+                training.pools.return_value = (pool,)
+                training.options.return_value = options
+                refusal = TrainingRefused(Result(Outcome.REJECTED, None, None, code=code))
+                safe_preview = Mock(would_die=False)
+                training.preview.side_effect = [refusal, safe_preview]
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                turn = player_turn([cell("here")])
+                if code == "stale_context":
+                    with self.assertRaises(TrainingRefused):
+                        player.train(turn, training)
+                    training.preview.assert_called_once_with(pool, options[0])
+                    training.confirm.assert_not_called()
+                else:
+                    purchase, _ = player.train(turn, training)
+                    self.assertEqual(purchase["id"], options[1].identity)
+                    training.confirm.assert_called_once_with(safe_preview)
+
     def test_authored_growth_never_requests_a_purchase_or_balance_page(self):
         from rogue_policy_reference import buy_starting_talent, earned_training
 

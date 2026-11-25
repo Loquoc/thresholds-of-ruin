@@ -148,6 +148,22 @@ def training_choices(training: Training, skill: str) -> Iterator[tuple[PointPool
                     yield pool, option
 
 
+def purchase_training(training: Training, starting_skills: tuple[str, ...]) -> tuple[dict, Result] | None:
+    """Confirm the first safe preview. A stale refusal requires a fresh observation."""
+    skill = "spellcasting" if "spellcasting" in starting_skills else "heavy_weaponry"
+    for pool, option in training_choices(training, skill):
+        try:
+            preview = training.preview(pool, option)
+        except TrainingRefused as error:
+            if error.result.status is Outcome.REJECTED and not error.result.stale:
+                continue
+            raise
+        if not preview.would_die:
+            purchase = {"type": "purchase", "kind": option.kind.value, "id": option.identity}
+            return purchase, training.confirm(preview)
+    return None
+
+
 def trial_appearance(item: Item) -> str:
     """Recognize a sampled item type even when a different instance is offered."""
     return item.appearance or item.name
@@ -254,17 +270,8 @@ class Adventurer:
             self.growth_locked = build.locked
             self.training_checked_at = turn.hit_dice
             return None
-        skill = "spellcasting" if "spellcasting" in build.starting_skills else "heavy_weaponry"
-        for pool, option in training_choices(training, skill):
-            try:
-                preview = training.preview(pool, option)
-            except TrainingRefused as error:
-                if error.result.status is Outcome.REJECTED and not error.result.stale:
-                    continue
-                raise
-            if not preview.would_die:
-                purchase = {"type": "purchase", "kind": option.kind.value, "id": option.identity}
-                return purchase, training.confirm(preview)
+        if purchase := purchase_training(training, build.starting_skills):
+            return purchase
         self.training_checked_at = turn.hit_dice
         return None
 
