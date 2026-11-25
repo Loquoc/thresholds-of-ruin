@@ -38,11 +38,17 @@ def remove_curse_scroll(turn: Turn) -> UseItem | None:
 def needs_identification(item: Item, turn: Turn) -> bool:
     if item.identity is None:
         return True
-    if item.equipment_identified or (item.category != "armor" and item.identity not in MELEE_WEAPONS):
+    if item.equipment_identified:
         return False
-    if item.known_cursed:
-        return any(slot.occupant and slot.occupant.target == item.target for slot in turn.equipment)
-    return True
+    recognized_gear = item.category == "armor" or item.identity in MELEE_WEAPONS
+    if recognized_gear and not item.known_cursed:
+        return True
+    if not recognized_gear and item.category != "weapon":
+        return False
+    if any(slot.occupant and slot.occupant.target == item.target for slot in turn.equipment):
+        return True
+    return (not item.known_cursed and item.category == "weapon"
+            and any(choice.item.target == item.target and choice.slot.kind == "weapon" for choice in turn.equip_choices()))
 
 
 def identification_target(turn: Turn, candidates: Iterable[Item]) -> Item | None:

@@ -3822,6 +3822,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
         self.assertEqual((action.item.target, reason), ("spare", "identify"))
 
+    def test_identification_uses_weapon_slot_evidence_for_scenario_gear(self):
+        from rogue_gear import needs_identification
+
+        slot = {"id": "weapon", "name": "Weapon"}
+        blade = {"id": "blade", "identity": "fixture.blade", "class": "weapon", "name": "blade",
+                 "quantity": 1, "identified": True}
+        for offer, expected in (({}, False), ({"slot": slot}, True),
+                                ({"slot": slot, "known_cursed": True}, False),
+                                ({"slot": slot, "known_cursed": True, "equipped_slot": 0}, True)):
+            with self.subTest(offer=offer):
+                turn = player_turn([cell("here")], inventory=[blade], interactions={
+                    "slots": [slot], "inventory": [{"item": "blade", **offer}]})
+                self.assertEqual(needs_identification(turn.inventory[0], turn), expected)
+
     def test_keeps_a_spear_for_ranged_combat_even_when_weapon_stock_is_full(self):
         inventory = [{"id": key, "name": "mace", "class": "weapon", "quantity": 1,
                       "identity": "item.weapon.mace", "identified": True} for key in ("one", "two", "three")]

@@ -2001,22 +2001,21 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.check_policy_scenario(contents, "custom-enchantment", """
 import os
 from rogue_player import Adventurer
-from tor_client_bot import ItemUse, Outcome, Session, UseItem
+from tor_client_bot import Outcome, Session
 
 with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
     turn = game.wait_for_decision()
-    identify = next(item for item in turn.inventory if item.identity == "item.scroll.identify-weapon")
-    assert turn.submit(UseItem(identify, ItemUse.READ)).status is Outcome.CONFIRMED
-    turn = game.wait_for_decision()
-    prompt = turn.identification
-    blade = next(item for item in prompt.items if item.identity == "item.weapon.fixture-blade")
-    assert turn.submit(prompt.select(blade)).status is Outcome.CONFIRMED
-    turn = game.wait_for_decision()
+    for expected in ("identify_gear", "identify"):
+        player.observe(turn)
+        action, reason = player.choose(turn)
+        assert reason == expected, (action, reason)
+        assert turn.submit(action).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
     def attack(turn):
         return next(slot.occupant.weapon_attack for slot in turn.equipment if slot.kind == "weapon")
     before = attack(turn)
     assert before is not None
-    player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
     action, reason = player.choose(turn)
     assert reason == "enchant_weapon", (action, reason)
