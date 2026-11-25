@@ -31,7 +31,9 @@ class SearchSamplingProcesses(unittest.TestCase):
             self.assertEqual(verify().stdout, first.stdout)
             self.assertEqual(path.read_bytes(), original)
             old = copy.deepcopy(state)
-            old["environment"]["packages"]["numpy"] = "2.5.3"
+            old["environment"]["packages"].update(
+                {"optuna": "5.0.0", "numpy": "2.5.4", "sqlalchemy": "2.1.8", "PyYAML": "6.0.3"},
+            )
             old["header_sha256"] = hash_json({key: old[key] for key in
                                              ("format", "seed", "space", "environment")})
             path.write_text(json.dumps(old), encoding="utf-8")
