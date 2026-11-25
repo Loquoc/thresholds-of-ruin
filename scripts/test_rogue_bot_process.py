@@ -1274,6 +1274,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         region.update(doors=[], traps=[], items=[
             {"id": 10, "at": [4, 2, 0], "archetype": "fixture.lookalike", "quantity": 1},
             {"id": 11, "at": [4, 2, 0], "archetype": "fixture.target", "quantity": 1},
+            {"id": 12, "at": [4, 2, 0], "archetype": "fixture.target", "quantity": 1},
         ])
         server = self.server(scenario=write_package(self, contents, "rogue-bot-canonical-objective"))
         self.install_bot_extension()
@@ -1288,7 +1289,18 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         turns = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(turns[0]["reason"], "seek_objective")
-        self.assertTrue(any(row.get("action", {}).get("type") == "take" for row in turns))
+        objective_pickups = []
+        spare_offered = False
+        for turn in turns[:-1]:
+            offers = {item["item"] for item in turn["reachable_pickups"] if item["identity"] == identity}
+            if turn["amulet_acquired"] and offers:
+                spare_offered = True
+            action = turn["action"]
+            if action["type"] == "take" and action["item"] in offers:
+                objective_pickups.append(turn)
+        self.assertTrue(spare_offered, "The spare must be reachable after the first amulet is acquired")
+        self.assertEqual(len(objective_pickups), 1)
+        self.assertEqual(objective_pickups[0]["result"]["status"], "confirmed")
         self.assertEqual(turns[0]["result"]["status"], "confirmed")
         self.assertTrue(turns[-1]["amulet_acquired"], turns)
 
