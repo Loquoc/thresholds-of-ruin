@@ -4445,6 +4445,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
                     self.assertEqual(choose(player, turn), (Move(escape), "retreat_to_stairs"))
 
+    def test_equally_safe_stair_approaches_keep_the_same_direction_on_a_complete_tie(self):
+        corridor = [cell(str(x), x, up=abs(x) == 3) for x in range(-3, 4)]
+        foe = {"id": "foe", "name": "wraith", "position": cell("north", y=-2)["position"]}
+        for cells in (corridor, corridor[::-1]):
+            with self.subTest(first=cells[0]["key"]):
+                turn = player_turn(cells, actors=[foe], hostiles=["foe"])
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+                self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
+
     def test_stair_approach_can_gain_clearance_with_an_off_axis_step(self):
         cells = [cell(str(x), x, up=x == 3) for x in range(4)]
         cells.extend(cell(f"south-{x}", x, 1) for x in range(3))

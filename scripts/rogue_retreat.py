@@ -46,35 +46,40 @@ def take_corridor(turn: Turn, pursuers: list[tuple[Creature, int]]) -> Move | No
     return None
 
 
-def approach_visible_exit(turn: Turn, exits: set[str], avoid: set[str]) -> Move | None:
-    def distance(offset, goal):
-        # A diagonal covers both axes in one move. Prefer a straighter route on a tie.
-        dx, dy = abs(goal[0] - offset[0]), abs(goal[1] - offset[1])
-        return max(dx, dy), dx + dy
+def _stair_distance(offset: tuple[int, int, int], goal: tuple[int, int, int]) -> tuple[int, int]:
+    """Count diagonal walking steps, breaking ties by total axis distance."""
+    dx, dy = abs(goal[0] - offset[0]), abs(goal[1] - offset[1])
+    return max(dx, dy), dx + dy
 
+
+def approach_visible_exit(turn: Turn, exits: set[str], avoid: set[str]) -> Move | None:
+    """Approach the best visible stairs while keeping clear of pursuers."""
     exits_by_rank = {}
     for cell in turn.visible_cells:
         if cell.key in exits and cell.offset[2] == 0:
-            rank = cell.trap is not None, distance((0, 0, 0), cell.offset)
+            rank = cell.trap is not None, _stair_distance((0, 0, 0), cell.offset)
             exits_by_rank.setdefault(rank, []).append(cell.offset)
     if not exits_by_rank:
         return None
-    best_rank = min(exits_by_rank)
-    destinations = exits_by_rank[best_rank]
-    _, current = best_rank
+    best_exit_rank = min(exits_by_rank)
+    destinations = exits_by_rank[best_exit_rank]
+    _, current_distance = best_exit_rank
+
     approaches = []
     for direction in turn.walkable_directions:
         offset = direction.offset
         candidate = turn.cell_at(offset)
         if candidate is None or candidate.key in avoid:
             continue
-        remaining = min(distance(offset, goal) for goal in destinations)
-        if remaining < current:
+        remaining = min(_stair_distance(offset, goal) for goal in destinations)
+        if remaining < current_distance:
             clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
             # With equal clearance, avoid a known trap before favoring a shorter approach.
             steps, axis_distance = remaining
-            approaches.append((clearance, candidate.trap is None, -steps, -axis_distance, direction))
+            # Preserve the direction-name tie break for otherwise equivalent moves.
+            rank = clearance, candidate.trap is None, -steps, -axis_distance, direction.value
+            approaches.append((rank, direction))
     if not approaches:
         return None
-    *_, direction = max(approaches)
+    _, direction = max(approaches)
     return Move(direction)
