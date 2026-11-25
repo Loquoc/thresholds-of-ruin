@@ -1456,3 +1456,8 @@ and requires the exact line once, while preserving its no-extra-turn, charge
 and request-count checks. The live service and source-free replay separately
 check that the server produces and retains the cue. No production change was
 needed for this test failure.
+
+The next hosted Linux debug Rust run found one independent current-format
+assertion still pinning save archive 72. Its expected archive is now 73;
+the scenario, ruleset, component and arena formats are unchanged. The
+separate physical-framing and previous-save rejection witnesses remain.
