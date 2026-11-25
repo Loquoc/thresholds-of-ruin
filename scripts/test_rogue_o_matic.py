@@ -3859,6 +3859,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         crossings.pending = pending
         self.assertTrue(crossings.can_cancel(receipt))
 
+    def test_completed_crossing_retires_the_wait_intended_for_a_cancelled_departure(self):
+        from tor_client_bot import ActivityChoice, Result
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        origin = player_turn([cell("stairs", down=True)])
+        player.observe(origin)
+        receipt = Result.from_reply({"status": "confirmed", "receipt": {
+            "type": "admitted", "actor": 1, "branch": "game", "intention": "down", "phase": "queued"}})
+        player.admitted(origin, Move(Direction.DOWN), receipt)
+        player.admitted(origin, ActivityChoice.CANCEL, reason="cancel_stalled_stair")
+        landing = player_turn([cell("landing", up=True, down=True)], tick=100)
+        action, reason = choose(player, landing)
+        self.assertEqual(player.depth, 2)
+        self.assertEqual((action, reason), (Move(Direction.DOWN), "descend"))
+
     def test_terminal_depth_counts_only_a_witnessed_final_descent(self):
         from unittest.mock import Mock
         from rogue_runner import play

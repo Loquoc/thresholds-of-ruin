@@ -151,6 +151,7 @@ class StairCrossings:
         elif arrived and (turn.can_act or turn.terminal):
             self.pending = None
             self.cancelled_departures.clear()
+            self.wait_after_cancel = False
             return pending
         return None
 
