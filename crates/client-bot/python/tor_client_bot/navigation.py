@@ -63,17 +63,18 @@ class FloorMap:
         if turn.cell:
             self.visited.add(turn.cell.key)
         plane = {cell.offset[:2]: cell for cell in turn.visible_cells if cell.offset[2] == 0}
-        sightings: dict[str, list[RememberedItem]] = {}
+        sightings: dict[str, dict[str, RememberedItem]] = {}
         for ground in turn.ground_items:
             cell = ground.cell
             if cell and cell.offset[2] == 0:
                 item = ground.item
-                sightings.setdefault(cell.key, []).append(
-                    RememberedItem(item.name, item.identity, item.category, item.quantity)
+                # A stack can appear at several offsets for the same physical square.
+                sightings.setdefault(cell.key, {})[item.target] = RememberedItem(
+                    item.name, item.identity, item.category, item.quantity
                 )
         for (x, y), cell in plane.items():
             if cell.key in sightings:
-                self.items[cell.key] = tuple(sightings[cell.key])
+                self.items[cell.key] = tuple(sightings[cell.key].values())
             else:
                 self.items.pop(cell.key, None)
             if cell.trap:
