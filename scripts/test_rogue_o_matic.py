@@ -1433,6 +1433,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (launch, "launch_projectile"))
 
+    def test_nearby_bystander_does_not_trigger_projectile_queries_for_a_distant_foe(self):
+        from unittest.mock import patch
+
+        cells = [cell(str(x), x) for x in range(10)]
+        actors = [{"id": name, "name": name, "position": cells[x]["position"]}
+                  for name, x in (("friend", 2), ("foe", 9))]
+        ability = {"id": "shoot", "name": "shoot", "target_kind": "directional_projectile", "basic_attack": False,
+                   "reach": {"kind": "projectile"}, "cooldown_remaining": "0", "cost": None}
+        turn = player_turn(cells, actors=actors, hostiles=["foe"], abilities=[ability])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        with patch.object(turn, "_projectile_pages", return_value=()) as query:
+            self.assertIsNone(player.ranged_combat(turn, []))
+            query.assert_not_called()
+
     def test_prefers_a_short_range_shot_when_two_hostiles_are_in_range(self):
         from unittest.mock import Mock
         from tor_client_bot import ProjectileRange, Shot

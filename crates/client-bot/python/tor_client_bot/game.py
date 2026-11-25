@@ -783,13 +783,14 @@ class Turn:
         )
         return sorted(visible, key=lambda cell: sum(n * n for n in cell))
 
-    def ranged_attacks(self, *, max_distance: int | None = None) -> Iterator[Shot]:
+    def ranged_attacks(self, *, max_distance: int | None = None, hostile_only: bool = False) -> Iterator[Shot]:
         """Aim at disclosed occupied cells, including visible creatures above or below.
 
         Each candidate uses the chosen delivery's exact item and socket. The server
         traces the projectile and resolves collisions. Distance is a policy limit.
         """
-        targets = [(offset, creature) for creature in self.creatures for offset in self._aim_offsets(creature, max_distance)]
+        creatures = self.hostiles if hostile_only else self.creatures
+        targets = [(offset, creature) for creature in creatures for offset in self._aim_offsets(creature, max_distance)]
         if not targets:
             return
         for option in self.projectiles():

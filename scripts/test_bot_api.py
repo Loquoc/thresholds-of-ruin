@@ -832,6 +832,14 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(tuple(replay.ranged_attacks()), (shot, upper))
         self.assertEqual(tuple(replay.ranged_attacks(max_distance=1)), ())
         self.assertEqual(tuple(replay.ranged_attacks(max_distance=2)), (shot, upper))
+        import json
+        mixed = json.loads(turn.recording())
+        mixed["state"]["observation"]["visible_actors"].append(
+            {"id": "friend", "name": "bystander", "position": {"x": 1, "y": 0, "z": 0}}
+        )
+        mixed_turn = Turn(mixed)
+        self.assertEqual({s.target.target for s in mixed_turn.ranged_attacks()}, {"foe", "friend"})
+        self.assertEqual(tuple(mixed_turn.ranged_attacks(hostile_only=True)), (shot, upper))
         self.assertIs(shot.target, upper.target)
         self.assertEqual(upper.offset, (2, 0, 1))
         self.assertEqual(session.projectile_choices.call_count, 3)

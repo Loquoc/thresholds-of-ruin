@@ -699,7 +699,7 @@ class Adventurer:
         if turn.tick == self.last_shot_tick:
             return None
         can_strike = any(turn.attack(foe) is not None for foe in adjacent)
-        shot = choose_projectile(turn.ranged_attacks(max_distance=8), can_strike=can_strike)
+        shot = choose_projectile(turn.ranged_attacks(max_distance=8, hostile_only=True), can_strike=can_strike)
         if shot is None:
             return None
         return shot, "launch_projectile" if shot.launcher else "throw_projectile"
