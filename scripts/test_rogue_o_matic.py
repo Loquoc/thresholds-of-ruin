@@ -5263,6 +5263,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         evaluated = [(call.args[0].target, call.kwargs["from_offset"]) for call in distance.call_args_list]
         self.assertEqual(len(evaluated), len(set(evaluated)))
 
+    def test_two_step_escape_prefers_clear_ground_over_one_more_square_of_clearance(self):
+        from rogue_retreat import best_onward_escape
+
+        for trapped in (-1, -2):
+            with self.subTest(trapped=trapped):
+                corridor = [cell(str(x), x) for x in range(-2, 3)]
+                pit = next(site for site in corridor if site["key"] == str(trapped))
+                pit["trap"] = {"id": "pit", "family": "pit", "reachable": False}
+                turn = player_turn(corridor)
+
+                def safety(offset):
+                    return {2: (0, 1), -2: (0, 2)}.get(offset[0], (-1, 1))
+
+                self.assertEqual(best_onward_escape(turn, [Direction.WEST, Direction.EAST], safety), Direction.EAST)
+                self.assertEqual(best_onward_escape(turn, [Direction.WEST], safety), Direction.WEST)
+
     def test_equal_escape_routes_avoid_a_trap_on_either_step(self):
         foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
         for trap_y, expected in ((-2, Direction.SOUTH), (-1, Direction.SOUTH), (1, Direction.NORTH), (2, Direction.NORTH)):

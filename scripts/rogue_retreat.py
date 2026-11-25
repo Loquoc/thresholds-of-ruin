@@ -160,7 +160,8 @@ def best_onward_escape(
             onward_safety = safety(destination)
             if onward_safety < first_safety or onward_safety <= starting_safety:
                 continue
-            rank = onward_safety, cell.trap is None, turn.cell_at(destination).trap is None
+            contact_score, clearance = onward_safety
+            rank = contact_score, cell.trap is None, turn.cell_at(destination).trap is None, clearance
             if best_rank is None or rank > best_rank:
                 best_direction, best_rank = direction, rank
     return best_direction
