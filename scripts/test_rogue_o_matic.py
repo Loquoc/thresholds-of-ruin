@@ -3428,6 +3428,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.danger_until["hall"] = 1200
                 self.assertEqual(player.choose(turn), expected)
 
+    def test_recovery_deficit_rounds_fractional_targets_up(self):
+        from rogue_player import recovery_deficit
+        from tor_client_bot import Health
+
+        for current, maximum, missing in ((7, 10, 1), (8, 10, 0), (8, 11, 1), (9, 11, 0), (11, 11, 0)):
+            with self.subTest(current=current, maximum=maximum):
+                self.assertEqual(recovery_deficit(Health(current, maximum)), missing)
+
     def test_return_recovery_budgets_only_the_floors_still_ahead(self):
         turn = player_turn([cell("stairs", up=True)],
                            inventory=[{"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,

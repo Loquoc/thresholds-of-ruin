@@ -24,6 +24,7 @@ from tor_client_bot import (
     Escape,
     FloorMap,
     GroundItem,
+    Health,
     Injury,
     Item,
     ItemUse,
@@ -97,6 +98,12 @@ CONTROL_DEVICES = (
 
 
 HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
+
+
+def recovery_deficit(health: Health) -> int:
+    """Hit points needed to reach four fifths of maximum health, rounded up."""
+    target = (4 * health.maximum + 4) // 5
+    return max(0, target - health.current)
 
 
 def useful_loot(item: Item) -> bool:
@@ -323,7 +330,7 @@ class Adventurer:
     def observe_combat(self, turn: Turn, report: CombatReport) -> None:
         here = turn.cell
         health = turn.health
-        if health and health.current * 5 >= health.maximum * 4:
+        if health and recovery_deficit(health) == 0:
             self.recovering_from_pursuit = False
             self.recovery_landing = None
         loss = self.previous_health - health.current if health and self.previous_health is not None else 0
@@ -411,7 +418,7 @@ class Adventurer:
             health = turn.health
             self.recovering_from_pursuit = bool(
                 health
-                and health.current * 5 < health.maximum * 4
+                and recovery_deficit(health) > 0
                 and not self.carrying_objective(turn)
             )
         self.recovery_landing = (
@@ -748,7 +755,7 @@ class Adventurer:
 
     def try_unknown_wand(self, turn: Turn) -> Zap | None:
         health = turn.health
-        if not health or health.current * 5 < health.maximum * 4 or self.carrying_objective(turn):
+        if not health or recovery_deficit(health) > 0 or self.carrying_objective(turn):
             return None
         if any(turn.distance_to(foe) < 3 for foe in turn.hostiles):
             return None
@@ -940,8 +947,8 @@ class Adventurer:
         health, clock = turn.health, turn.recovery
         if health is None or clock is None or clock.stopped:
             return None
-        missing = (health.maximum * 4 + 4) // 5 - health.current
-        if missing <= 0:
+        missing = recovery_deficit(health)
+        if missing == 0:
             return None
 
         memory = self.maps[self.depth]
@@ -997,7 +1004,7 @@ class Adventurer:
         if improvement := improve_worn_gear(turn):
             return improvement
         health = turn.health
-        can_experiment = bool(health and health.current * 5 >= health.maximum * 4 and not self.carrying_objective(turn))
+        can_experiment = bool(health and recovery_deficit(health) == 0 and not self.carrying_objective(turn))
         if can_experiment:
             for item in turn.inventory:
                 if (item.identity is None and ItemUse.DRINK in item.uses
@@ -1227,7 +1234,7 @@ class Adventurer:
 
     def choose_pickup(self, turn: Turn, ground_items: tuple[GroundItem, ...]) -> Item | None:
         safe_pickup = not turn.hostiles or bool(
-            turn.health and turn.health.current * 5 >= turn.health.maximum * 4
+            turn.health and recovery_deficit(turn.health) == 0
             and all(turn.distance_to(foe) > 1 for foe in turn.hostiles)
         )
         first_useful = None
