@@ -2210,7 +2210,7 @@ fn dragon_head(p: &mut Parts, l: &Look) {
     let horn = Vec3::new(0.36, 0.24, 0.16);
     for side in [-1.0f32, 1.0] {
         tube(
-            &mut p.matte,
+            &mut p.stone,
             &[
                 Vec3::new(side * 0.06, 0.11, -0.03),
                 Vec3::new(side * 0.1, 0.17, -0.12),
@@ -2223,7 +2223,7 @@ fn dragon_head(p: &mut Parts, l: &Look) {
         // Cheek spikes fanning back from the jaw.
         for k in 0..3 {
             let root = Vec3::new(side * 0.085, 0.04 - k as f32 * 0.025, -0.02);
-            p.matte.prism(
+            p.stone.prism(
                 root,
                 root + Vec3::new(side * 0.06, 0.01, -0.07),
                 0.016,
@@ -2246,13 +2246,13 @@ fn jabberwock_head(p: &mut Parts, l: &Look) {
         let base = Vec3::new(side * 0.06, 0.12, -0.03);
         let fork = base + Vec3::new(side * 0.085, 0.08, -0.14);
         tube(
-            &mut p.matte,
+            &mut p.stone,
             &[base, fork, fork + Vec3::new(side * 0.075, 0.07, -0.16)],
             &[(0.041, 0.037), (0.029, 0.026), (0.003, 0.003)],
             antler,
         );
         tube(
-            &mut p.matte,
+            &mut p.stone,
             &[
                 fork,
                 fork + Vec3::new(side * 0.09, -0.01, -0.015),
@@ -2266,7 +2266,7 @@ fn jabberwock_head(p: &mut Parts, l: &Look) {
             let a = k as f32 / 5.0;
             let root = Vec3::new(side * 0.09, 0.12 - a * 0.14, 0.02 - a * 0.04);
             leaf(
-                &mut p.matte,
+                &mut p.chitin,
                 root,
                 Vec3::new(side * 0.8, 0.2 - a * 0.6, -0.5),
                 0.1,

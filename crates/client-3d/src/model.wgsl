@@ -87,6 +87,12 @@ fn fragment(
                 0.0,
                 sin(wp.x * surface.detail.x * 3.0) * cos(wp.z * surface.detail.x * 3.0),
             ) * 1.2;
+        } else if (kind == 5u) {
+            // Chitin adds subtle overlapping scale ridges.
+            let phase = wp.y * surface.detail.x * 1.8 + n_val * 2.2;
+            let scale = sin(phase);
+            n_val = mix(n_val, scale * 0.5 + 0.5, 0.35);
+            grad.y += cos(phase) * 1.4;
         }
 
         let tangent_grad = grad - pbr_input.N * dot(grad, pbr_input.N);
@@ -108,6 +114,14 @@ fn fragment(
         let rim = pow(1.0 - ndotv, 3.2) * surface.finish.x;
         if (kind == 7u) {
             pbr_input.material.emissive += vec4<f32>(pbr_input.material.base_color.rgb * rim * 1.5, 0.0);
+        } else if (kind == 0u) {
+            // Soft velvety fuzz sheen on cloth at grazing angles.
+            let sheen = pow(1.0 - ndotv, 2.2) * surface.finish.x * 0.35;
+            pbr_input.material.emissive += vec4<f32>(pbr_input.material.base_color.rgb * sheen, 0.0);
+        } else if (kind == 4u) {
+            // Soft organic wrap scatter on skin at grazing angles.
+            let wrap = pow(1.0 - ndotv, 2.5) * surface.finish.x * 0.45;
+            pbr_input.material.emissive += vec4<f32>(pbr_input.material.base_color.rgb * wrap, 0.0);
         } else {
             pbr_input.material.emissive += vec4<f32>(pbr_input.material.base_color.rgb * rim * 0.25, 0.0);
         }

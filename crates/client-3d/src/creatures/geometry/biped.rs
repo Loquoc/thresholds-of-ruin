@@ -531,6 +531,91 @@ fn neck_drape_half_width(drape: NeckDrape, neckline: Option<NecklineCut>, build:
     (COMPACT + 2.0 * (reach - COMPACT).max(0.0)).min(0.195)
 }
 
+/// Hue-preserving anatomical shading for adult female chests (intermammary
+/// sulcus, inframammary fold, and lateral mammary contour) using distance-to-mass
+/// occlusion and luma-adaptive power-curve shading so both fair and fantastic
+/// skin tones retain clean saturation without muddying.
+fn bust_skin_shade(skin: Vec3, bust: Option<Bust>, at: Vec3, normal: Vec3) -> Vec3 {
+    let Some(bust) = bust else {
+        return skin;
+    };
+    let smooth = |edge0: f32, edge1: f32, x: f32| -> f32 {
+        let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let strength = (0.50 + 0.45 * bust.volume).clamp(0.45, 0.98);
+    let wall_z = bust.wall.ribs.0.z;
+    let y_window = smooth(bust.fold - 0.035, bust.fold + 0.015, at.y)
+        * smooth(bust.top + 0.018, bust.top - 0.022, at.y);
+
+    let (cl, rl) = bust.mass(-1.0, 0.0);
+    let (cr, rr) = bust.mass(1.0, 0.0);
+    let d_left = ((at - cl) / rl).length();
+    let d_right = ((at - cr) / rr).length();
+    let d_min = d_left.min(d_right);
+
+    // 1. Intermammary sulcus: pinch where both masses approach, plus inward slopes.
+    let pinch = smooth(1.75, 0.95, d_left) * smooth(1.75, 0.95, d_right);
+    let inward_slope = smooth(1.50, 0.92, d_min)
+        * smooth(bust.root * 1.15, 0.0, at.x.abs())
+        * smooth(-0.10, 0.40, -at.x.signum() * normal.x);
+    let sulcus = pinch.max(inward_slope * 0.90)
+        * y_window
+        * smooth(wall_z + 0.005, wall_z + 0.045, at.z)
+        * smooth(-0.2, 0.35, normal.z);
+
+    // 2. Inframammary fold & lateral mammary contour.
+    let mut inframammary = 0.0f32;
+    let mut lateral_contour = 0.0f32;
+    let mut highlight = 0.0f32;
+    for (center, radii, side) in [(cl, rl, -1.0f32), (cr, rr, 1.0f32)] {
+        let dx = at.x - center.x;
+        let dy = at.y - center.y;
+        let under_y = -((dy + radii.y * 0.86) / (radii.y * 0.36)).powi(2);
+        let under_x = -((dx / (radii.x * 1.05)).powi(2));
+        inframammary = inframammary.max(
+            (under_y + under_x).exp()
+                * smooth(wall_z - 0.005, wall_z + 0.04, at.z)
+                * smooth(0.30, -0.30, normal.y),
+        );
+
+        let outer_x = at.x * side - (center.x.abs() + radii.x * 0.42);
+        if outer_x > -0.015 {
+            let side_band = (-((outer_x - radii.x * 0.28) / (radii.x * 0.42)).powi(2)).exp();
+            let side_y = (-((dy / (radii.y * 0.85)).powi(2))).exp();
+            lateral_contour = lateral_contour.max(
+                side_band
+                    * side_y
+                    * smooth(wall_z - 0.02, wall_z + 0.035, at.z)
+                    * smooth(-0.55, 0.25, normal.z),
+            );
+        }
+
+        let apex_dist = ((dx / radii.x).powi(2) + (dy / radii.y).powi(2)).min(2.0);
+        let superior_slope = (-apex_dist).exp()
+            * smooth(0.05, 0.50, normal.y)
+            * smooth(0.25, 0.70, normal.z);
+        highlight = highlight.max(superior_slope);
+    }
+
+    let crease = (sulcus * 1.32 + inframammary * 1.05 + lateral_contour * 0.85).clamp(0.0, 1.0)
+        * strength;
+    let luma = skin.dot(Vec3::new(0.2126, 0.7152, 0.0722));
+    // Fair skin needs a steeper power curve to read under AmbientLight/tonemapping;
+    // mid/darker fantastic skin needs a gentler curve so channels never crush.
+    let fair = smooth(0.38, 0.72, luma);
+    let gamma = 1.0 + (0.85 + 1.15 * fair) * crease;
+    let floor_scale = 0.50 + 0.06 * (1.0 - fair);
+    let shadowed = Vec3::new(
+        skin.x.max(0.001).powf(gamma),
+        skin.y.max(0.001).powf(gamma),
+        skin.z.max(0.001).powf(gamma),
+    )
+    .max(skin * floor_scale);
+    let lit_boost = Vec3::splat(0.13 * highlight * strength * (1.0 - crease));
+    (shadowed + lit_boost).clamp(Vec3::ZERO, Vec3::ONE)
+}
+
 /// The chest, bust, waist and every garment layer on the torso.
 fn torso_parts(p: &mut Parts, figure: &Figure) {
     let &Figure {
@@ -629,6 +714,9 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         }
         None
     };
+    let skin_shade = |at: Vec3, normal: Vec3| -> Vec3 {
+        bust_skin_shade(l.skin, body.bust, at, normal)
+    };
     if l.equipment.shirt.is_some() && (native_plate.is_some() || equipped_plate.is_some()) {
         // The historical armored shirt can coincide with skin. Retain only
         // exposed skin there, avoiding coplanar skin/cloth triangles.
@@ -637,7 +725,7 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
             Vec3::new(-0.38, -0.06, -0.21) * b.max(1.0),
             Vec3::new(0.38, 0.64, 0.24) * b.max(1.0),
             0.0085,
-            &|_, _| l.skin,
+            &skin_shade,
             &|at| equipment_shirts::covers(body, outfit.bodice, neckline, at),
             false,
         );
@@ -649,28 +737,28 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
             0.0085,
             &|at, normal| {
                 if l.equipment.shirt.is_some() {
-                    return l.skin;
+                    return skin_shade(at, normal);
                 }
                 if outfit.bodice.cover == Cover::Bikini {
                     // Each cup's rim is bound in a darker edge.
                     return match bikini_cover(body, at) {
                         Some(rim) if rim > 0.86 => outfit.bodice.edge,
                         Some(_) => tunic * Sculpt::weave(at),
-                        None => l.skin,
+                        None => skin_shade(at, normal),
                     };
                 }
                 let bare = !bodice_covers(body, outfit.bodice, bare_shoulders, at);
                 // Women's bodices plunge down the sternum, showing the upper
                 // chest and the valley between.
                 if neckline.is_some_and(|cut| cut.open(at)) {
-                    return l.skin;
+                    return skin_shade(at, normal);
                 }
                 if let Some(pigment) = skin_patch(at, normal) {
                     return pigment;
                 }
 
                 if bare {
-                    l.skin
+                    skin_shade(at, normal)
                 } else {
                     let ground = match outfit.bodice.pattern {
                         Pattern::Brocade { .. } => tunic,
@@ -2831,4 +2919,64 @@ fn native_caster_cowl_fit_preserves_compact_geometry_on_other_outfits() {
         torso_parts(&mut compact, &figure);
         resolved.matte.assert_same_recipe(&compact.matte);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn bust_skin_shade_preserves_neutral_and_fantastic_hues() {
+    let look = Look::with_choice(
+        CreatureModel::Human,
+        2,
+        Some(Variant {
+            woman: true,
+            build: 1,
+            ..default()
+        }),
+    );
+    let body = HumanoidBody::resolve(&look);
+    let bust = body.bust.expect("woman has bust");
+    let (cl, rl) = bust.mass(-1.0, 0.0);
+
+    let fair = Vec3::new(0.84, 0.66, 0.54);
+    let orc_green = Vec3::new(0.45, 0.55, 0.18);
+    let frost_blue = Vec3::new(0.18, 0.45, 0.82);
+
+    // Without a bust, skin is untouched.
+    assert_eq!(
+        bust_skin_shade(fair, None, Vec3::new(0.0, cl.y, cl.z + rl.z), Vec3::Z),
+        fair
+    );
+    // Above the bust top (upper neckline), skin is untouched.
+    assert_eq!(
+        bust_skin_shade(
+            fair,
+            Some(bust),
+            Vec3::new(0.0, bust.top + 0.03, bust.wall.ribs.0.z + 0.06),
+            Vec3::Z
+        ),
+        fair
+    );
+
+    let sulcus_pt = Vec3::new(0.0, cl.y, cl.z + rl.z * 0.4);
+    let fold_pt = Vec3::new(cl.x, cl.y - rl.y * 0.86, cl.z + rl.z * 0.5);
+    let luma = |c: Vec3| c.dot(Vec3::new(0.2126, 0.7152, 0.0722));
+
+    for skin in [fair, orc_green, frost_blue] {
+        let sulcus = bust_skin_shade(skin, Some(bust), sulcus_pt, Vec3::Z);
+        let fold = bust_skin_shade(
+            skin,
+            Some(bust),
+            fold_pt,
+            Vec3::new(0.0, -0.6, 0.8).normalize(),
+        );
+        assert!(luma(sulcus) < luma(skin), "sulcus must darken {skin:?}");
+        assert!(luma(fold) < luma(skin), "inframammary fold must darken {skin:?}");
+        assert!(sulcus.min_element() > 0.0 && fold.min_element() > 0.0);
+    }
+
+    // Fantastic hues remain dominant in shadow.
+    let green_sulcus = bust_skin_shade(orc_green, Some(bust), sulcus_pt, Vec3::Z);
+    assert!(green_sulcus.y > green_sulcus.x && green_sulcus.y > green_sulcus.z);
+    let blue_sulcus = bust_skin_shade(frost_blue, Some(bust), sulcus_pt, Vec3::Z);
+    assert!(blue_sulcus.z > blue_sulcus.y && blue_sulcus.z > blue_sulcus.x);
 }
