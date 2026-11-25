@@ -127,6 +127,11 @@ class PendingStair:
     attempt: StairAttempt
     pursuers: tuple[str, ...]
 
+    @property
+    def departure(self) -> tuple[str, Direction]:
+        """The origin and direction share one cancellation allowance across retries."""
+        return self.attempt.origin, self.attempt.direction
+
 
 @dataclass
 class Adventurer:
@@ -302,8 +307,7 @@ class Adventurer:
             case MemoryReason.CANCEL_STALLED_SCROLL:
                 self.scroll_trials.interrupted(turn)
             case MemoryReason.CANCEL_STALLED_STAIR if self.pending_stair:
-                attempt = self.pending_stair.attempt
-                self.cancelled_stairs.add((attempt.origin, attempt.direction))
+                self.cancelled_stairs.add(self.pending_stair.departure)
                 self.wait_after_cancel = True
             case MemoryReason.WAIT_AFTER_CANCEL:
                 self.wait_after_cancel = False
@@ -962,8 +966,8 @@ class Adventurer:
             return None, "readiness_timeout"
         if self.scroll_trials.pending and self.scroll_trials.pending.receipt == previous:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_SCROLL
-        stair = self.pending_stair.attempt if self.pending_stair else None
-        if stair and stair.receipt == previous and (stair.origin, stair.direction) not in self.cancelled_stairs:
+        pending = self.pending_stair
+        if pending and pending.attempt.receipt == previous and pending.departure not in self.cancelled_stairs:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_STAIR
         return None, "readiness_timeout"
 

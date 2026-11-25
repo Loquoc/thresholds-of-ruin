@@ -3794,14 +3794,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(landing, move, result)
         self.assertEqual(player.stalled(blocked, result), (None, "readiness_timeout"))
 
-    def test_stair_retries_are_limited_per_direction_on_a_shared_landing(self):
+    def test_stalled_stair_cancellation_is_limited_per_origin_and_direction(self):
         from tor_client_bot import ActivityChoice, Result
 
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        landing = player_turn([cell("shared", up=True, down=True)])
-        player.observe(landing)
-        for index, direction in enumerate((Direction.DOWN, Direction.UP, Direction.DOWN, Direction.UP)):
-            with self.subTest(index=index, direction=direction):
+        attempts = [
+            ("shared", Direction.DOWN, True), ("shared", Direction.UP, True),
+            ("other", Direction.DOWN, True), ("shared", Direction.DOWN, False),
+            ("shared", Direction.UP, False), ("other", Direction.DOWN, False),
+        ]
+        for index, (origin, direction, can_cancel) in enumerate(attempts):
+            with self.subTest(origin=origin, direction=direction, can_cancel=can_cancel):
+                landing = player_turn([cell(origin, up=True, down=True)])
+                player.observe(landing)
                 receipt = {"type": "admitted", "actor": 1, "branch": "game",
                            "intention": str(index), "phase": "queued"}
                 result = Result.from_reply({"status": "confirmed", "receipt": receipt})
@@ -3809,13 +3814,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 picture = json.loads(landing.recording())
                 blocked = Turn({**picture, "can_cancel": True, "intentions": [receipt],
                                 "readiness": {"admission": False}})
-                expected = (ActivityChoice.CANCEL, "cancel_stalled_stair") if index < 2 else (None, "readiness_timeout")
+                expected = (ActivityChoice.CANCEL, "cancel_stalled_stair") if can_cancel else (None, "readiness_timeout")
                 self.assertEqual(player.stalled(blocked, result), expected)
-                if index < 2:
+                if can_cancel:
                     player.admitted(blocked, ActivityChoice.CANCEL, reason="cancel_stalled_stair")
                     clear = Turn({**picture, "finished_intentions": [dict(receipt, phase="cancelled")]})
                     self.assertEqual(choose(player, clear), (Wait(), "wait_after_cancel"))
                     player.admitted(clear, Wait(), reason="wait_after_cancel")
+                else:
+                    failed = Turn({**picture, "finished_intentions": [dict(receipt, phase="failed")]})
+                    player.observe(failed)
+                self.assertIsNone(player.pending_stair)
 
     def test_terminal_depth_counts_only_a_witnessed_final_descent(self):
         from unittest.mock import Mock
