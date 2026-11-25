@@ -20,6 +20,7 @@ from tor_client_bot import (
     Escape,
     FloorMap,
     GroundItem,
+    Identify,
     Injury,
     Item,
     ItemUse,
@@ -321,8 +322,9 @@ class Adventurer:
                 self.scroll_trials.interrupted(turn)
             case MemoryReason.CANCEL_STALLED_STAIR:
                 self.crossings.record_cancellation()
-            case MemoryReason.WAIT_AFTER_CANCEL:
-                self.crossings.wait_after_cancel = False
+
+        if self.crossings.wait_after_cancel and not isinstance(action, (ActivityChoice, Identify)):
+            self.crossings.wait_after_cancel = False
 
         match action:
             case Pickup() if action.item.category == "food":
@@ -1043,15 +1045,18 @@ class Adventurer:
             return None, "uncertain_stair_landing"
         if turn.falling:
             return Wait(), "settle_fall"
-        if self.crossings.wait_after_cancel:
-            return Wait(), MemoryReason.WAIT_AFTER_CANCEL
-
         return self.choose_ready_action(turn)
 
     def choose_ready_action(self, turn: Turn) -> tuple[Action | None, str]:
-        """Choose a gameplay action once prompts, interruptions and forced waits are handled."""
+        """Choose a gameplay action once prompts, interruptions and falling are handled."""
         if decision := self.combat(turn):
-            return decision
+            action, _ = decision
+            retrying_stair = (self.crossings.wait_after_cancel and isinstance(action, Move)
+                              and (turn.cell.key, action.direction) in self.crossings.cancelled_departures)
+            if not retrying_stair:
+                return decision
+        if self.crossings.wait_after_cancel:
+            return Wait(), MemoryReason.WAIT_AFTER_CANCEL
 
         trapped = self.trapped(turn)
         if not trapped and self.holding_corridor(turn.cell, turn.tick) and turn.hunger not in URGENT_HUNGER:

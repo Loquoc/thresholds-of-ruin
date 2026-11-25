@@ -3859,6 +3859,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         crossings.pending = pending
         self.assertTrue(crossings.can_cancel(receipt))
 
+    def test_healing_after_a_stair_cancellation_spends_the_retry_wait(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.crossings.wait_after_cancel = True
+        here, east = cell("here", down=True), cell("east", 1)
+        foe = {"id": "orc", "name": "orc", "position": east["position"]}
+        turn = player_turn([here, east], actors=[foe], hostiles=["orc"], inventory=healing_potions(),
+                           interactions={"inventory": [{"item": "healing", "drinkable": True}]},
+                           combat={"hp": 3, "max_hp": 10})
+        action, reason = choose(player, turn)
+        self.assertEqual(reason, "heal")
+        self.assertTrue(player.crossings.wait_after_cancel)
+        player.admitted(turn, action, reason=reason)
+        self.assertEqual(choose(player, player_turn([here])), (Move(Direction.DOWN), "descend"))
+
     def test_completed_crossing_retires_the_wait_intended_for_a_cancelled_departure(self):
         from tor_client_bot import ActivityChoice, Result
 

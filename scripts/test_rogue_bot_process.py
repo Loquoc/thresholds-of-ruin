@@ -3382,13 +3382,16 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_bot_heals_above_half_health_when_cornered_by_a_lethal_threat(self):
         self.check_cornered_policy(unknown_scrolls=False)
 
+    def test_cornered_bot_spends_its_stair_retry_wait_on_healing(self):
+        self.check_cornered_policy(unknown_scrolls=False, after_stair_cancel=True)
+
     def test_injured_bot_conserves_extra_healing_against_a_low_damage_contact(self):
         self.check_cornered_policy(unknown_scrolls=False, low_damage=True)
 
     def test_bot_attacks_after_one_unidentified_scroll_in_a_fight(self):
         self.check_cornered_policy(unknown_scrolls=True)
 
-    def check_cornered_policy(self, *, unknown_scrolls, low_damage=False):
+    def check_cornered_policy(self, *, unknown_scrolls, low_damage=False, after_stair_cancel=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -3431,6 +3434,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
     foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
     policy = Adventurer(26, "item.amulet.amulet-of-yendor")
     policy.observe(turn)
+    policy.crossings.wait_after_cancel = os.environ["BOT_TEST_AFTER_STAIR_CANCEL"] == "1"
     policy.opponents.damage_by_target[foe.target] = 1 if low_damage else hp
     action, reason = policy.choose(turn)
     if os.environ["BOT_TEST_UNKNOWN_SCROLLS"] == "1":
@@ -3452,13 +3456,17 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
             assert hp > 2 and action.item.identity == "item.potion.healing", action
         else:
             assert action.item.name == "Restorative draught" and action.item.identity == "item.potion.extra-healing"
-        assert turn.submit(action).status is Outcome.CONFIRMED
+        receipt = turn.submit(action)
+        assert receipt.status is Outcome.CONFIRMED
+        policy.admitted(turn, action, receipt, reason=reason)
+        assert not policy.crossings.wait_after_cancel
         assert player.wait_for_decision().health.current > hp
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
                  "BOT_TEST_ADDRESS": self.address, "BOT_TEST_LOW_DAMAGE": str(int(low_damage)),
+                 "BOT_TEST_AFTER_STAIR_CANCEL": str(int(after_stair_cancel)),
                  "BOT_TEST_UNKNOWN_SCROLLS": str(int(unknown_scrolls))},
             text=True, capture_output=True, timeout=55,
         )
