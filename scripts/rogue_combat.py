@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tor_client_bot import Creature, IncomingAbility, OutgoingAbility, Shot
+    from tor_client_bot import Creature, IncomingAbility, OutgoingAbility, Shot, Turn
 
 
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
@@ -84,6 +84,20 @@ def combat_death_cause(history, player):
                 return cause
             return preceding_attack(events, player) or cause
     return None
+
+
+def horizontal_push_direction(turn: Turn, foe: Creature) -> tuple[int, int] | None:
+    """Return the push direction when every shared cell face points the same way."""
+    directions = set()
+    for sx, sy, sz in turn.body:
+        for x, y, z in foe.cells:
+            dx, dy, dz = x - sx, y - sy, z - sz
+            if abs(dx) + abs(dy) + abs(dz) == 1:
+                directions.add((dx, dy, dz))
+    if len(directions) != 1:
+        return None
+    (dx, dy, dz), = directions
+    return (dx, dy) if dz == 0 else None
 
 
 def choose_projectile(shots: Iterable[Shot], *, can_strike: bool) -> Shot | None:

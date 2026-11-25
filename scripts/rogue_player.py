@@ -44,7 +44,9 @@ from tor_client_bot import (
     Zap,
 )
 
-from rogue_combat import choose_projectile, includes_self_damage, sole_applied_attacker, witnessed_unseen_attack
+from rogue_combat import (
+    choose_projectile, horizontal_push_direction, includes_self_damage, sole_applied_attacker, witnessed_unseen_attack,
+)
 from rogue_loot import (
     DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
 )
@@ -703,14 +705,10 @@ class Adventurer:
     @staticmethod
     def has_push_space(turn: Turn, foe: Creature) -> bool:
         """Check that one horizontal push can move every visible target cell."""
-        contacts = {(x - sx, y - sy, z - sz)
-                    for sx, sy, sz in turn.body for x, y, z in foe.cells
-                    if abs(x - sx) + abs(y - sy) + abs(z - sz) == 1}
-        if len(contacts) != 1:
+        direction = horizontal_push_direction(turn, foe)
+        if direction is None:
             return False
-        dx, dy, dz = contacts.pop()
-        if dz:
-            return False
+        dx, dy = direction
         occupied = set(turn.body)
         for creature in turn.creatures:
             if creature.target != foe.target:

@@ -105,6 +105,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    actors=actors, hostiles=["orc"])
                 self.assertEqual(Adventurer.has_push_space(turn, turn.hostiles[0]), clear)
 
+    def test_push_requires_one_horizontal_direction_from_all_face_contacts(self):
+        def actor(name, x, y, z):
+            return {"id": name, "name": name, "position": {"x": x, "y": y, "z": z}}
+
+        tiles = [{**cell(f"{x},{y},{z}", x, y), "position": {"x": x, "y": y, "z": z}}
+                 for x in range(3) for y in range(-1, 3) for z in range(3)]
+        for body, target, expected in (
+            ([(0, 0, 1)], [(1, 0, 0), (1, 0, 1)], True),
+            ([(1, 1, 0)], [(1, 0, 0)], False),
+            ([], [(0, 0, 1)], False),
+            ([], [(1, 1, 0)], False),
+        ):
+            with self.subTest(body=body, target=target):
+                actors = [actor("player", *offset) for offset in body] + [actor("orc", *offset) for offset in target]
+                turn = player_turn(tiles, actors=actors, hostiles=["orc"])
+                self.assertEqual(Adventurer.has_push_space(turn, turn.hostiles[0]), expected)
+
     def test_drinks_known_haste_before_a_group_closes_and_avoids_a_second_dose(self):
         potion = {"id": "dose", "name": "potion of haste", "identity": "item.potion.haste",
                   "quantity": 2, "identified": True, "class": "potion"}
