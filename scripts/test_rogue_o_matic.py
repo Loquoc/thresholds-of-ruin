@@ -610,11 +610,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         del offers[1]["equipped_slot"]
         inventory[0]["identity"] = "item.armor.plate-mail"
         offers[0] = {"item": "worn", "slot": slot, "known_cursed": False}
-        for measured, index, reason in ((6, 1, "upgrade_armor"), (5, 0, "try_armor")):
-            with self.subTest(measured=measured):
-                offers[1] = offer("plate", measured)
-                turn = picture()
-                self.assertEqual(choose(player, turn), (Equip(turn.inventory[index], turn.equipment[0]), reason))
+        for measured, target, reason in ((6, "plate", "upgrade_armor"), (5, "worn", "try_armor")):
+            offers[1] = offer("plate", measured)
+            for candidates in (inventory, list(reversed(inventory))):
+                with self.subTest(measured=measured, first=candidates[0]["id"]):
+                    turn = player_turn([here], inventory=candidates, interactions=interactions)
+                    action, decision_reason = choose(player, turn)
+                    self.assertIsInstance(action, Equip)
+                    self.assertEqual((action.item.target, action.slot, decision_reason), (target, turn.equipment[0], reason))
 
     def test_bot_extension_uses_test_profile_with_downloaded_binaries(self):
         from pathlib import Path

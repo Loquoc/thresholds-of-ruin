@@ -86,14 +86,17 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
         if rating is None or current is None or rating <= current:
             continue
         rank = rating - current, item.physical_reduction is not None
-        if best_rank is not None and rank <= best_rank:
-            continue
-        best_rank = rank
-        if slot.removal_blocked and cure is not None:
-            best = UseItem(cure, ItemUse.READ), "remove_armor_curse"
-        else:
-            best = (Unequip(slot) if worn else choice), "try_armor" if estimated else "upgrade_armor"
-    return best
+        if best_rank is None or rank > best_rank:
+            best_rank = rank
+            best = choice, estimated
+
+    if best is None:
+        return None
+    choice, estimated = best
+    if choice.slot.removal_blocked and cure is not None:
+        return UseItem(cure, ItemUse.READ), "remove_armor_curse"
+    action = Unequip(choice.slot) if choice.slot.occupant else choice
+    return action, "try_armor" if estimated else "upgrade_armor"
 
 
 def reveal_unseen_attacker(turn: Turn) -> Action | None:
