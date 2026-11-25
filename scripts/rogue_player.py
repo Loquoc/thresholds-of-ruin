@@ -51,7 +51,8 @@ from rogue_loot import (
 from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
 from rogue_retreat import (
-    approach_visible_exit, best_onward_escape, converging_pursuers, evade_unseen_attacker,
+    stair_retreat_step,
+    best_onward_escape, converging_pursuers, evade_unseen_attacker,
     route_around_danger, route_to_recovery_shelter, take_corridor,
 )
 from rogue_food import (
@@ -836,12 +837,7 @@ class Adventurer:
 
     def route_to_retreat_stairs(self, turn: Turn, exits: set[str]) -> tuple[Action, str] | None:
         """Choose a stair approach while accounting for pursuit and immediate melee risk."""
-        avoid = {cell.key for foe in turn.hostiles for cell in turn.cells_of(foe)}
-        if self.last_retreat_origin is not None:
-            avoid.add(self.last_retreat_origin)
-        exits = exits - avoid
-        memory = self.maps[self.depth]
-        step = approach_visible_exit(turn, memory, exits, avoid) or memory.toward(turn, exits, avoid=avoid)
+        step = stair_retreat_step(turn, self.maps[self.depth], exits, self.last_retreat_origin)
         if step is None:
             return None
         # Opening a door spends the turn in the current cell.

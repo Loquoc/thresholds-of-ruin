@@ -161,7 +161,18 @@ def _preferred_visible_stairs(turn: Turn, memory: FloorMap, exits: set[str],
     return exits_by_rank[min(exits_by_rank)] if exits_by_rank else []
 
 
-def approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: set[str]) -> Move | None:
+def stair_retreat_step(turn: Turn, memory: FloorMap, exits: set[str],
+                       previous_square: str | None) -> Move | OpenDoor | None:
+    """Approach visible stairs or follow a remembered route, avoiding pursuit and backtracking."""
+    avoid = {cell.key for foe in turn.hostiles for cell in turn.cells_of(foe)}
+    if previous_square is not None:
+        avoid.add(previous_square)
+    destinations = exits - avoid
+    return (_approach_visible_exit(turn, memory, destinations, avoid)
+            or memory.toward(turn, destinations, avoid=avoid))
+
+
+def _approach_visible_exit(turn: Turn, memory: FloorMap, exits: set[str], avoid: set[str]) -> Move | None:
     """Approach the best visible stairs while keeping clear of pursuers."""
     destinations = _preferred_visible_stairs(turn, memory, exits, avoid)
     if turn.cell is None or not destinations:

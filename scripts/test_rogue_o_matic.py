@@ -4262,6 +4262,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
                 self.assertEqual(choose(player, turn), (Move(expected), "retreat_to_stairs"))
 
+    def test_remembered_stair_route_respects_the_previous_retreat_square(self):
+        corridor = [cell(str(x), x, up=x in (-2, 3)) for x in range(-2, 4)]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        player.observe(player_turn(corridor))
+        foe = {"id": "foe", "name": "wraith", "position": cell("north", y=-3)["position"]}
+        turn = player_turn(corridor[1:4], actors=[foe], hostiles=["foe"])
+        for previous, expected in ((None, Direction.WEST), ("-1", Direction.EAST)):
+            with self.subTest(previous=previous):
+                player.last_retreat_origin = previous
+                self.assertEqual(player.route_to_retreat_stairs(turn, {"-2", "3"}),
+                                 (Move(expected), "retreat_to_stairs"))
+
     def test_stair_retreat_takes_the_detour_around_a_known_blind_alley(self):
         cells = [cell("here"), cell("alley", 1), cell("barrier", 2, wall=True),
                  cell("north-wall", 1, -1, wall=True), cell("south-wall", 1, 1, wall=True),
