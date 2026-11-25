@@ -3723,6 +3723,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(player, revisit), (Move(Direction.DOWN), "descend"))
         self.assertEqual(player.depth, 3)
 
+    def test_finished_food_scout_can_forage_again_when_a_ration_is_located(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.ascent_ticks_by_floor[2] = 50000
+        stairs, hall, shelf = cell("stairs", down=True), cell("hall", 1), cell("shelf", 2)
+        ration = {"id": "food", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        food = {**shelf, "item": ration, "reachable": False}
+        stats = {"nutrition": {"kind": "required", "reserve": 400, "maximum": 2000,
+                               "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
+        for tick, ground, reason in ((0, [], "scout_for_food"), (10000, [], None), (10100, [food], "forage")):
+            with self.subTest(tick=tick):
+                turn = player_turn([stairs, hall, shelf], stats=stats, tick=tick, ground=ground)
+                player.observe(turn)
+                decision = player.provision(turn, player.maps[3], returning=False)
+                self.assertEqual(decision, (Move(Direction.EAST), reason) if reason else None)
+
     def test_food_scout_finishes_once_the_bot_heads_back_to_the_stairs(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.ascent_ticks_by_floor[2] = 50000

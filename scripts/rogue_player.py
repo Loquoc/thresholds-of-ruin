@@ -1169,17 +1169,24 @@ class Adventurer:
             return step, "forage"
         if returning or self.depth >= self.retrieval_depth:
             return None
+        return self.scout_for_food(turn, memory, ticks_until_empty=nutrition.ticks_until_empty,
+                                   carried_meals=packed.meal_count)
+
+    def scout_for_food(self, turn: Turn, memory: FloorMap, *, ticks_until_empty: int,
+                       carried_meals: int) -> tuple[Action, str] | None:
+        """Start one search per floor at the down stairs and explore within its original deadline."""
         if self.depth not in self.food_scouts:
             if turn.cell is None or not turn.cell.stairs_down:
                 return None
             self.food_scouts[self.depth] = FoodScout(
-                deadline=turn.tick + nutrition.ticks_until_empty // 4,
-                starting_meals=packed.meal_count,
+                deadline=turn.tick + ticks_until_empty // 4,
+                starting_meals=carried_meals,
             )
         scout = self.food_scouts[self.depth]
-        if scout is not None and turn.tick < scout.deadline:
-            if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys()):
-                return step, "scout_for_food"
+        if scout is None or turn.tick >= scout.deadline:
+            return None
+        if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys()):
+            return step, "scout_for_food"
         return None
 
     def scroll_trial(self, turn: Turn, *, at_exit: bool = False) -> tuple[UseItem, MemoryReason] | None:
