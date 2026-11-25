@@ -7,7 +7,7 @@ from functools import cached_property
 
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
-from rogue_combat import recovery_deficit
+from rogue_combat import HEALING_POTIONS, recovery_deficit
 from rogue_gear import can_wield_shortbow, melee_score, primary_weapon_slot, remove_curse_scroll, ring_upgrades
 from rogue_retreat import route_around_danger
 
@@ -15,7 +15,6 @@ from rogue_retreat import route_around_danger
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
 LOOT_CLASSES = {"amulet", "armor", "coin", "food", "potion", "ring", "scroll", "tool", "wand", "weapon"}
 HEALING_RESERVE_PER_KIND = 2
-HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
 
 
 def useful_loot(item: Item) -> bool:

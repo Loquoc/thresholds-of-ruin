@@ -9,10 +9,25 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tor_client_bot import Creature, Device, Health, IncomingAbility, OutgoingAbility, Shot, Turn, UseAbility
+    from tor_client_bot import Creature, Device, Health, IncomingAbility, Item, OutgoingAbility, Shot, Turn, UseAbility
 
 
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
+
+
+HEALING_POTIONS = {"item.potion.healing", "item.potion.extra-healing"}
+
+
+def choose_healing_potion(turn: Turn, *, two_hit_threat: bool) -> Item | None:
+    """Reserve extra healing for hallucination or a threat that can kill within two rounds."""
+    from tor_client_bot import ItemUse
+
+    doses = (item for item in turn.inventory if item.identity in HEALING_POTIONS and ItemUse.DRINK in item.uses)
+    if two_hit_threat or turn.has_condition("rogue.hallucinating"):
+        preferred = "item.potion.extra-healing"
+    else:
+        preferred = "item.potion.healing"
+    return max(doses, key=lambda item: item.identity == preferred, default=None)
 
 
 def below_half_health(health: Health | None) -> bool:

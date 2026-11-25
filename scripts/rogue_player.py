@@ -38,11 +38,11 @@ from tor_client_bot import (
 )
 
 from rogue_combat import (
-    below_half_health, choose_melee_attack, choose_projectile, includes_self_damage, recovery_deficit,
+    below_half_health, choose_healing_potion, choose_melee_attack, choose_projectile, includes_self_damage, recovery_deficit,
     MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
-    HEALING_POTIONS, LootGoals, guarded_supply_cells, loot_goals, preferred_pickup, route_to_loot,
+    LootGoals, guarded_supply_cells, loot_goals, preferred_pickup, route_to_loot,
 )
 from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
@@ -100,16 +100,6 @@ CONTROL_DEVICES = (
     ("item.wand.wand-polymorph", MemoryReason.POLYMORPH_THREAT),
     ("item.wand.wand-magic-missile", "magic_missile"),
 )
-
-
-def choose_healing_potion(turn: Turn, *, two_hit_threat: bool) -> Item | None:
-    """Reserve extra healing for hallucination or a threat that can kill within two rounds."""
-    doses = (item for item in turn.inventory if item.identity in HEALING_POTIONS and ItemUse.DRINK in item.uses)
-    if two_hit_threat or turn.has_condition("rogue.hallucinating"):
-        preferred = "item.potion.extra-healing"
-    else:
-        preferred = "item.potion.healing"
-    return max(doses, key=lambda item: item.identity == preferred, default=None)
 
 
 class MeleeRank(NamedTuple):

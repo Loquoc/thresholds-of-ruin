@@ -4134,6 +4134,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual((action.item.target, reason), ("healing", "heal"))
 
+    def test_healing_uses_the_first_drinkable_copy_of_the_preferred_dose(self):
+        ordinary, extra = healing_potions()
+        inventory = [ordinary, extra, {**ordinary, "id": "first"}, {**ordinary, "id": "second"}]
+        offers = [{"item": item["id"], "drinkable": True} for item in inventory[1:]]
+        turn = player_turn([cell("here")], inventory=inventory, combat={"hp": 3, "max_hp": 10},
+                           interactions={"inventory": offers})
+        action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+        self.assertEqual((action.item.target, reason), ("first", "heal"))
+
     def test_healing_while_hallucinating_prefers_a_dose_that_also_cures_the_condition(self):
         condition = {"condition": {"id": "rogue.hallucinating", "name": "Hallucinating"},
                      "phase": "active"}
