@@ -323,6 +323,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Unequip(turn.equipment[1]), "change_ring"))
 
+    def test_ring_upgrade_counts_the_effect_retained_on_a_blocked_finger(self):
+        from rogue_gear import choose_ring
+        from tor_client_bot import Unequip
+
+        slot = {"id": "ring", "name": "Finger"}
+        rings = [{"id": target, "name": name, "class": "ring", "quantity": 1, "identified": True,
+                  "identity": "item.ring.ring-" + name}
+                 for target, name in (("left", "protection"), ("right", "protection"), ("spare", "searching"))]
+        offers = [{"item": "left", "slot": slot, "equipped_slot": 0},
+                  {"item": "right", "slot": slot, "equipped_slot": 1}, {"item": "spare", "slot": slot}]
+        for blocked, replace in ((["left"], 1), (["right"], 0), (["left", "right"], None)):
+            with self.subTest(blocked=blocked):
+                turn = player_turn([cell("here")], inventory=rings, interactions={
+                    "slots": [slot, slot], "inventory": offers, "curse_blocked": blocked})
+                expected = None if replace is None else (Unequip(turn.equipment[replace]), "change_ring")
+                self.assertEqual(choose_ring(turn), expected)
+
     def test_equal_ring_upgrades_prefer_the_first_free_finger(self):
         slot = {"id": "ring", "name": "Finger"}
         rings = [{"id": target, "name": name, "class": "ring", "quantity": 1, "identified": True,

@@ -133,20 +133,23 @@ _RECOVERY_RING_RANKS = _ring_ranks("regeneration", "slow-digestion", "protection
 
 def ring_upgrades(turn: Turn) -> dict[str, dict[int, int]]:
     """Positive gains by recognized ring identity and replaceable finger slot."""
-    worn = Counter(slot.occupant.identity for slot in turn.equipment if slot.kind == "ring" and slot.occupant)
+    fingers = [slot for slot in turn.equipment if slot.kind == "ring"]
+    worn = Counter(slot.occupant.identity for slot in fingers if slot.occupant)
     injured = turn.health is not None and turn.health.current < turn.health.maximum
     ranks = _NORMAL_RING_RANKS
     if injured and any(ItemUse.EAT in item.uses for item in turn.inventory):
         ranks = _RECOVERY_RING_RANKS
     upgrades: dict[str, dict[int, int]] = {}
-    for slot in turn.equipment:
-        if slot.kind != "ring" or slot.removal_blocked:
+    unworn = {identity: rank for identity, rank in ranks.items() if identity not in worn}
+    for slot in fingers:
+        if slot.removal_blocked:
             continue
         old = slot.occupant.identity if slot.occupant else None
-        cost = ranks.get(old, 0) if old and worn[old] == 1 else 0
-        for identity, rank in ranks.items():
-            if identity not in worn and rank > cost:
-                upgrades.setdefault(identity, {})[slot.index] = rank - cost
+        # Removing a duplicate keeps the same effect on another finger, even if that finger is blocked.
+        lost_rank = ranks.get(old, 0) if old and worn[old] == 1 else 0
+        for identity, rank in unworn.items():
+            if rank > lost_rank:
+                upgrades.setdefault(identity, {})[slot.index] = rank - lost_rank
     return upgrades
 
 
