@@ -880,13 +880,24 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         player.observe(turn)
     door = turn.cell_at((1, 0, 0)).door
     assert not door.open and turn.hostiles
-    action, reason = player.choose(turn)
-    assert (action, reason) == (OpenDoor(door), "retreat_to_stairs"), (action, reason)
-    result = turn.submit(action)
-    assert result.status is Outcome.CONFIRMED
-    after = game.wait_for_decision()
-    assert after.outcome_of(result).value == "resolved" and after.cell.key == turn.cell.key
-    assert after.cell_at((1, 0, 0)).door.open
+
+    def take_retreat_action(turn, expected):
+        action, reason = player.choose(turn)
+        assert (action, reason) == (expected, "retreat_to_stairs"), (action, reason)
+        result = turn.submit(action)
+        assert result.status is Outcome.CONFIRMED
+        player.admitted(turn, action, result, reason=reason)
+        after = game.wait_for_decision()
+        assert after.outcome_of(result).value == "resolved"
+        player.observe(after)
+        return after
+
+    opened = take_retreat_action(turn, OpenDoor(door))
+    assert opened.cell.key == turn.cell.key
+    doorway = opened.cell_at(Direction.EAST.offset)
+    assert doorway.door.open
+    entered = take_retreat_action(opened, Move(Direction.EAST))
+    assert entered.cell.key == doorway.key
 """
         result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
