@@ -7,7 +7,7 @@ from functools import cache
 
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
-from rogue_gear import melee_score, ring_upgrades
+from rogue_gear import melee_score, remove_curse_scroll, ring_upgrades
 from rogue_retreat import route_around_danger
 
 
@@ -114,8 +114,11 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
         return ring_upgrades(turn).keys() - carried.usable_gear
 
     @cache
-    def has_spare_armor_to_identify() -> bool:
-        return any(
+    def wants_spare_armor() -> bool:
+        if any(slot.kind == "body_armor" and slot.removal_blocked for slot in turn.equipment):
+            if remove_curse_scroll(turn) is None:
+                return False
+        return not any(
             choice.slot.kind == "body_armor" and not choice.item.known_cursed
             and choice.item.physical_reduction is None
             for choice in turn.equip_choices()
@@ -136,7 +139,7 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
         if useful_loot(item) and not turn.cell.stairs_down:
             goals.nearby.add(key)
         seek_armor = (item.category == "armor" and item.identity not in carried.usable_gear
-                      and not has_spare_armor_to_identify())
+                      and wants_spare_armor())
         seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
         seek_weapon = carried.needs_melee_weapon and usable_melee_weapon(item)
         if seek_weapon or seek_armor or seek_ring or carried.by_category[item.category] < DETOUR_STOCK.get(item.category, 0):

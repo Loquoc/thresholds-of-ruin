@@ -31,6 +31,10 @@ def offered_item_use(turn: Turn, identity: str, use: ItemUse) -> UseItem | None:
     return None
 
 
+def remove_curse_scroll(turn: Turn) -> UseItem | None:
+    return offered_item_use(turn, "item.scroll.remove-curse", ItemUse.READ)
+
+
 def needs_identification(item: Item, turn: Turn) -> bool:
     if item.identity is None:
         return True
@@ -75,7 +79,7 @@ def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | N
 
 
 def choose_armor(turn: Turn) -> tuple[Action, str] | None:
-    cure = offered_item_use(turn, "item.scroll.remove-curse", ItemUse.READ)
+    cure = remove_curse_scroll(turn)
     can_identify_armor = any("armor" in identification_categories(item) for item in turn.inventory)
     best = None
     best_rank = None
@@ -233,7 +237,7 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     if upgrade is None:
         return None
     if slot.removal_blocked:
-        if cure := offered_item_use(turn, "item.scroll.remove-curse", ItemUse.READ):
+        if cure := remove_curse_scroll(turn):
             return cure, "remove_weapon_curse"
         return None
     if worn:

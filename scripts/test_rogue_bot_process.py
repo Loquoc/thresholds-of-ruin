@@ -1900,6 +1900,41 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     def test_player_identifies_ground_armor_and_replaces_starting_mail(self):
         self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43)
 
+    def test_locked_armor_suppresses_a_detour_for_plate(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        manifest["archetypes"]["rogue.ring_mail"]["equipment_generation"] = {
+            "kind": "armor", "curse_percent": 100, "enchant_percent": 0, "minimum": 1, "maximum": 1}
+        character, = manifest["characters"]
+        character.update(known_identities=["item.armor.ring-mail", "item.armor.plate-mail",
+                                           "item.scroll.identify-armor"],
+                         loadout=[{"archetype": "rogue.ring_mail", "quantity": 1, "equipped_slot": 2},
+                                  {"archetype": "rogue.identify_armor", "quantity": 1}])
+        region, = contents["regions"]
+        region.update(actors=[], items=[{"id": 10, "archetype": "rogue.plate_mail", "at": [5, 2, 0]}])
+        self.check_policy_scenario(contents, "locked-armor", """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import ItemUse, Outcome, Session, UseItem
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    scroll = next(item for item in turn.inventory if item.identity == "item.scroll.identify-armor")
+    assert turn.submit(UseItem(scroll, ItemUse.READ)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    prompt = turn.identification
+    mail = next(item for item in prompt.items if item.identity == "item.armor.ring-mail")
+    assert turn.submit(prompt.select(mail)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert next(slot for slot in turn.equipment if slot.kind == "body_armor").removal_blocked
+    plate = next(g for g in turn.ground_items if g.item.identity == "item.armor.plate-mail")
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    assert plate.cell.key not in player.loot_goals(turn, turn.ground_items, returning=False).supplies
+""")
+
     def test_outbound_player_detours_for_armor(self):
         self.check_armor_route(carrying=False)
 

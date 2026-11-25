@@ -843,6 +843,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     goals = player.loot_goals(turn, turn.ground_items, returning=False)
                     self.assertEqual(goals.supplies, expected_sites)
 
+    def test_blocked_armor_detour_requires_a_readable_cure(self):
+        stairs, near = cell("stairs", down=True), cell("plate", 1)
+        slot = {"id": "body_armor", "name": "Armor"}
+        mail = {"id": "mail", "name": "ring mail", "identity": "item.armor.ring-mail",
+                "class": "armor", "identified": True, "quantity": 1}
+        plate = {**mail, "id": "plate", "identity": "item.armor.plate-mail"}
+        cure = {**mail, "id": "cure", "class": "scroll", "identity": "item.scroll.remove-curse"}
+        for readable in (False, True):
+            with self.subTest(readable=readable):
+                turn = player_turn([stairs, near], inventory=[mail, cure],
+                                   ground=[{**near, "item": plate, "reachable": False}],
+                                   interactions={"slots": [slot], "curse_blocked": ["mail"], "inventory": [
+                                       {"item": "mail", "slot": slot, "equipped_slot": 0},
+                                       {"item": "cure", "readable": readable}]})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                goals = player.loot_goals(turn, turn.ground_items, returning=False)
+                self.assertEqual(goals.supplies, {"plate"} if readable else set())
+
     def test_nearby_armor_detour_depends_on_retrieval_phase(self):
         here, nearby = cell("exit", up=True, down=True), cell("mail", 1)
         armor = {"id": "plate", "identity": "item.armor.plate-mail", "name": "plate",
