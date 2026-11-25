@@ -1,6 +1,6 @@
 """Choose retreat steps from visible terrain and pursuer positions."""
 
-from tor_client_bot import Creature, Move, Turn
+from tor_client_bot import Creature, Direction, Move, Turn
 
 
 def evade_unseen_attacker(turn: Turn, attack_origin: str) -> Move | None:
@@ -19,6 +19,14 @@ def evade_unseen_attacker(turn: Turn, attack_origin: str) -> Move | None:
     return step
 
 
+def _flanked_by_walls(turn: Turn, x: int, y: int, direction: Direction) -> bool:
+    """Are both sides of this cardinal passage known walls?"""
+    dx, dy, _ = direction.offset
+    left = turn.cell_at((x - dy, y + dx, 0))
+    right = turn.cell_at((x + dy, y - dx, 0))
+    return left is not None and left.wall and right is not None and right.wall
+
+
 def take_corridor(turn: Turn, pursuers: list[tuple[Creature, int]]) -> Move | None:
     """Enter a narrow passage with a clear retreat and the pursuers on the far side."""
     for direction in turn.walkable_directions:
@@ -33,11 +41,7 @@ def take_corridor(turn: Turn, pursuers: list[tuple[Creature, int]]) -> Move | No
         retreat = turn.cell_at((2 * dx, 2 * dy, 0))
         if retreat is None or retreat.trap:
             continue
-        flanks = [turn.cell_at((dx + sign * dy, dy + sign * dx, 0)) for sign in (-1, 1)]
-        if not all(c is not None and c.wall for c in flanks):
-            continue
-        previous_flanks = [turn.cell_at((sign * dy, sign * dx, 0)) for sign in (-1, 1)]
-        if not all(c is not None and c.wall for c in previous_flanks):
+        if _flanked_by_walls(turn, dx, dy, direction) and not _flanked_by_walls(turn, 0, 0, direction):
             return Move(direction)
     return None
 

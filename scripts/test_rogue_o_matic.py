@@ -575,6 +575,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 turn = player_turn(blocked, actors=foes, hostiles=["0", "1"])
                 self.assertNotEqual(choose(player, turn)[1], "take_corridor")
 
+    def test_claims_a_northbound_corridor_only_at_its_entrance(self):
+        def tile(x, y, wall=False):
+            return {**cell(f"{x},{y}", x), "position": {"x": x, "y": y, "z": 0}, "wall": wall}
+
+        corridor = [tile(0, 0), tile(0, -1), tile(0, -2), tile(-1, -1, True), tile(1, -1, True)]
+        pursuers = [tile(0, 2), tile(1, 2)]
+        foes = [{"id": str(i), "name": "troll", "position": site["position"]} for i, site in enumerate(pursuers)]
+        for enclosed in (False, True):
+            with self.subTest(enclosed=enclosed):
+                sides = [tile(-1, 0, enclosed), tile(1, 0, enclosed)]
+                turn = player_turn([*corridor, *sides, *pursuers], actors=foes, hostiles=["0", "1"])
+                decision = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(decision == (Move(Direction.NORTH), "take_corridor"), not enclosed)
+
     def test_missed_corridor_move_does_not_reserve_the_entrance_for_a_later_visit(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         start = player_turn([cell("room"), cell("entrance", -1)])
