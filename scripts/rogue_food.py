@@ -1,10 +1,10 @@
 """Food observations and provisioning estimates used by the Rogue player."""
 
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import median_low
 
-from tor_client_bot import Item, ItemUse, Nutrition, Result, Turn
+from tor_client_bot import Direction, FloorMap, Item, ItemUse, Nutrition, Result, StairAttempt, Turn
 
 
 URGENT_HUNGER = frozenset({"weak", "empty"})
@@ -112,3 +112,31 @@ def estimate_round_trip_ticks(depth: int, retrieval_depth: int, descent: Mapping
     deepest = sorted(round_trips)[-5:]
     typical = median_low(round_trips[floor] for floor in deepest)
     return sum(measured) + unmeasured * typical
+
+
+@dataclass
+class FloorTravelTimes:
+    """Observed first descents and estimated return times used to budget food."""
+
+    descent: dict[int, int] = field(default_factory=dict)
+    ascent: dict[int, int] = field(default_factory=dict)
+    entered_at: int | None = None
+
+    def record_descent(self, floor: int, memory: FloorMap, attempt: StairAttempt, arrival_tick: int) -> None:
+        if self.entered_at is not None:
+            self.descent.setdefault(floor, arrival_tick - self.entered_at)
+        upstairs = memory.stairs(Direction.UP)
+        if upstairs:
+            steps = memory.distance(attempt.origin, upstairs)
+            if steps is not None:
+                ticks_per_step = arrival_tick - attempt.tick
+                self.ascent[floor] = (steps + 1) * ticks_per_step
+
+    def return_ticks(self, *, through_floor: int | None = None) -> int:
+        return sum(ticks for floor, ticks in self.ascent.items() if through_floor is None or floor <= through_floor)
+
+    def journey_ticks(self, depth: int, retrieval_depth: int, *, returning: bool) -> int:
+        known_return = self.return_ticks(through_floor=depth - 1)
+        if returning:
+            return known_return
+        return known_return + estimate_round_trip_ticks(depth, retrieval_depth, self.descent, self.ascent)

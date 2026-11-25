@@ -61,7 +61,7 @@ from rogue_search import (
 )
 from rogue_food import (
     MEAL_HUNGER, URGENT_HUNGER, FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
-    estimate_round_trip_ticks,
+    FloorTravelTimes,
 )
 from rogue_gear import (
     can_identify_carried_item, can_wield_shortbow, choose_armor, choose_ring, improve_worn_gear,
@@ -159,9 +159,7 @@ class Adventurer:
     corridor_stand: tuple[str, int] | None = None
     last_shot_tick: int | None = None
     search_history: SearchHistory = field(default_factory=SearchHistory)
-    ascent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
-    descent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
-    entered_floor_at: int | None = None
+    travel_times: FloorTravelTimes = field(default_factory=FloorTravelTimes)
     food_value: dict[str, int] = field(default_factory=dict)
     pending_meal: PendingMeal | None = None
     # A missing floor can start a detour. None records a finished detour.
@@ -224,8 +222,8 @@ class Adventurer:
         self.scroll_trials.observe(turn)
         self.expire_danger_warnings(turn.tick)
         self.observe_guarded_supplies(turn)
-        if self.entered_floor_at is None:
-            self.entered_floor_at = turn.tick
+        if self.travel_times.entered_at is None:
+            self.travel_times.entered_at = turn.tick
         self.observe_meal(turn)
         self.observe_combat(turn, turn.recent_combat if combat is None else combat)
         self.observe_stair(turn)
@@ -293,17 +291,6 @@ class Adventurer:
             if target is not None and self.polymorph_by_target.get(target) is PolymorphState.ATTEMPTED:
                 self.polymorph_by_target[target] = PolymorphState.RESISTED
 
-    def record_descent_timing(self, attempt: StairAttempt, arrival_tick: int) -> None:
-        """Update the estimated return cost and retain the first outbound visit's duration."""
-        floor = self.depth
-        memory = self.maps[floor]
-        steps_to_upstairs = memory.distance(attempt.origin, memory.stairs(Direction.UP))
-        if steps_to_upstairs is not None:
-            ticks_per_step = arrival_tick - attempt.tick
-            self.ascent_ticks_by_floor[floor] = (steps_to_upstairs + 1) * ticks_per_step
-        if self.entered_floor_at is not None:
-            self.descent_ticks_by_floor.setdefault(floor, arrival_tick - self.entered_floor_at)
-
     def observe_stair(self, turn: Turn) -> None:
         """Retire a failed attempt immediately. Confirm arrival on a ready or terminal picture."""
         attempt = self.pending_stair
@@ -331,7 +318,7 @@ class Adventurer:
         self.finish_food_scout()
         self.cancelled_stairs.clear()
         if attempt.direction is Direction.DOWN:
-            self.record_descent_timing(attempt, turn.tick)
+            self.travel_times.record_descent(self.depth, self.maps[self.depth], attempt, turn.tick)
             self.depth += 1
         else:
             self.depth -= 1
@@ -344,7 +331,7 @@ class Adventurer:
         self.recovery_landing = (
             landing if attempt.direction is Direction.UP and self.recovering_from_pursuit else None
         )
-        self.entered_floor_at = turn.tick
+        self.travel_times.entered_at = turn.tick
 
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
@@ -837,8 +824,7 @@ class Adventurer:
         # Even a temporarily guarded stair will cost food to return through.
         if not memory.stairs(direction):
             return available
-        travel = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
-                     if direction is Direction.DOWN or floor <= self.depth)
+        travel = self.travel_times.return_ticks(through_floor=self.depth if direction is Direction.UP else None)
         # Meals can pay for later travel. A rest must still fit the current food clock.
         packed = estimate_carried_food(edible_items(turn), self.food_value)
         return available - packed.travel_from_current_reserve(nutrition, travel)
@@ -1066,12 +1052,7 @@ class Adventurer:
 
     def estimated_journey_ticks(self, returning: bool) -> int:
         """Budget the shallower return legs and the round trips still ahead."""
-        known_return = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items() if floor < self.depth)
-        if returning:
-            return known_return
-        return known_return + estimate_round_trip_ticks(
-            self.depth, self.retrieval_depth, self.descent_ticks_by_floor, self.ascent_ticks_by_floor
-        )
+        return self.travel_times.journey_ticks(self.depth, self.retrieval_depth, returning=returning)
 
     def respond_to_hunger(self, turn: Turn, memory: FloorMap, ground_items: tuple[GroundItem, ...],
                           *, can_forage: bool) -> tuple[Action, str] | None:

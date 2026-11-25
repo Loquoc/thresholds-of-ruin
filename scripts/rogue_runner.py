@@ -163,8 +163,8 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
         detail.update(trace_position(turn, player))
     detail.update(
         **equipment.report(),
-        estimated_ascent_ticks_by_floor=player.ascent_ticks_by_floor,
-        estimated_ascent_ticks=sum(player.ascent_ticks_by_floor.values()),
+        estimated_ascent_ticks_by_floor=player.travel_times.ascent,
+        estimated_ascent_ticks=sum(player.travel_times.ascent.values()),
     )
     if record_decisions:
         detail["recording"] = turn.recording()

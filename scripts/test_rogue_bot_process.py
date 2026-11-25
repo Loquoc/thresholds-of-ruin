@@ -867,9 +867,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         player.observe(turn)
         if isinstance(action, Move) and action.direction is Direction.DOWN and first is None:
             first = turn.tick - start
-            assert player.descent_ticks_by_floor[1] == first
+            assert player.travel_times.descent[1] == first
     assert player.depth == 2
-    assert player.descent_ticks_by_floor[1] == first, (player.descent_ticks_by_floor, first)
+    assert player.travel_times.descent[1] == first, (player.travel_times.descent, first)
 """
         result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
@@ -2996,7 +2996,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     if not stairs:
         assert not any(c.stairs_down for c in turn.visible_cells)
         if not limited:
-            player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
+            player.travel_times.ascent[2] = turn.nutrition.ticks_until_empty
         action, reason = player.choose(turn)
         before = turn.recovery.elapsed_ticks
         origin = turn.cell.key
@@ -3019,17 +3019,17 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             assert landing in player.safe_stairs(turn, Direction.DOWN)
             hall = turn.cell_at(east.direction.offset).key
             player.danger_until[hall] = turn.tick + 100
-            player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
+            player.travel_times.ascent[2] = turn.nutrition.ticks_until_empty
             safe_step = memory.toward(turn, {landing}, avoid={hall})
             assert safe_step is not None and safe_step != east
             assert player.choose(turn) == (safe_step, "seek_stairs")
-            player.ascent_ticks_by_floor[2] -= turn.recovery.ticks_to_regain(1) + 1
+            player.travel_times.ascent[2] -= turn.recovery.ticks_to_regain(1) + 1
             action, reason = player.choose(turn)
             assert (action, reason) == (Wait(), "recover"), (action, reason)
             sheltered = submit(turn, action)
             assert sheltered.cell.key == turn.cell.key and hall not in player.danger_until
             turn = sheltered
-            player.ascent_ticks_by_floor.clear()
+            player.travel_times.ascent.clear()
         for _ in range(2):
             if not limited:
                 assert player.choose(turn) == (east, "recover_en_route")
@@ -3039,7 +3039,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         assert turn.cell.stairs_down
         if not limited:
             assert player.choose(turn) == (Wait(), "recover")
-            player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
+            player.travel_times.ascent[2] = turn.nutrition.ticks_until_empty
         action, reason = player.choose(turn)
         assert (action, reason) == (Move(Direction.DOWN), "descend"), (action, reason)
         landing = submit(turn, action)
@@ -3050,7 +3050,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             landing = submit(landing, action)
             assert player.carrying_objective(landing)
             # The spent route below the player exceeds all remaining food.
-            player.ascent_ticks_by_floor = {1: 100, player.depth + 1: landing.nutrition.ticks_until_empty}
+            player.travel_times.ascent = {1: 100, player.depth + 1: landing.nutrition.ticks_until_empty}
             assert player.choose(landing) == (Wait(), "recover")
             start_hp = landing.health.current
             delay = landing.recovery.ticks_to_regain(1)
@@ -3060,7 +3060,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
                 assert landing.health.current == start_hp
                 landing = submit(landing, Wait())
             assert landing.health.current == start_hp + 1
-            player.ascent_ticks_by_floor[1] = landing.nutrition.ticks_until_empty
+            player.travel_times.ascent[1] = landing.nutrition.ticks_until_empty
             action, reason = player.choose(landing)
             assert (action, reason) == (Move(Direction.UP), "ascend")
             assert submit(landing, action).cell.stairs_down
@@ -3818,10 +3818,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert not turn.ground_items and turn.hunger == "nourished"
     direction = Direction.UP if carrying else Direction.DOWN
     assert player.choose(turn)[0] == Move(direction)
-    player.ascent_ticks_by_floor[2] = (turn.nutrition.reserve + 1) * turn.nutrition.ticks_per_unit
+    player.travel_times.ascent[2] = (turn.nutrition.reserve + 1) * turn.nutrition.ticks_per_unit
     if scouting:
         assert player.food_value["item.food.ration"] > 0
-        player.descent_ticks_by_floor[2] = 110000
+        player.travel_times.descent[2] = 110000
     action, reason = player.choose(turn)
     assert isinstance(action, Move) and action.direction.offset[0] == (1 if scouting else -1), (action, reason)
     destination = turn.cell_at(action.direction.offset).key
@@ -3833,12 +3833,12 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         injured_health = turn.health.current
         assert injured_health < turn.health.maximum * 0.8
         # The onward journey still needs food. Test a known safe step even with enough reserve to rest here.
-        return_estimate = player.ascent_ticks_by_floor.pop(2)
+        return_estimate = player.travel_times.ascent.pop(2)
         step, why = player.choose(turn)
         assert isinstance(step, Move) and why == "scout_for_food", (step, why)
         assert turn.cell_at(step.direction.offset).key in player.maps[player.depth].visited
         turn = advance(turn, step)
-        player.ascent_ticks_by_floor[2] = return_estimate
+        player.travel_times.ascent[2] = return_estimate
     for _ in range(45):
         action, reason = player.choose(turn)
         assert reason in {"scout_for_food", "forage", "seek_item", "take"}, (action, reason)

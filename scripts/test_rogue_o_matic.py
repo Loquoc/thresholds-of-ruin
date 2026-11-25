@@ -1186,6 +1186,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(player, corridor), (Move(Direction.EAST), "seek_stairs"))
         self.assertEqual(player.maps[1].distance("start", {"stairs"}), 2)
 
+    def test_descent_without_known_upstairs_records_time_without_searching_the_map(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        start = player_turn([cell("down", down=True)], tick=100)
+        player.observe(start)
+        player.admitted(start, Move(Direction.DOWN))
+        with patch.object(player.maps[1], "distance", side_effect=AssertionError("no known upstairs")):
+            player.observe(player_turn([cell("landing", up=True)], tick=200))
+        self.assertEqual(player.travel_times.descent, {1: 100})
+        self.assertEqual(player.travel_times.ascent, {})
+
     def test_estimates_return_travel_on_a_route_with_a_remembered_diagonal(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         tiles = [cell("corner"), cell("west", -1), cell("north"), cell("up", -1, up=True)]
@@ -1197,8 +1207,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(upper, Move(Direction.DOWN))
         player.observe(player_turn([cell("lower", up=True)], tick=200))
         self.assertEqual(player.depth, 3)
-        self.assertEqual(player.ascent_ticks_by_floor, {2: 300})
-        self.assertEqual(player.descent_ticks_by_floor, {2: 200})
+        self.assertEqual(player.travel_times.ascent, {2: 300})
+        self.assertEqual(player.travel_times.descent, {2: 200})
 
         # A faster second crossing updates the return estimate while preserving the first exploration time.
         lower = player_turn([cell("lower", up=True)], tick=250)
@@ -1208,8 +1218,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(revisited)
         player.admitted(revisited, Move(Direction.DOWN))
         player.observe(player_turn([cell("lower", up=True)], tick=350))
-        self.assertEqual(player.ascent_ticks_by_floor, {2: 150})
-        self.assertEqual(player.descent_ticks_by_floor, {2: 200})
+        self.assertEqual(player.travel_times.ascent, {2: 150})
+        self.assertEqual(player.travel_times.descent, {2: 200})
 
     def test_uses_clear_diagonals_to_reach_stairs_without_visible_enemies(self):
         room = [cell("here"), cell("west", -1), cell("north"), cell("stairs", -1, down=True)]
@@ -1363,7 +1373,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         policy.observe(arrival)
         self.assertEqual(policy.depth, 2)
         self.assertIn("below", policy.maps[2].cells)
-        self.assertEqual(policy.descent_ticks_by_floor, {1: 100})
+        self.assertEqual(policy.travel_times.descent, {1: 100})
 
     def test_body_clearance_after_a_step_counts_the_nearest_observed_cells(self):
         actors = [{"id": who, "name": who, "position": {"x": x, "y": 0, "z": 0}}
@@ -4057,9 +4067,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         scarce = player_turn(room, combat={"hp": 6}, stats={**stats, "nutrition": {
             "kind": "required", "reserve": 50, "maximum": 2000, "unit_ticks": 100,
             "hunger": "nourished", "elapsed": 0}})
-        player.ascent_ticks_by_floor[1] = scarce.nutrition.ticks_until_empty
+        player.travel_times.ascent[1] = scarce.nutrition.ticks_until_empty
         self.assertIsNone(player.recovery_action(scarce))
-        player.ascent_ticks_by_floor.clear()
+        player.travel_times.ascent.clear()
         player.unsafe_stairs["stairs", Direction.DOWN] = turn.tick
         from unittest.mock import patch
         with patch.object(player, "recovery_budget", side_effect=AssertionError("walking needs no rest budget")):
@@ -4192,8 +4202,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         ):
             with self.subTest(direction=direction, required_reserve=required_reserve):
                 player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-                player.ascent_ticks_by_floor = {1: 20000, 2: 20000}
-                player.descent_ticks_by_floor = descent_history
+                player.travel_times.ascent = {1: 20000, 2: 20000}
+                player.travel_times.descent = descent_history
                 player.observe(player_turn([cell("passage"), cell("food", 1)], ground=[
                     {"item": ration, "reachable": False, "position": {"x": 1, "y": 0, "z": 0}},
                 ]))
@@ -4205,8 +4215,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_provisions_for_a_previously_measured_floor_after_retreating(self):
         player = Adventurer(4, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.descent_ticks_by_floor.update({1: 100, 2: 100, 3: 8000})
-        player.ascent_ticks_by_floor.update({1: 100, 2: 100, 3: 100})
+        player.travel_times.descent.update({1: 100, 2: 100, 3: 8000})
+        player.travel_times.ascent.update({1: 100, 2: 100, 3: 100})
         for reserve, reason in ((82, "scout_for_food"), (83, "descend")):
             with self.subTest(reserve=reserve):
                 turn = player_turn([cell("stairs", down=True), cell("passage", 1)], stats={"nutrition": {
@@ -4216,8 +4226,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_journey_budget_combines_measured_floors_and_an_unexplored_floor(self):
         player = Adventurer(8, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
-        player.descent_ticks_by_floor.update({1: 9000, 2: 100, 3: 200, 4: 300, 5: 400, 6: 2000})
-        player.ascent_ticks_by_floor.update({floor: 50 for floor in range(1, 7)})
+        player.travel_times.descent.update({1: 9000, 2: 100, 3: 200, 4: 300, 5: 400, 6: 2000})
+        player.travel_times.ascent.update({floor: 50 for floor in range(1, 7)})
         # Five shallower return legs, floor six's measured round trip, and
         # floor seven at the median round trip of the five deepest measured floors.
         self.assertEqual(player.estimated_journey_ticks(returning=False), 250 + 2050 + 350)
@@ -4243,7 +4253,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         ):
             with self.subTest(gain=gain, elapsed=elapsed):
                 player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-                player.ascent_ticks_by_floor[2] = 20000
+                player.travel_times.ascent[2] = 20000
                 if gain is not None:
                     player.food_value[ration["identity"]] = gain
                 turn = player_turn(cells, stats={"nutrition": dict(nutrition, elapsed=elapsed)}, inventory=[ration],
@@ -4258,7 +4268,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             "kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
             "hunger": "nourished", "elapsed": 0}})
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.ascent_ticks_by_floor[2] = 50000
+        player.travel_times.ascent[2] = 50000
         player.observe(turn)
         player.maps[3].visited.add("hall")
         player.danger_until["near"] = 900
@@ -4273,7 +4283,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                      "stopped": False},
                  "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
                                "hunger": "nourished", "elapsed": 0}}
-        player.ascent_ticks_by_floor[2] = 50000
+        player.travel_times.ascent[2] = 50000
         player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
         for tick, expected in [(100, (Move(Direction.EAST), "scout_for_food")),
                                (1000, (Move(Direction.WEST), "recover_en_route"))]:
@@ -4295,7 +4305,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_food_scout_stays_finished_after_eating_the_ration_it_found(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.ascent_ticks_by_floor[2] = 50000
+        player.travel_times.ascent[2] = 50000
         cells = [cell("stairs", down=True), cell("frontier", 1)]
         stats = {"nutrition": {"kind": "required", "reserve": 400, "maximum": 2000,
                                "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
@@ -4310,7 +4320,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_a_stair_round_trip_does_not_revive_the_departed_floors_food_scout(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.ascent_ticks_by_floor[2] = 50000
+        player.travel_times.ascent[2] = 50000
         player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
         stairs = [cell("stairs", down=True), cell("passage", 1)]
         origin = player_turn(stairs)
@@ -4333,7 +4343,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_finished_food_scout_can_forage_again_when_a_ration_is_located(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.ascent_ticks_by_floor[2] = 50000
+        player.travel_times.ascent[2] = 50000
         stairs, hall, shelf = cell("stairs", down=True), cell("hall", 1), cell("shelf", 2)
         ration = {"id": "food", "name": "ration", "class": "food", "quantity": 1, "identified": False}
         food = {**shelf, "item": ration, "reachable": False}
@@ -4348,7 +4358,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_food_scout_finishes_once_the_bot_heads_back_to_the_stairs(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.ascent_ticks_by_floor[2] = 50000
+        player.travel_times.ascent[2] = 50000
         player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
         cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]
         turn = player_turn(cells, tick=100, stats={"nutrition": {
@@ -4367,7 +4377,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
-        player.ascent_ticks_by_floor[2] = 50000
+        player.travel_times.ascent[2] = 50000
         door = {"id": "gate", "open": False, "reachable": True}
         cells = [cell("stairs", -2, down=True), {**cell("gate", -1), "door": door}, cell("hall"), cell("frontier", 1)]
         nutrition = {"kind": "required", "reserve": 500, "maximum": 2000, "unit_ticks": 100,
@@ -4389,7 +4399,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                      "stopped": False},
                  "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000,
                                "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
-        player.descent_ticks_by_floor[2] = 50000
+        player.travel_times.descent[2] = 50000
         player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
         turn = player_turn(cells, tick=100, combat={"hp": 6}, stats=stats)
         player.observe(turn)
@@ -4400,7 +4410,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_injured_scout_resumes_its_food_route_after_levitation_expires(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
-        player.descent_ticks_by_floor[2] = 50000
+        player.travel_times.descent[2] = 50000
         player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
         cells = [cell("hall"), cell("stairs", -1, down=True), cell("passage", 1), cell("frontier", 2)]
         recovery = {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}
@@ -4570,7 +4580,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     "nutrition": {"kind": "required", "reserve": reserve, "maximum": 100,
                                   "unit_ticks": 100, "elapsed": 0, "hunger": "nourished"}})
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.ascent_ticks_by_floor[1] = 100
+                player.travel_times.ascent[1] = 100
                 self.assertEqual(choose(player, turn), (Wait(), expected))
 
     def test_partial_recovery_before_reentering_recent_danger_has_a_food_limit(self):
@@ -4589,7 +4599,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
                 player.observe(turn)
                 player.maps[2].visited.add("hall")
-                player.ascent_ticks_by_floor[1] = travel_ticks
+                player.travel_times.ascent[1] = travel_ticks
                 player.danger_until["hall"] = 1200
                 self.assertEqual(player.choose(turn), expected)
 
@@ -4611,9 +4621,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
                                                    "reset_percent": 100, "stopped": False}})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
-        player.ascent_ticks_by_floor.update({1: 500, 2: 500, 3: 9000})
+        player.travel_times.ascent.update({1: 500, 2: 500, 3: 9000})
         self.assertEqual(choose(player, turn), (Wait(), "recover"))
-        player.ascent_ticks_by_floor[1] = 1500
+        player.travel_times.ascent[1] = 1500
         self.assertEqual(player.choose(turn), (Move(Direction.UP), "ascend"))
 
     def test_packed_food_offsets_travel_only_up_to_the_cost_of_the_journey(self):
@@ -4647,7 +4657,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                        "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
                                                            "reset_percent": 100, "stopped": False}})
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
-                player.ascent_ticks_by_floor[1] = 2000
+                player.travel_times.ascent[1] = 2000
                 if value is not None:
                     player.food_value[ration["identity"]] = value
                 self.assertEqual(choose(player, turn)[1], expected)
@@ -4663,7 +4673,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.unsafe_stairs["exit", Direction.DOWN] = 100
         for travel, expected in ((999, (Wait(), "recover")), (1000, None)):
             with self.subTest(travel=travel):
-                player.ascent_ticks_by_floor[1] = travel
+                player.travel_times.ascent[1] = travel
                 self.assertEqual(player.recovery_action(turn), expected)
 
     def test_player_samples_a_wand_appearance_once_and_only_with_clearance(self):
