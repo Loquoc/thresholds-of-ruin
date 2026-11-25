@@ -7,6 +7,7 @@ from functools import cached_property
 
 from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
 
+from rogue_combat import recovery_deficit
 from rogue_gear import melee_score, remove_curse_scroll, ring_upgrades
 from rogue_retreat import route_around_danger
 
@@ -82,7 +83,7 @@ def healing_reserve_gain(item: Item, carried: Counter[str | None]) -> int:
 
 
 def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, objective: str,
-                     returning: bool, safe_pickup: bool) -> Item | None:
+                     returning: bool, safe_pickup: bool | None = None) -> Item | None:
     """Prioritize the objective, missing healing doses, and a first melee weapon. Ties keep ground order."""
     useful = []
     for ground in ground_items:
@@ -94,11 +95,17 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
                 return item
             if item.category == "amulet":
                 continue
-        if safe_pickup and useful_loot(item):
+        if useful_loot(item):
             useful.append(item)
 
-    if len(useful) < 2:
-        return useful[0] if useful else None
+    if not useful or safe_pickup is False:
+        return None
+    if safe_pickup is None and turn.hostiles:
+        health = turn.health
+        if health is None or recovery_deficit(health) or any(turn.distance_to(foe) <= 1 for foe in turn.hostiles):
+            return None
+    if len(useful) == 1:
+        return useful[0]
     carried = CarriedLoot(turn)
     return max(useful, key=lambda item: (healing_reserve_gain(item, carried.by_identity),
                                          carried.needs_melee_weapon and usable_melee_weapon(item)))

@@ -714,6 +714,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                     self.assertEqual((action.item.target, reason), (expected, "take"))
 
+    def test_pickup_only_checks_foe_distance_for_incidental_loot(self):
+        here, far = cell("here"), cell("far", 3)
+        foe = {"id": "foe", "name": "orc", "position": far["position"]}
+        prize = {"id": "prize", "identity": DEFAULT_OBJECTIVE_IDENTITY, "class": "amulet",
+                 "name": "amulet", "quantity": 1, "identified": True}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for reachable in (False, True):
+            with self.subTest(reachable=reachable):
+                turn = player_turn([here, far], actors=[foe], hostiles=["foe"],
+                                   ground=[{**here, "item": prize, "reachable": reachable}])
+                with patch.object(turn, "distance_to", side_effect=AssertionError("unexpected threat check")):
+                    chosen = player.choose_pickup(turn, turn.ground_items, returning=False)
+                self.assertEqual(chosen.target if chosen else None, "prize" if reachable else None)
+
     def test_unsafe_pickup_allows_only_a_reachable_outbound_objective(self):
         here = cell("here")
         foe = {"id": "foe", "name": "orc", "position": cell("east", 1)["position"]}

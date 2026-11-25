@@ -45,7 +45,8 @@ from tor_client_bot import (
 )
 
 from rogue_combat import (
-    choose_projectile, horizontal_push_direction, includes_self_damage, sole_applied_attacker, witnessed_unseen_attack,
+    choose_projectile, horizontal_push_direction, includes_self_damage, recovery_deficit,
+    sole_applied_attacker, witnessed_unseen_attack,
 )
 from rogue_loot import (
     DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
@@ -128,12 +129,6 @@ def choose_healing_potion(turn: Turn, *, two_hit_threat: bool) -> Item | None:
 
 def below_half_health(health: Health | None) -> bool:
     return health is not None and health.current * 2 < health.maximum
-
-
-def recovery_deficit(health: Health) -> int:
-    """Hit points needed to reach four fifths of maximum health, rounded up."""
-    target = (4 * health.maximum + 4) // 5
-    return max(0, target - health.current)
 
 
 @dataclass
@@ -1240,12 +1235,7 @@ class Adventurer:
         return None, "readiness_timeout"
 
     def choose_pickup(self, turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: bool) -> Item | None:
-        safe_pickup = not turn.hostiles or bool(
-            turn.health and recovery_deficit(turn.health) == 0
-            and all(turn.distance_to(foe) > 1 for foe in turn.hostiles)
-        )
-        return preferred_pickup(turn, ground_items, objective=self.objective, returning=returning,
-                                safe_pickup=safe_pickup)
+        return preferred_pickup(turn, ground_items, objective=self.objective, returning=returning)
 
     def loot_goals(self, turn: Turn, ground_items: tuple[GroundItem, ...], returning: bool) -> LootGoals:
         return loot_goals(turn, ground_items, returning=returning, objective=self.objective,

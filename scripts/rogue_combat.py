@@ -6,10 +6,16 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tor_client_bot import Creature, IncomingAbility, OutgoingAbility, Shot, Turn
+    from tor_client_bot import Creature, Health, IncomingAbility, OutgoingAbility, Shot, Turn
 
 
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
+
+
+def recovery_deficit(health: Health) -> int:
+    """Hit points needed to reach four fifths of maximum health, rounded up."""
+    target = (4 * health.maximum + 4) // 5
+    return max(0, target - health.current)
 
 
 def includes_self_damage(outgoing: tuple[OutgoingAbility, ...], player: str | None) -> bool:
