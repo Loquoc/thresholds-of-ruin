@@ -29,6 +29,7 @@ from tor_client_bot import (
     Item,
     ItemUse,
     Move,
+    OutgoingAbility,
     Pickup,
     RememberedCell,
     RestorableLosses,
@@ -43,7 +44,7 @@ from tor_client_bot import (
     Zap,
 )
 
-from rogue_combat import SELF_DAMAGE_ABILITIES, sole_applied_attacker
+from rogue_combat import includes_self_damage, sole_applied_attacker
 from rogue_loot import (
     DETOUR_STOCK, HEALING_POTIONS, LootGoals, loot_goals, preferred_pickup, route_to_loot,
 )
@@ -300,15 +301,9 @@ class Adventurer:
         self.previous_losses = losses
         lasting_injury = losses is not None and previous is not None and losses.increased_since(previous)
         injured_this_turn = loss > 0 or lasting_injury
-        attributable_loss = loss
-        for effect in report.outgoing:
-            target = effect.target
-            if (target == turn.self_target and effect.ability in SELF_DAMAGE_ABILITIES
-                    and effect.outcome is AbilityOutcome.APPLIED):
-                attributable_loss = 0
-            if (target is not None and self.polymorph_by_target.get(target) is PolymorphState.ATTEMPTED
-                    and effect.ability == "rogue.wand_polymorph" and effect.outcome is AbilityOutcome.UNAFFECTED):
-                self.polymorph_by_target[target] = PolymorphState.RESISTED
+        outgoing = report.outgoing
+        self.observe_polymorph_resistance(outgoing)
+        attributable_loss = 0 if includes_self_damage(outgoing, turn.self_target) else loss
         incoming = report.incoming
         self.record_injury(turn, incoming, attributable_loss, lasting_injury=lasting_injury)
         if here and (turn.hostiles or (injured_this_turn and incoming)):
@@ -325,6 +320,14 @@ class Adventurer:
             for event in incoming
         ):
             self.last_unseen_attack = here.key, turn.tick
+
+    def observe_polymorph_resistance(self, outgoing: tuple[OutgoingAbility, ...]) -> None:
+        for effect in outgoing:
+            if effect.ability != "rogue.wand_polymorph" or effect.outcome is not AbilityOutcome.UNAFFECTED:
+                continue
+            target = effect.target
+            if target is not None and self.polymorph_by_target.get(target) is PolymorphState.ATTEMPTED:
+                self.polymorph_by_target[target] = PolymorphState.RESISTED
 
     def record_injury(self, turn: Turn, incoming: tuple[IncomingAbility, ...], health_loss: int,
                       *, lasting_injury: bool) -> None:
