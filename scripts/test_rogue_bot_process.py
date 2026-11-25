@@ -2001,6 +2001,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as session:
         code = """
 import os, sys
 from rogue_player import Adventurer
+from rogue_runner import play
 from tor_client_bot import Session, Outcome, Zap
 with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     turn = game.wait_for_decision()
@@ -2014,6 +2015,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     after = game.wait_for_decision()
     assert after.outcome_of(result).value == "resolved" and after.cell.lit is True
     assert len(after.visible_cells) > len(turn.visible_cells)
+    report = play(game, bot, 0, lambda row: None)
+    device, = report["last_carried_devices"]
+    assert device["item"] == action.device.item.target and device["identity"] == action.device.item.identity
 """
         result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},

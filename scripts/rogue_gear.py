@@ -226,6 +226,16 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     return upgrade, "equip_bow" if upgrade.item.identity == "item.weapon.shortbow" else "equip_melee"
 
 
+def carried_device_report(turn: Turn) -> list[dict]:
+    """Describe each carried device using the same item target as the action trace."""
+    charges = {device.item.target: device.charges for device in turn.devices}
+    return [
+        {"item": item.target, "identity": item.identity, "name": item.name,
+         "activation_offered": item.target in charges, "charges": charges.get(item.target)}
+        for item in turn.inventory if item.category == "wand" or item.target in charges
+    ]
+
+
 class EquipmentHistory:
     """Count distinct player-visible items reaching each stage of a run."""
 
@@ -247,12 +257,7 @@ class EquipmentHistory:
     def observe(self, turn: Turn) -> None:
         if not turn.terminal:
             self.last_inventory_tick = turn.tick
-            offered_charges = {device.item.target: device.charges for device in turn.devices}
-            self.last_devices = [
-                {"identity": item.identity, "name": item.name, "activation_offered": item.target in offered_charges,
-                 "charges": offered_charges.get(item.target)}
-                for item in turn.inventory if item.category == "wand" or item.target in offered_charges
-            ]
+            self.last_devices = carried_device_report(turn)
         for ground in turn.ground_items:
             self.record(ground.item, "seen_on_ground")
         for item in turn.inventory:

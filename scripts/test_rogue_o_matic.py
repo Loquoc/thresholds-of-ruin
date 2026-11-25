@@ -2353,6 +2353,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         history.observe(player_turn([cell("here")], tick=200, combat={"terminal": True}))
 
         self.assertEqual(history.counts(), {"wand": {"carried": 3, "recognized": 3}})
+        self.assertEqual([row["item"] for row in history.report()["last_carried_devices"]],
+                         ["spent", "unknown-charges", "unavailable"])
         self.assertEqual(history.last_inventory_tick, 100)
         self.assertEqual([(row["activation_offered"], row["charges"]) for row in history.last_devices],
                          [(True, 0), (True, None), (False, None)])
