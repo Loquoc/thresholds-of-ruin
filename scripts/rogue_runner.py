@@ -21,6 +21,14 @@ def trace_result(result: Result) -> dict:
     return record
 
 
+def terminal_combat_events(turn: Turn, updates: list[dict]) -> list[dict]:
+    """Keep earlier journal batches when the final picture repeats only their tail."""
+    snapshot = turn.recent_combat.records()
+    if not snapshot or updates[-len(snapshot):] == snapshot:
+        return updates
+    return snapshot
+
+
 def trace_position(turn: Turn, player: Adventurer) -> dict:
     memory = player.maps.get(player.depth)
     return {
@@ -87,7 +95,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
             elif turn.dead:
                 reason = "death"
             detail.update(
-                last_combat_events=turn.recent_combat.records() or events,
+                last_combat_events=terminal_combat_events(turn, events),
                 events_since_previous_action=events,
                 self_target=turn.self_target,
             )

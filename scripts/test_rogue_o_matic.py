@@ -2633,6 +2633,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertTrue(report["amulet_acquired"])
         self.assertEqual(report["actions"], 0)
 
+    def test_terminal_report_retains_the_attack_when_only_death_is_in_the_final_picture(self):
+        from unittest.mock import Mock
+        from rogue_runner import play
+        from tor_client_bot import Session
+
+        attack = {"type": "ability", "caster": "snake", "target": "player", "outcome": "applied",
+                  "ability": {"id": "rogue.venomous_bite"}}
+        death = {"type": "died", "actor": "player", "cause": "injury"}
+        for snapshot, batches in (([death], [[attack], [death]]), ([attack, death], [[death]])):
+            with self.subTest(snapshot=snapshot):
+                terminal = player_turn([], combat={"terminal": True, "dead": True, "victory": False, "events": snapshot})
+                picture = json.loads(terminal.recording())
+                picture["combat_updates"] = [{"cursor": {"sequence": str(i)}, "events": events}
+                                             for i, events in enumerate(batches)]
+                session = Session(Mock())
+                session.wait_for_decision = Mock(return_value=Turn(picture))
+                report = play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 0, self.fail)
+                self.assertEqual(report["last_combat_events"], [attack, death])
+                self.assertEqual(report["events_since_previous_action"], [e for batch in batches for e in batch])
+
     def test_terminal_without_death_or_victory_is_reported_as_terminal(self):
         from unittest.mock import Mock
         from rogue_player import play
