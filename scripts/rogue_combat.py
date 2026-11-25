@@ -24,17 +24,20 @@ def includes_self_damage(outgoing: tuple[OutgoingAbility, ...], player: str | No
 
 def witnessed_unseen_attack(incoming: tuple[IncomingAbility, ...], hostiles: tuple[Creature, ...],
                             *, injured: bool) -> bool:
-    """Recognize a hostile source, a missed attack, or an applied effect accompanied by injury."""
+    """An unseen miss or hostile caster is direct evidence. Injury alone needs an unambiguous source."""
     from tor_client_bot import AbilityOutcome
 
+    unseen_applied = False
+    other_applied = False
     for event in incoming:
-        if not event.unseen:
-            continue
-        if event.outcome is AbilityOutcome.MISS or (injured and event.outcome is AbilityOutcome.APPLIED):
-            return True
-        if any(foe.target == event.caster for foe in hostiles):
-            return True
-    return False
+        if event.unseen:
+            if event.outcome is AbilityOutcome.MISS or any(foe.target == event.caster for foe in hostiles):
+                return True
+            if event.outcome is AbilityOutcome.APPLIED:
+                unseen_applied = True
+        elif event.outcome is AbilityOutcome.APPLIED:
+            other_applied = True
+    return injured and unseen_applied and not other_applied
 
 
 def sole_applied_attacker(incoming: tuple[IncomingAbility, ...]) -> str | None:

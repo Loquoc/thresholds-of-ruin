@@ -442,6 +442,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(player_turn(cells, tick=100, combat={"hp": 8, "events": events}))
                 self.assertEqual(player.last_unseen_attack, expected)
 
+    def test_unseen_effect_needs_independent_evidence_when_a_visible_hit_explains_the_injury(self):
+        tiles = [cell("stairs", down=True), cell("west", -1), cell("east", 1)]
+        foe = {"id": "orc", "name": "orc", "position": tiles[2]["position"]}
+        visible = {"type": "ability", "caster": "orc", "target": "player", "outcome": "applied"}
+        unseen = {"type": "unseen_ability", "target": "player"}
+        for outcome, expected in (("applied", "descend"), ("miss", "evade_unseen_attack")):
+            effect = {**unseen, "outcome": outcome}
+            for events in ([visible, effect], [effect, visible]):
+                with self.subTest(outcome=outcome, first=events[0]["type"]):
+                    player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                    player.observe(player_turn(tiles, combat={"hp": 10}))
+                    player.observe(player_turn(tiles, actors=[foe], hostiles=["orc"], tick=100,
+                                               combat={"hp": 9, "events": events}))
+                    self.assertEqual(choose(player, player_turn(tiles, tick=101, combat={"hp": 9}))[1], expected)
+
     def test_unseen_cast_by_a_disclosed_hostile_keeps_the_bot_moving_after_contact_is_lost(self):
         tiles = [cell("stairs", down=True), cell("west", -1), cell("east", 1)]
         caster = {"id": "caster", "name": "phantom", "position": tiles[2]["position"]}
