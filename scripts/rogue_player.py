@@ -110,9 +110,9 @@ CONTROL_DEVICES = (
 
 
 def choose_healing_potion(turn: Turn, *, lethal: bool) -> Item | None:
-    """Prefer the larger healing roll when nearby enemies could kill the player."""
+    """Prefer extra healing for a lethal threat or to cure hallucination while healing."""
     doses = (item for item in turn.inventory if item.identity in HEALING_POTIONS and ItemUse.DRINK in item.uses)
-    if lethal:
+    if lethal or turn.has_condition("rogue.hallucinating"):
         return max(doses, key=lambda item: item.identity == "item.potion.extra-healing", default=None)
     return next(doses, None)
 

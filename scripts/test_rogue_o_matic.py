@@ -3009,6 +3009,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(player, turn)
                 self.assertEqual((action.item.target, reason), ("extra-healing", "heal"))
 
+    def test_healing_while_hallucinating_prefers_a_dose_that_also_cures_the_condition(self):
+        condition = {"condition": {"id": "rogue.hallucinating", "name": "Hallucinating"},
+                     "phase": "active", "remaining_ticks": "100"}
+        potions = [{"id": name, "name": name, "identity": f"item.potion.{name}", "class": "potion",
+                    "identified": True, "quantity": 1} for name in ("healing", "extra-healing")]
+        for extra_offered, expected in ((True, "extra-healing"), (False, "healing")):
+            with self.subTest(extra_offered=extra_offered):
+                offers = [{"item": "healing", "drinkable": True}, {"item": "extra-healing", "drinkable": extra_offered}]
+                turn = player_turn([cell("here")], inventory=potions, combat={"hp": 3, "max_hp": 10},
+                                   stats={"conditions": [condition]}, interactions={"inventory": offers})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.item.target, reason), (expected, "heal"))
+
     def test_selects_emergency_consumables_by_identity_and_server_offer(self):
         renamed = {"id": "real", "name": "Greater restoration", "identified": True,
                    "identity": "item.potion.extra-healing", "quantity": 1}
