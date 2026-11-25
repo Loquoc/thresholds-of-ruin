@@ -15,8 +15,8 @@ from rogue_policy_reference import DEFAULT_OBJECTIVE_IDENTITY, Floor, Policy
 AMULET = "Amulet of Yendor"
 
 
-def cell(key, x=0, *, down=False, up=False):
-    return {"key": key, "position": {"x": x, "y": 0, "z": 0}, "wall": False,
+def cell(key, x=0, y=0, *, wall=False, down=False, up=False):
+    return {"key": key, "position": {"x": x, "y": y, "z": 0}, "wall": wall,
             "stairs_down": down, "stairs_up": up}
 
 
@@ -4312,31 +4312,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         escape["wall"] = True
         self.assertEqual(decision(2)[1], "melee")
 
-    def test_retreat_checks_the_next_square_for_a_disclosed_trap(self):
-        cells = [cell("here"), cell("enemy", 1)]
-        foe = {"id": "hunter", "name": "hunter", "position": cells[1]["position"]}
-        for y in (-2, -1, 1, 2):
-            tile = cell(str(y))
-            tile["position"]["y"] = y
-            if y == -2:
-                tile["trap"] = {"id": "pit", "family": None, "reachable": True}
-            cells.append(tile)
-        turn = player_turn(cells, actors=[foe], hostiles=["hunter"], combat={"hp": 2})
-        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
-                         (Move(Direction.SOUTH), "retreat"))
-
     def test_when_two_steps_break_contact_choose_the_one_with_a_continuing_escape(self):
         foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
         cells = [cell("here"), cell("enemy", 1)]
-        for y in (-1, 1, 2):
-            tile = cell(str(y))
-            tile["position"]["y"] = y
-            cells.append(tile)
-        for y in (-2, -1, 1):
-            x = 0 if y == -2 else 1
-            tile = cell(f"wall-{y}", x)
-            tile.update(wall=True, position={"x": x, "y": y, "z": 0})
-            cells.append(tile)
+        cells.extend(cell(str(y), y=y) for y in (-1, 1, 2))
+        cells.extend([cell("wall-north", 0, -2, wall=True), cell("wall-ne", 1, -1, wall=True),
+                      cell("wall-se", 1, 1, wall=True)])
         for trapped, direction in ((False, Direction.SOUTH), (True, Direction.NORTH)):
             if trapped:
                 next(tile for tile in cells if tile["key"] == "1")["trap"] = {
@@ -4349,8 +4330,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_overlapping_escape_routes_evaluate_each_pursuer_once_per_destination(self):
         from unittest.mock import patch
 
-        cells = [{**cell(f"{x},{y}"), "position": {"x": x, "y": y, "z": 0}}
-                 for x in range(-2, 3) for y in range(-2, 3)]
+        cells = [cell(f"{x},{y}", x, y) for x in range(-2, 3) for y in range(-2, 3)]
         foes = [{"id": name, "name": name, "position": {"x": 2, "y": y, "z": 0}}
                 for name, y in (("orc", -1), ("troll", 1))]
         turn = player_turn(cells, actors=foes, hostiles=["orc", "troll"])
@@ -4360,14 +4340,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         evaluated = [(call.args[0].target, call.kwargs["from_offset"]) for call in distance.call_args_list]
         self.assertEqual(len(evaluated), len(set(evaluated)))
 
-    def test_equal_escape_routes_prefer_the_untrapped_second_step(self):
+    def test_equal_escape_routes_avoid_a_trap_on_either_step(self):
         foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
-        for trap_y, expected in ((-2, Direction.SOUTH), (2, Direction.NORTH)):
+        for trap_y, expected in ((-2, Direction.SOUTH), (-1, Direction.SOUTH), (1, Direction.NORTH), (2, Direction.NORTH)):
             with self.subTest(trap_y=trap_y):
                 cells = [cell("here"), cell("enemy", 1)]
                 for y in (-2, -1, 1, 2):
-                    tile = cell(str(y))
-                    tile["position"]["y"] = y
+                    tile = cell(str(y), y=y)
                     if y == trap_y:
                         tile["trap"] = {"id": "pit", "family": None, "reachable": True}
                     cells.append(tile)
@@ -4377,11 +4356,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_stair_retreat_counts_diagonal_moves_when_choosing_an_exit(self):
         cells = [cell("west-exit", -3, up=True), cell("west-hall", -2), cell("west", -1)]
-        for x in range(3):
-            for y in range(3):
-                tile = cell(f"{x},{y}", x, up=(x, y) == (2, 2))
-                tile["position"]["y"] = y
-                cells.append(tile)
+        cells.extend(cell(f"{x},{y}", x, y, up=(x, y) == (2, 2)) for x in range(3) for y in range(3))
         foe = {"id": "foe", "name": "wraith", "position": {"x": 0, "y": -3, "z": 0}}
         turn = player_turn(cells, actors=[foe], hostiles=["foe"])
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
@@ -4399,10 +4374,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_stair_approach_can_gain_clearance_with_an_off_axis_step(self):
         cells = [cell(str(x), x, up=x == 3) for x in range(4)]
-        for x in range(3):
-            tile = cell(f"south-{x}", x)
-            tile["position"]["y"] = 1
-            cells.append(tile)
+        cells.extend(cell(f"south-{x}", x, 1) for x in range(3))
         foe = {"id": "foe", "name": "wraith", "position": {"x": 0, "y": -2, "z": 0}}
         turn = player_turn(cells, actors=[foe], hostiles=["foe"])
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
