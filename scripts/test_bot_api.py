@@ -143,6 +143,23 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual([item.quantity for item in memory.items["pantry"]], [2, 2])
         self.assertEqual(len(turn.ground_items), 4)
 
+    def test_pile_memory_updates_on_revisiting_its_square(self):
+        def view(key, quantity):
+            position = {"x": 0, "y": 0, "z": 0}
+            cell = {"key": key, "position": position, "wall": False, "stairs_up": False, "stairs_down": False}
+            item = {"id": "ration", "name": "ration", "identified": False, "class": "food", "quantity": quantity}
+            pile = [{"position": position, "reachable": True, "item": item}] if quantity else []
+            return Turn({"readiness": {}, "state": {"observation": {"visible_cells": [cell], "ground_items": pile}}})
+
+        memory = FloorMap()
+        memory.observe(view("pantry", 3))
+        memory.observe(view("hall", 0))
+        self.assertEqual(memory.items["pantry"][0].quantity, 3)
+        memory.observe(view("pantry", 1))
+        self.assertEqual(memory.items["pantry"][0].quantity, 1)
+        memory.observe(view("pantry", 0))
+        self.assertNotIn("pantry", memory.items)
+
     def test_item_search_finds_matches_anywhere_in_a_remembered_pile(self):
         from tor_client_bot.navigation import RememberedItem
 

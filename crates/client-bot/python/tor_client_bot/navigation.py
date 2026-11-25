@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Callable, Iterator, Set
+from collections.abc import Callable, Iterable, Iterator, Set
 from dataclasses import dataclass
 
 from .game import Turn
@@ -63,20 +63,8 @@ class FloorMap:
         if turn.cell:
             self.visited.add(turn.cell.key)
         plane = {cell.offset[:2]: cell for cell in turn.visible_cells if cell.offset[2] == 0}
-        sightings: dict[str, dict[str, RememberedItem]] = {}
-        for ground in turn.ground_items:
-            cell = ground.cell
-            if cell and cell.offset[2] == 0:
-                item = ground.item
-                # A stack can appear at several offsets for the same physical square.
-                sightings.setdefault(cell.key, {})[item.target] = RememberedItem(
-                    item.name, item.identity, item.category, item.quantity
-                )
+        self._observe_ground_items(turn, plane.values())
         for (x, y), cell in plane.items():
-            if cell.key in sightings:
-                self.items[cell.key] = tuple(sightings[cell.key].values())
-            else:
-                self.items.pop(cell.key, None)
             if cell.trap:
                 self._traps.add(cell.key)
             else:
@@ -103,6 +91,22 @@ class FloorMap:
                     links[direction] = _Link(neighbor.key, (horizontal.key, vertical.key))
                 elif direction in links and not links[direction].matches_partial_diagonal(neighbor.key, horizontal, vertical):
                     del links[direction]
+
+    def _observe_ground_items(self, turn: Turn, visible_floor: Iterable[Cell]) -> None:
+        """Replace piles on visible floor squares and retain the last sighting elsewhere."""
+        sightings: dict[str, dict[str, RememberedItem]] = {}
+        for ground in turn.ground_items:
+            cell = ground.cell
+            if cell and cell.offset[2] == 0:
+                item = ground.item
+                # A stack can appear at several offsets for the same physical square.
+                sightings.setdefault(cell.key, {})[item.target] = RememberedItem(
+                    item.name, item.identity, item.category, item.quantity
+                )
+        for cell in visible_floor:
+            self.items.pop(cell.key, None)
+        for key, stacks in sightings.items():
+            self.items[key] = tuple(stacks.values())
 
     @property
     def frontier(self) -> set[str]:
