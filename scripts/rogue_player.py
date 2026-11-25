@@ -437,7 +437,7 @@ class Adventurer:
         needs_distance = (injured or self.recovering_from_pursuit or surrounded or two_hit_threat
                           or any(self.opponents.nearby_drainer(turn, foe) for foe in turn.hostiles))
         if needs_distance and not self.restrained(turn):
-            if decision := self.evade(turn, self.opponents):
+            if decision := self.evade(turn):
                 return decision
 
         if decision := self.ranged_combat(turn, adjacent):
@@ -676,7 +676,7 @@ class Adventurer:
         # Opening a door spends the turn in the current cell.
         destination = step.direction.offset if isinstance(step, Move) else (0, 0, 0)
         if self.opponents.melee_exposure(turn, destination).threatens(turn.health, rounds=2):
-            escape = self.evade(turn, self.opponents)
+            escape = self.evade(turn)
             if escape:
                 offset = escape[0].direction.offset
                 remaining = self.opponents.melee_exposure(turn, offset)
@@ -707,9 +707,8 @@ class Adventurer:
         _, direction = min(candidates, key=lambda candidate: candidate[0])
         return Move(direction)
 
-    @staticmethod
-    def evade(turn: Turn, opponents: OpponentHistory | None = None) -> tuple[Move, str] | None:
-        step = choose_retreat_step(turn, opponents.damage_estimate if opponents else None)
+    def evade(self, turn: Turn) -> tuple[Move, str] | None:
+        step = choose_retreat_step(turn, self.opponents.damage_estimate)
         if step is None:
             return None
         reason = MemoryReason.RETREAT if step.improves_immediately else MemoryReason.BREAK_CONTACT

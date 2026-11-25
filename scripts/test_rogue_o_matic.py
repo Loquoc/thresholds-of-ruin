@@ -3364,10 +3364,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 for name, x in (("west", -1), ("east", 1))]
         turn = player_turn(room, actors=foes, hostiles=["west", "east"])
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.opponents.damage_by_target.update(west=8, east=1)
+        player.opponents.damage_by_target.update(west=1, east=8)
         with patch.object(turn, "in_contact", wraps=turn.in_contact) as contact:
-            action, reason = player.evade(turn, player.opponents)
-        self.assertEqual((action.direction.offset[0], reason), (1, "retreat"))
+            action, reason = player.evade(turn)
+        self.assertEqual((action.direction.offset[0], reason), (-1, "retreat"))
         checks = [(call.args[0].target, call.kwargs["from_offset"]) for call in contact.call_args_list]
         self.assertEqual(len(checks), len(set(checks)))
 
@@ -5188,7 +5188,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_evasion_has_no_destination_when_the_last_pursuer_is_gone(self):
         turn = player_turn([cell("here"), cell("passage", -1)])
-        self.assertIsNone(Adventurer.evade(turn))
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        self.assertIsNone(player.evade(turn))
 
     def test_retreat_recognizes_an_immediate_gain_without_an_onward_square(self):
         from rogue_retreat import choose_retreat_step
@@ -5208,7 +5209,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 visible = cells + ([cell("exit", -2)] if onward else [])
                 turn = player_turn(visible, actors=[foe], hostiles=["hunter"])
                 expected = (Move(Direction.WEST), "break_contact") if onward else None
-                self.assertEqual(Adventurer.evade(turn), expected)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                self.assertEqual(player.evade(turn), expected)
 
     def test_starts_a_two_step_escape_when_every_first_step_is_still_in_reach(self):
         foe = {"id": "foe", "name": "vampire", "position": {"x": 0, "y": 1, "z": 0}}
@@ -5254,8 +5256,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         foes = [{"id": name, "name": name, "position": {"x": 2, "y": y, "z": 0}}
                 for name, y in (("orc", -1), ("troll", 1))]
         turn = player_turn(cells, actors=foes, hostiles=["orc", "troll"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         with patch.object(turn, "distance_to", wraps=turn.distance_to) as distance:
-            step, reason = Adventurer.evade(turn)
+            step, reason = player.evade(turn)
         self.assertEqual((step.direction.offset[0], reason), (-1, "retreat"))
         evaluated = [(call.args[0].target, call.kwargs["from_offset"]) for call in distance.call_args_list]
         self.assertEqual(len(evaluated), len(set(evaluated)))
