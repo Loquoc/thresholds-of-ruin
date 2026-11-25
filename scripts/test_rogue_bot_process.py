@@ -1588,6 +1588,42 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual([(item["identity"], int(item["quantity"])) for item in inventory],
                          [("item.potion.extra-healing", 2)])
 
+    def test_arrow_detours_stop_when_a_cursed_mace_prevents_drawing_the_bow(self):
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        manifest["archetypes"]["rogue.mace"]["equipment_generation"] = {
+            "kind": "weapon", "curse_percent": 100, "enchant_percent": 0, "minimum": 1, "maximum": 1}
+        character, = manifest["characters"]
+        character.update(known_identities=["item.weapon.mace", "item.weapon.shortbow", "item.scroll.identify-weapon"],
+                         loadout=[{"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0},
+                                  {"archetype": "rogue.shortbow", "quantity": 1},
+                                  {"archetype": "rogue.identify_weapon", "quantity": 1}])
+        region, = contents["regions"]
+        region.update(actors=[], items=[{"id": 9, "archetype": "rogue.arrow", "at": [5, 2, 0]}])
+        self.check_policy_scenario(contents, "blocked-bow", """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import ItemUse, Outcome, Session, UseItem
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    scroll = next(item for item in turn.inventory if item.identity == "item.scroll.identify-weapon")
+    assert turn.submit(UseItem(scroll, ItemUse.READ)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    prompt = turn.identification
+    mace = next(item for item in prompt.items if item.identity == "item.weapon.mace")
+    assert turn.submit(prompt.select(mace)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert next(slot for slot in turn.equipment if slot.kind == "weapon").removal_blocked
+    assert any(ground.item.identity == "item.weapon.arrow" for ground in turn.ground_items)
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    assert not player.loot_goals(turn, turn.ground_items, returning=False).recover_arrows
+    assert not player.loot_goals(turn, turn.ground_items, returning=True).wanted
+""")
+
     def test_bot_collects_nearby_gold_before_distant_visible_arrows(self):
         from discovery_package import write_package
         from utility_potions_package import fixture

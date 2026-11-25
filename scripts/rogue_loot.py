@@ -82,7 +82,7 @@ class LootGoals:
 
 
 def worth_long_detour(objective: str, item: Item, carried: Counter[str | None], *, returning: bool,
-                      under_threat: bool) -> bool:
+                      needs_return_arrows: bool) -> bool:
     """Items worth routing to beyond the short supply-detour radius."""
     identity = item.identity
     if identity in HEALING_POTIONS:
@@ -90,11 +90,20 @@ def worth_long_detour(objective: str, item: Item, carried: Counter[str | None], 
     if item.category == "food":
         return True
     if returning:
-        return (identity == "item.weapon.arrow" and not under_threat
-                and carried["item.weapon.shortbow"] > 0 and carried[identity] < 8)
+        return identity == "item.weapon.arrow" and needs_return_arrows
     return (identity == objective
             or (identity == "item.weapon.dart" and carried[identity] < 12)
             or (identity == "item.weapon.spear" and carried[identity] == 0))
+
+
+def can_wield_shortbow(turn: Turn) -> bool:
+    slot = next((slot for slot in turn.equipment if slot.kind == "weapon"), None)
+    if slot and slot.occupant:
+        if slot.occupant.identity == "item.weapon.shortbow":
+            return True
+        if slot.removal_blocked:
+            return False
+    return any(item.identity == "item.weapon.shortbow" and not item.known_cursed for item in turn.inventory)
 
 
 def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: bool,
@@ -116,13 +125,15 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
             for choice in turn.equip_choices()
         )
 
-    goals.recover_arrows = not returning and not turn.hostiles and carried.by_identity["item.weapon.shortbow"] > 0
+    seek_arrows = not turn.hostiles and carried.by_identity["item.weapon.shortbow"] > 0 and can_wield_shortbow(turn)
+    goals.recover_arrows = seek_arrows and not returning
+    needs_return_arrows = seek_arrows and returning and carried.by_identity["item.weapon.arrow"] < 8
     for ground in ground_items:
         if ground.reachable or ground.cell is None:
             continue
         item = ground.item
         key = ground.cell.key
-        if worth_long_detour(objective, item, carried.by_identity, returning=returning, under_threat=bool(turn.hostiles)):
+        if worth_long_detour(objective, item, carried.by_identity, returning=returning, needs_return_arrows=needs_return_arrows):
             goals.wanted.add(key)
         if returning or turn.hostiles or key in guarded or item.identity in HEALING_POTIONS:
             continue

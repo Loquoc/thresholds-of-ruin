@@ -1693,6 +1693,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(goals.wanted, {"stash"} if wanted else set())
                 self.assertFalse(goals.recover_arrows)
 
+    def test_arrow_routes_require_a_bow_the_player_can_wield(self):
+        bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow",
+               "class": "weapon", "quantity": 1, "identified": True}
+        mace = {**bow, "id": "mace", "identity": "item.weapon.mace"}
+        arrow = {**bow, "id": "arrow", "identity": "item.weapon.arrow"}
+        stash = cell("stash", 2)
+        slot = {"id": "weapon", "name": "Weapon"}
+        for worn, cursed, usable in ((None, "bow", False), ("bow", "bow", True),
+                                    ("mace", "mace", False), ("mace", None, True)):
+            with self.subTest(worn=worn, cursed=cursed):
+                offers = [{"item": item["id"], "slot": slot, "equipped_slot": 0 if item["id"] == worn else None,
+                           "known_cursed": item["id"] == cursed} for item in (bow, mace)]
+                turn = player_turn([cell("here"), stash], inventory=[bow, mace], interactions={
+                    "slots": [slot], "inventory": offers}, ground=[{**stash, "item": arrow, "reachable": False}])
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                self.assertEqual(player.loot_goals(turn, turn.ground_items, returning=False).recover_arrows, usable)
+                self.assertEqual(player.loot_goals(turn, turn.ground_items, returning=True).wanted,
+                                 {"stash"} if usable else set())
+
     def test_recovers_reachable_arrows_when_carrying_the_bow(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         def weapon(name):
