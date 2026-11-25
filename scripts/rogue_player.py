@@ -50,7 +50,7 @@ from tor_client_bot import (
 
 from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_corridor
 from rogue_food import (
-    FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food,
+    FoodScout, PendingMeal, choose_meal, edible_items, estimate_carried_food,
     estimate_round_trip_ticks,
 )
 from rogue_gear import (
@@ -311,12 +311,7 @@ class Adventurer:
         self.observe_guarded_supplies(turn)
         if self.entered_floor_at is None:
             self.entered_floor_at = turn.tick
-        if self.pending_meal and turn.can_act:
-            meal = self.pending_meal
-            gain = meal.observed_gain(turn)
-            if gain is not None:
-                self.food_value[meal.identity] = min(gain, self.food_value.get(meal.identity, gain))
-            self.pending_meal = None
+        self.observe_meal(turn)
         self.observe_combat(turn, turn.recent_combat if combat is None else combat)
         if self.pending_stair:
             attempt = self.pending_stair
@@ -506,8 +501,18 @@ class Adventurer:
             else:
                 self.tried_unknown_scroll = True
             self.sampled_scrolls.add(appearance)
-        elif action.use is ItemUse.EAT and item.identity and turn.nutrition:
-            self.pending_meal = PendingMeal(item.identity, carried_quantity(turn, item.identity), turn.nutrition.reserve)
+        elif action.use is ItemUse.EAT:
+            self.pending_meal = PendingMeal.before_eating(turn, item)
+
+    def observe_meal(self, turn: Turn) -> None:
+        """Keep the lowest measured gain for each food after the player can act again."""
+        meal = self.pending_meal
+        if meal is None or not turn.can_act:
+            return
+        gain = meal.observed_gain(turn)
+        if gain is not None:
+            self.food_value[meal.identity] = min(gain, self.food_value.get(meal.identity, gain))
+        self.pending_meal = None
 
     def observe_end_search(self, turn: Turn) -> None:
         """Only a completed search spends one of the attempts budgeted for a dead end."""

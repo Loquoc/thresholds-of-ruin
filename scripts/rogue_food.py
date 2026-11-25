@@ -35,6 +35,13 @@ class PendingMeal:
     quantity_before: int
     reserve_before: int
 
+    @classmethod
+    def before_eating(cls, turn: Turn, item: Item) -> "PendingMeal | None":
+        nutrition = turn.nutrition
+        if item.identity is None or nutrition is None:
+            return None
+        return cls(item.identity, carried_quantity(turn, item.identity), nutrition.reserve)
+
     def observed_gain(self, turn: Turn) -> int | None:
         nutrition = turn.nutrition
         if nutrition is None or nutrition.reserve >= nutrition.maximum:

@@ -3283,13 +3283,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
         identity = "item.food.ration"
         ration = {"id": "ration", "name": "ration", "identity": identity, "class": "food", "identified": True}
-        def picture(count, reserve):
+        def picture(count, reserve, *, preparing=False):
             nutrition = {"kind": "required", "unit_ticks": 100, "elapsed": 0, "maximum": 1000,
                          "hunger": "nourished", "reserve": reserve}
             pack = [dict(ration, quantity=count)] if count else []
             offers = [{"item": "ration", "edible": True}] if count else []
             return player_turn([cell("here")], inventory=pack, stats={"nutrition": nutrition},
-                               interactions={"inventory": offers})
+                               interactions={"inventory": offers}, combat={"preparation_remaining": 1 if preparing else None})
 
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         observations = (
@@ -3306,6 +3306,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(starting_reserve=starting_reserve, count=count, reserve=reserve):
                 before = picture(2, starting_reserve)
                 player.admitted(before, UseItem(before.inventory[0], ItemUse.EAT))
+                previous = player.food_value.get(identity)
+                player.observe(picture(1, starting_reserve + 1, preparing=True))
+                self.assertEqual(player.food_value.get(identity), previous)
                 player.observe(picture(count, reserve))
                 self.assertEqual(player.food_value.get(identity), expected)
 
