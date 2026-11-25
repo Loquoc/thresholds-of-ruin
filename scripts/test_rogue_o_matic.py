@@ -1700,6 +1700,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observed_loss["hunter"] = 17
         self.assertEqual(choose(player, turn), (UseItem(turn.inventory[0], ItemUse.READ), "escape_pursuit"))
 
+    def test_weak_player_chooses_between_food_and_escape_at_the_lethal_damage_threshold(self):
+        from tor_client_bot import ItemUse, UseItem
+
+        foe = {"id": "hunter", "name": "troll", "position": cell("east", 1)["position"]}
+        food = {"id": "meal", "name": "ration", "class": "food", "identified": False, "quantity": 1}
+        scroll = {"id": "escape", "name": "escape", "class": "scroll", "identified": True, "quantity": 1,
+                  "identity": "item.scroll.teleportation"}
+        turn = player_turn([cell("here"), cell("east", 1)], actors=[foe], hostiles=["hunter"],
+                           inventory=[food, scroll], combat={"hp": 10, "max_hp": 10},
+                           stats={"nutrition": {"hunger": "weak"}},
+                           interactions={"inventory": [{"item": "meal", "edible": True},
+                                                       {"item": "escape", "readable": True}]})
+        meal, escape = turn.inventory
+        for damage, expected in ((9, (UseItem(meal, ItemUse.EAT), "eat")),
+                                 (10, (UseItem(escape, ItemUse.READ), "escape_pursuit"))):
+            with self.subTest(damage=damage):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss["hunter"] = damage
+                self.assertEqual(choose(player, turn), expected)
+
     def test_uses_a_recognized_escape_wand_on_a_lethal_adjacent_enemy(self):
         from tor_client_bot import Zap
 

@@ -616,13 +616,12 @@ class Adventurer:
             if potion := choose_healing_potion(turn, lethal=lethal):
                 return UseItem(potion, ItemUse.DRINK), "heal"
 
-        if turn.hostiles and not lethal and turn.hunger in URGENT_HUNGER:
-            if meal := choose_meal(turn, self.food_value):
-                return UseItem(meal, ItemUse.EAT), "eat"
-
         if lethal:
             if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):
                 return teleport, "escape_pursuit"
+        elif turn.hostiles and turn.hunger in URGENT_HUNGER:
+            if meal := choose_meal(turn, self.food_value):
+                return UseItem(meal, ItemUse.EAT), "eat"
 
         if adjacent and (two_hit_threat or injured or surrounded):
             if zap := self.aim_combat_wand(turn, adjacent, {"item.wand.wand-teleport-away"}):
