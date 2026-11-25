@@ -3308,6 +3308,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.recovering_from_pursuit = True
                 self.assertEqual(player.retreat_to_stairs(turn)[0], Move(expected))
 
+    def test_stair_approach_can_leave_a_lethal_attacker_while_a_weaker_one_remains(self):
+        cells = [cell("here"), cell("stairs", 1, up=True), cell("side", -1), tile(1, 1), tile(0, 1), tile(-1, 1)]
+        foes = [{"id": name, "name": name, "position": square["position"]}
+                for name, square in zip(("griffin", "bat"), cells[3:])]
+        turn = player_turn(cells, actors=foes, hostiles=["griffin", "bat"], combat={"hp": 10})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.observe(turn)
+        player.opponents.damage_by_target["griffin"] = 10
+        for damage, expected in ((0, Direction.EAST), (4, Direction.WEST), (5, Direction.EAST)):
+            with self.subTest(damage=damage):
+                player.opponents.damage_by_target["bat"] = damage
+                self.assertEqual(player.retreat_to_stairs(turn)[0], Move(expected))
+        player.opponents.damage_by_target["bat"] = 1
+        player.opponents.draining_names.add("bat")
+        self.assertEqual(player.retreat_to_stairs(turn)[0], Move(Direction.EAST))
+
     def test_a_retreat_can_open_a_door_or_break_contact_before_opening_it(self):
         from tor_client_bot import OpenDoor
         door = {"id": "gate", "open": False, "reachable": True}

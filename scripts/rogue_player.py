@@ -677,9 +677,16 @@ class Adventurer:
         destination = step.direction.offset if isinstance(step, Move) else (0, 0, 0)
         if self.opponents.melee_exposure(turn, destination).threatens(turn.health, rounds=2):
             escape = self.evade(turn)
-            if escape and not any(turn.in_contact(foe, from_offset=escape[0].direction.offset)
-                                  for foe in turn.hostiles):
-                return escape
+            if escape:
+                offset = escape[0].direction.offset
+                remaining = self.opponents.melee_exposure(turn, offset)
+                if not remaining.foes:
+                    return escape
+                # Accept continued contact only when its cost is known and survivable.
+                if (not remaining.threatens(turn.health, rounds=2) and not turn.cell_at(offset).trap
+                        and all(self.opponents.damage_estimate(foe) > 0 and not self.opponents.is_drainer(foe)
+                                for foe in remaining.foes)):
+                    return escape
         return step, MemoryReason.RETREAT_TO_STAIRS
 
     def step_onto_retreat_stair(self, turn: Turn, exits: set[str]) -> Move | None:
