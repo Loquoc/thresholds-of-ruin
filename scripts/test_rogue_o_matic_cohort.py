@@ -162,6 +162,26 @@ class CohortSummaryTests(unittest.TestCase):
                 self.assertEqual(hashes[name], hashlib.sha256(data).hexdigest())
             self.assertEqual(script.name, "rogue_o_matic.py")
 
+    def test_policy_snapshot_includes_local_imports_even_inside_functions(self):
+        import ast
+        from pathlib import Path
+        from rogue_o_matic_cohort import POLICY_FILES
+
+        scripts = Path(__file__).resolve().parent
+        for name in POLICY_FILES:
+            tree = ast.parse((scripts / name).read_bytes(), filename=name)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imports = [node.module]
+                else:
+                    continue
+                for module in imports:
+                    dependency = module.split(".")[0] + ".py"
+                    if (scripts / dependency).is_file():
+                        self.assertIn(dependency, POLICY_FILES, f"{name}:{node.lineno} imports {module}")
+
     def test_snapshot_loads_policy_and_runner_without_workspace_scripts(self):
         import subprocess
         import sys
@@ -171,12 +191,7 @@ class CohortSummaryTests(unittest.TestCase):
 
         scripts = Path(__file__).resolve().parent
         with tempfile.TemporaryDirectory() as directory:
-            cli, hashes = snapshot_policy(scripts, Path(directory))
-            self.assertIn("rogue_runner.py", hashes)
-            self.assertIn("rogue_food.py", hashes)
-            self.assertIn("rogue_retreat.py", hashes)
-            self.assertIn("rogue_loot.py", hashes)
-            self.assertIn("rogue_training.py", hashes)
+            cli, _ = snapshot_policy(scripts, Path(directory))
             probe = """import sys
 from importlib import import_module
 from typing import get_type_hints
