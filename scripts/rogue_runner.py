@@ -29,6 +29,23 @@ def terminal_combat_events(turn: Turn, updates: list[dict]) -> list[dict]:
     return snapshot
 
 
+def terminal_outcome(turn: Turn, events: list[dict]) -> tuple[str, dict]:
+    """Classify the terminal picture and retain the evidence used by cohort reports."""
+    detail = {
+        "last_combat_events": terminal_combat_events(turn, events),
+        "events_since_previous_action": events,
+        "self_target": turn.self_target,
+    }
+    if turn.victorious:
+        return "victory", detail
+    if turn.dead:
+        threshold = turn.starvation_threshold
+        if threshold is not None:
+            detail["last_nutrition"] = {"kind": "required", "reserve": turn.food_reserve, "starve_at": threshold}
+        return "death", detail
+    return "terminal", detail
+
+
 def trace_position(turn: Turn, player: Adventurer) -> dict:
     memory = player.maps.get(player.depth)
     return {
@@ -100,20 +117,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
         if turn.terminal:
             player.observe_stair(turn)
             deepest = max(deepest, player.depth)
-            events = combat.records()
-            reason = "terminal"
-            if turn.victorious:
-                reason = "victory"
-            elif turn.dead:
-                reason = "death"
-                if (threshold := turn.starvation_threshold) is not None:
-                    detail["last_nutrition"] = {"kind": "required", "reserve": turn.food_reserve,
-                                                "starve_at": threshold}
-            detail.update(
-                last_combat_events=terminal_combat_events(turn, events),
-                events_since_previous_action=events,
-                self_target=turn.self_target,
-            )
+            reason, detail = terminal_outcome(turn, combat.records())
             break
         player.observe(turn, combat)
         deepest = max(deepest, player.depth)

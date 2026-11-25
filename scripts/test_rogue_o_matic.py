@@ -3965,6 +3965,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertTrue(report["amulet_acquired"])
         self.assertEqual(report["actions"], 0)
 
+    def test_terminal_picture_without_victory_or_death_keeps_a_neutral_outcome(self):
+        from unittest.mock import Mock
+        from rogue_runner import play
+        from tor_client_bot import Session
+
+        terminal = player_turn([], combat={"terminal": True, "dead": False, "victory": False})
+        session = Session(Mock())
+        session.wait_for_decision = Mock(return_value=terminal)
+        report = play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 0, self.fail)
+        self.assertEqual((report["terminal"], report["actions"]), ("terminal", 0))
+        self.assertEqual(report["events_since_previous_action"], [])
+        self.assertNotIn("last_nutrition", report)
+
     def test_terminal_report_retains_the_attack_when_only_death_is_in_the_final_picture(self):
         from unittest.mock import Mock
         from rogue_runner import play
