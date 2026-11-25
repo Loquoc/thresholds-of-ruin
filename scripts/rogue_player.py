@@ -1096,6 +1096,8 @@ class Adventurer:
                         remaining = 3 - self.search_attempts_at(cell.key)
                     if remaining > 0:
                         sites.add(cell.key)
+        if sites - {origin}:
+            return {cell.key for cell, _ in memory.reachable(origin) if cell.key in sites}
         return sites
 
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,

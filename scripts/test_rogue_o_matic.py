@@ -1221,6 +1221,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(dict(player.wall_searches), {"original-wall": 1} if phase == "resolved" else {})
                 self.assertEqual(player.searches["start"], 1)
 
+    def test_return_connection_sites_only_include_the_players_side_of_a_barrier(self):
+        cells = [cell("here"), cell("west-wall", 1, wall=True), cell("stairs", 2, up=True),
+                 cell("east-wall", 3, wall=True), cell("isolated", 4)]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(search_turn(cells))
+        memory = player.maps[player.depth]
+        self.assertEqual(player.return_connection_sites(memory, "here", {"stairs"}), {"here"})
+
     def test_cancelled_return_search_can_be_retried_at_the_same_boundary(self):
         from tor_client_bot import Result
 
