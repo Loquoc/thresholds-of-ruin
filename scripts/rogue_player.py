@@ -926,7 +926,8 @@ class Adventurer:
 
         if not self.trapped(turn):
             if turn.cell.key in self.danger_until:
-                if action := memory.toward(turn, memory.visited - self.danger_until.keys()):
+                danger = self.danger_until.keys()
+                if action := route_around_danger(turn, memory, memory.visited - danger, danger):
                     return action, "reposition_to_recover"
             # Recover along the food route while scouting away from the stairs.
             food_route = None

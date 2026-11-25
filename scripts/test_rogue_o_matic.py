@@ -3418,6 +3418,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.danger_until["cleared"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
 
+    def test_recovery_prefers_a_clear_route_to_shelter_over_a_shorter_dangerous_route(self):
+        turn = player_turn([cell(str(x), x) for x in range(-3, 3)], combat={"hp": 6},
+                           stats={"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
+                                                      "reset_percent": 100, "stopped": False}})
+        for clear_shelter, expected in ((True, Direction.WEST), (False, Direction.EAST)):
+            with self.subTest(clear_shelter=clear_shelter):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                player.maps[1].visited.add("2")
+                if clear_shelter:
+                    player.maps[1].visited.add("-3")
+                player.danger_until.update({"0": 1200, "1": 1200})
+                self.assertEqual(player.choose(turn), (Move(expected), "reposition_to_recover"))
+
     def test_explores_away_from_recent_danger_when_another_route_exists(self):
         turn = player_turn([cell("here"), cell("east", 1), cell("west", -1)])
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
