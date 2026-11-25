@@ -541,23 +541,9 @@ class Adventurer:
             return decision
         if decision := self.fight_stair_guard(turn, adjacent):
             return decision
-        distances = [(foe, turn.distance_to(foe)) for foe in turn.hostiles]
-        close_pursuit = bool(adjacent) and sum(distance <= 2 for _, distance in distances) >= 2
-        pressed = injured or close_pursuit or two_hit_threat or (not adjacent and converging_pursuers(turn, distances))
-        if escape := self.retreat_to_stairs(turn, pressed=pressed):
-            return escape
-        pursuers = [(foe, distance) for foe, distance in distances if distance <= 3]
-        approaching_group = not adjacent and len(pursuers) >= 2
-        if approaching_group and not self.trapped(turn):
-            if step := take_corridor(turn, pursuers):
-                return step, MemoryReason.TAKE_CORRIDOR
-        if turn.hostiles and not adjacent and health and (decision := self.counter_threat(turn, health.current)):
+        if decision := self.respond_to_pursuit(turn, in_contact=bool(adjacent), injured=injured,
+                                              two_hit_threat=two_hit_threat):
             return decision
-
-        if (approaching_group and health and not injured and not turn.has_condition("rogue.hasted")
-                and not turn.has_condition("rogue.haste_exhaustion")):
-            if haste := offered_item_use(turn, "item.potion.haste", ItemUse.DRINK):
-                return haste, "combat_haste"
 
         if (
             turn.hostiles
@@ -594,6 +580,28 @@ class Adventurer:
         if turn.holds:
             return Escape(turn.holds[0]), "escape_hold"
 
+        return None
+
+    def respond_to_pursuit(self, turn: Turn, *, in_contact: bool, injured: bool,
+                           two_hit_threat: bool) -> tuple[Action, str] | None:
+        health = turn.health
+        distances = [(foe, turn.distance_to(foe)) for foe in turn.hostiles]
+        close_pursuit = in_contact and sum(distance <= 2 for _, distance in distances) >= 2
+        pressed = injured or close_pursuit or two_hit_threat or (not in_contact and converging_pursuers(turn, distances))
+        if escape := self.retreat_to_stairs(turn, pressed=pressed):
+            return escape
+        pursuers = [(foe, distance) for foe, distance in distances if distance <= 3]
+        approaching_group = not in_contact and len(pursuers) >= 2
+        if approaching_group and not self.trapped(turn):
+            if step := take_corridor(turn, pursuers):
+                return step, MemoryReason.TAKE_CORRIDOR
+        if turn.hostiles and not in_contact and health and (decision := self.counter_threat(turn, health.current)):
+            return decision
+
+        if (approaching_group and health and not injured and not turn.has_condition("rogue.hasted")
+                and not turn.has_condition("rogue.haste_exhaustion")):
+            if haste := offered_item_use(turn, "item.potion.haste", ItemUse.DRINK):
+                return haste, "combat_haste"
         return None
 
     def fight_stair_guard(self, turn: Turn, adjacent: list[Creature]) -> tuple[Action, str] | None:

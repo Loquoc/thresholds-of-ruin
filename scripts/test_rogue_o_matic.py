@@ -2197,14 +2197,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observed_loss["hunter"] = damage
                 self.assertEqual(choose(player, turn), expected)
 
-    def test_uses_a_recognized_escape_wand_on_a_lethal_adjacent_enemy(self):
+    def test_displaces_a_lethal_contact_before_retreating_to_available_stairs(self):
         from tor_client_bot import Zap
 
         foe = {"id": "fang", "name": "rattlesnake", "position": {"x": 1, "y": 0, "z": 0}}
         item = {"id": "staff", "class": "wand", "name": "displacing staff", "quantity": 1,
                 "identified": True, "identity": "item.wand.wand-teleport-away"}
         offer = {"item": "staff", "zappable": True, "device_activation": "direction", "charges": None}
-        turn = player_turn([cell("here"), cell("snake", 1)], actors=[foe], hostiles=["fang"],
+        turn = player_turn([cell("here"), cell("snake", 1), cell("stairs", -1, down=True)], actors=[foe], hostiles=["fang"],
                            inventory=[item], combat={"hp": 5, "max_hp": 39},
                            interactions={"inventory": [offer]})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
@@ -2212,7 +2212,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(player, turn)
         self.assertEqual((action, reason), (Zap(turn.devices[0], turn.cell_at((1, 0, 0))), "displace_threat"))
         player.admitted(turn, action, reason=reason)
-        self.assertNotIsInstance(player.choose(turn)[0], Zap)
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "retreat_to_stairs"))
 
     def test_displaces_the_most_dangerous_contact_with_a_disclosed_target_cell(self):
         from tor_client_bot import Zap
@@ -2959,7 +2959,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "step", "phase": "queued"}
         for reply, expected in (
             ({"status": "confirmed", "receipt": receipt, "request_id": "request-1"},
-             {"status": "confirmed", "receipt": {**receipt, "failure": None}, "code": None,
+             {"status": "confirmed", "receipt": {**receipt, "failure": None, "failed_action": None}, "code": None,
               "message": None, "request_id": "request-1"}),
             ({"status": "rejected", "code": "blocked", "message": "No passage"},
              {"status": "rejected", "receipt": {"intention": None}, "code": "blocked", "message": "No passage"}),
