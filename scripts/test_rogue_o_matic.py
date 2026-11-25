@@ -473,6 +473,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.last_unseen_attack = "attack", 100
                 self.assertEqual(choose(player, turn), (Move(expected), "evade_unseen_attack"))
 
+    def test_unseen_attack_evasion_uses_the_nearest_view_of_the_attack_site(self):
+        views = [cell("attack", 4), cell("attack", -2)]
+        for order in (views, views[::-1]):
+            with self.subTest(first=order[0]["position"]):
+                turn = player_turn([cell("here"), cell("west", -1), cell("east", 1), *order], tick=200)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.last_unseen_attack = "attack", 100
+                self.assertEqual(choose(player, turn), (Move(Direction.EAST), "evade_unseen_attack"))
+
     def test_unseen_attack_evasion_uses_the_mapped_corridor_after_losing_sight_of_the_site(self):
         miss = {"type": "unseen_ability", "target": "player", "outcome": "miss"}
         for away, expected in ((1, Direction.EAST), (-1, Direction.WEST)):
