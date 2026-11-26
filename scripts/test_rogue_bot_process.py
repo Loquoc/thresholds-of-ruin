@@ -171,7 +171,7 @@ class RogueBotProcess(ProcessTestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_budget_trace_identifies_the_action_rolled_back_by_the_server(self):
-        from test_growth_failure_process import growth_package
+        from growth_failure_package import growth_package
 
         self.install_bot_extension()
         self.server(scenario=growth_package(self, reject_growth=True))
