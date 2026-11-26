@@ -42,7 +42,7 @@ class EquipmentHistory:
                 self.record(action.launcher, "launcher_admitted")
 
     def observe(self, turn: Turn) -> None:
-        if not turn.terminal:
+        if not turn.terminal and (self.last_inventory_tick is None or turn.tick >= self.last_inventory_tick):
             self.last_inventory_tick = turn.tick
             self.last_devices = carried_device_report(turn)
         for ground in turn.ground_items:
@@ -64,7 +64,7 @@ class EquipmentHistory:
                 for category, stages in self.stages.items()}
 
     def report(self) -> dict[str, object]:
-        """Report whole-run stage counts alongside the last nonterminal inventory."""
+        """Report whole-run stage counts alongside the most recent nonterminal inventory by game tick."""
         return {
             "equipment_opportunities": self.counts(),
             "last_inventory_tick": self.last_inventory_tick,

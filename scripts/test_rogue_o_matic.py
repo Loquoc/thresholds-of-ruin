@@ -4242,6 +4242,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual([(row["activation_offered"], row["charges"]) for row in history.last_devices],
                          [(True, 0), (True, None), (False, None)])
 
+    def test_older_inventory_contributes_to_counts_without_replacing_current_devices(self):
+        from rogue_equipment_history import EquipmentHistory
+
+        wand = {"id": "staff", "class": "wand", "name": "staff", "quantity": 1, "identified": False}
+        ring = {"id": "ring", "class": "ring", "name": "ring", "quantity": 1, "identified": False}
+        history = EquipmentHistory()
+        history.observe(player_turn([cell("here")], inventory=[wand], tick=100))
+        history.observe(player_turn([cell("here")], inventory=[ring], tick=50))
+        report = history.report()
+        self.assertEqual(report["last_inventory_tick"], 100)
+        self.assertEqual([item["item"] for item in report["last_carried_devices"]], ["staff"])
+        self.assertEqual(report["equipment_opportunities"], {"wand": {"carried": 1}, "ring": {"carried": 1}})
+
+        history.observe(player_turn([cell("here")], inventory=[ring], tick=100))
+        self.assertEqual(history.report()["last_carried_devices"], [])
+
     def test_equipment_report_distinguishes_empty_inventory_from_no_live_observation(self):
         from rogue_equipment_history import EquipmentHistory
 
