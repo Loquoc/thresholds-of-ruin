@@ -66,15 +66,18 @@ class SearchHistory:
     pending_search: PendingSearch | None = None
     wall_searches: Counter[str] = field(default_factory=Counter)
 
+    def _record_completion(self, origin: str, walls: frozenset[str], *, at_dead_end: bool) -> None:
+        self.wall_searches.update(walls)
+        if at_dead_end:
+            self.completed_end_searches[origin] += 1
+
     def observe(self, turn: Turn) -> None:
         search = self.pending_search
         if search is None:
             return
         phase = turn.outcome_of(search.receipt)
         if phase is ActivityPhase.RESOLVED:
-            self.wall_searches.update(search.walls)
-            if search.at_dead_end:
-                self.completed_end_searches[search.origin] += 1
+            self._record_completion(search.origin, search.walls, at_dead_end=search.at_dead_end)
         elif phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
             self.unsuccessful_searches[search.origin] += 1
         elif not receipt_history_expired(turn, phase, search.submitted_at):
@@ -85,10 +88,10 @@ class SearchHistory:
     def admit(self, turn: Turn, origin: Cell, receipt: Result | None, memory: FloorMap | None) -> None:
         self.admissions[origin.key] += 1
         walls = nearby_search_walls(turn)
-        if receipt is None or receipt.activity is None:
-            self.wall_searches.update(walls)
-            return
         at_dead_end = memory is not None and is_searchable_dead_end(origin, memory)
+        if receipt is None or receipt.activity is None:
+            self._record_completion(origin.key, walls, at_dead_end=at_dead_end)
+            return
         self.pending_search = PendingSearch(turn.tick, receipt, walls, origin.key, at_dead_end)
 
     def attempts_at(self, key: str) -> int:

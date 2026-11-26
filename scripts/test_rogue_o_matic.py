@@ -4804,6 +4804,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(player.search_history.admissions["stairs"], 1)
                 self.assertEqual(player.search_history.completed_end_searches["stairs"], 0)
 
+    def test_immediate_searches_exhaust_the_dead_end_allowance(self):
+        from tor_client_bot import Result
+
+        turn = search_turn([cell("end"), cell("hall", -1), cell("east", 1, wall=True),
+                            cell("north", y=-1, wall=True), cell("south", y=1, wall=True)])
+        for receipt in (None, Result.from_reply({"status": "confirmed"})):
+            with self.subTest(receipt=receipt):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                for _ in range(6):
+                    action, reason = choose(player, turn)
+                    self.assertEqual(reason, "search")
+                    player.admitted(turn, action, receipt, reason=reason)
+                self.assertEqual(choose(player, turn)[1], "explore")
+                self.assertEqual(player.search_history.wall_searches["east"], 6)
+
     def test_searches_closed_corridor_end_six_times_before_exploring_elsewhere(self):
         import json
         from tor_client_bot import Result
