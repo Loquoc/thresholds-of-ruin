@@ -2248,6 +2248,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
                        "identified": True, "quantity": 12, "class": "weapon"} for name in ("shortbow", "arrow")]
         ground = [{**cells[-1], "item": {**arrow, "id": "spent", "quantity": 1}, "reachable": False}]
+        ground.append({**cells[0], "item": {**arrow, "id": "unreachable"}, "reachable": False})
         turn = player_turn(cells, inventory=[bow, arrow], ground=ground)
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Move(Direction.EAST), "recover_arrows"))
@@ -4768,9 +4769,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         ground = [{**site, "item": {"id": site["key"], "name": "meal", "class": "food",
                                     "quantity": 1, "identified": False}, "reachable": False}
                   for site in (track[0], track[-1])]
-        turn = player_turn(track, ground=ground, stats={"nutrition": {"hunger": "weak"}})
-        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
-                         (Move(Direction.EAST), "forage"))
+        for hunger, reason in (("weak", "forage"), ("nourished", "seek_item")):
+            with self.subTest(hunger=hunger):
+                turn = player_turn(track, ground=ground, stats={"nutrition": {"hunger": hunger}})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                                 (Move(Direction.EAST), reason))
 
     def test_foraging_prefers_a_safe_ration_but_can_use_the_only_known_route(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)

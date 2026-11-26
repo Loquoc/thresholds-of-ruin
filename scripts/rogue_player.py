@@ -42,7 +42,7 @@ from rogue_combat import (
     MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
 )
 from rogue_loot import (
-    LootGoals, guarded_supply_cells, loot_goals, preferred_pickup, route_to_loot,
+    LootGoals, guarded_supply_cells, loot_goals, preferred_pickup, remembered_item_destinations, route_to_loot,
 )
 from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
@@ -814,7 +814,7 @@ class Adventurer:
 
     def step_toward_objective(self, turn: Turn, memory: FloorMap) -> Action | None:
         """Avoid combat sites and prefer routes that also bypass recently guarded supplies."""
-        goals = memory.cells_with_item(lambda item: item.identity == self.objective)
+        goals = remembered_item_destinations(turn, memory, lambda item: item.identity == self.objective)
         if not goals:
             return None
         danger = self.danger_until.keys()
@@ -908,10 +908,7 @@ class Adventurer:
         return None
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
-        food_cells = memory.cells_with_item(lambda item: item.category == "food")
-        # Reachable food here is handled by pickup. A route must lead to a different square.
-        if turn.cell is not None:
-            food_cells.discard(turn.cell.key)
+        food_cells = remembered_item_destinations(turn, memory, lambda item: item.category == "food")
         avoid = self.danger_until.keys() | self.supplies_guarded_until.keys()
         return route_around_danger(turn, memory, food_cells, avoid)
 

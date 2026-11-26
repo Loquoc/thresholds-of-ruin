@@ -1,11 +1,11 @@
 """Choose reachable Rogue loot and route to more distant supplies."""
 
 from collections import Counter
-from collections.abc import Set
+from collections.abc import Callable, Set
 from dataclasses import dataclass, field
 from functools import cached_property
 
-from tor_client_bot import Action, FloorMap, GroundItem, Item, Turn
+from tor_client_bot import Action, FloorMap, GroundItem, Item, RememberedItem, Turn
 
 from rogue_combat import HEALING_POTIONS, recovery_deficit
 from rogue_gear import can_wield_shortbow, melee_score, primary_weapon_slot, remove_curse_scroll, ring_upgrades
@@ -152,6 +152,14 @@ def needs_weapon_detour(identity: str | None, carried: Counter[str | None], *,
             or (identity == "item.weapon.spear" and carried[identity] == 0))
 
 
+def remembered_item_destinations(turn: Turn, memory: FloorMap, matches: Callable[[RememberedItem], bool]) -> set[str]:
+    """Pickup handles the current square. Only other squares can be route destinations."""
+    goals = memory.cells_with_item(matches)
+    if turn.cell is not None:
+        goals.discard(turn.cell.key)
+    return goals
+
+
 def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: bool,
                objective: str, guarded: Set[str]) -> LootGoals:
     goals = LootGoals()
@@ -160,7 +168,8 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
     seek_arrows = not turn.hostiles and can_wield_shortbow(turn)
     goals.recover_arrows = seek_arrows and not returning
 
-    distant_items = [ground for ground in ground_items if not ground.reachable and ground.cell is not None]
+    distant_items = [ground for ground in ground_items if not ground.reachable and ground.cell is not None
+                     and ground.cell != turn.cell]
     if not distant_items:
         return goals
     carried = CarriedLoot(turn)
@@ -191,7 +200,7 @@ def route_to_loot(turn: Turn, memory: FloorMap, goals: LootGoals, danger: Set[st
     if goals.essential and (action := route_around_danger(turn, memory, goals.essential, avoid)):
         return action, "seek_item"
     if goals.recover_arrows:
-        arrows = memory.cells_with_item(lambda item: item.identity == "item.weapon.arrow") - guarded
+        arrows = remembered_item_destinations(turn, memory, lambda item: item.identity == "item.weapon.arrow") - guarded
         if arrows and (action := memory.toward_avoiding_traps(turn, arrows, avoid=avoid, max_steps=6)):
             return action, "recover_arrows"
     if goals.nearby and (action := memory.toward_avoiding_traps(turn, goals.nearby, avoid=avoid, max_steps=2)):
