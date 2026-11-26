@@ -127,7 +127,7 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
         return None
     if turn.hostiles:
         health = turn.health
-        if health is None or recovery_deficit(health) or any(turn.distance_to(foe) <= 1 for foe in turn.hostiles):
+        if health is None or recovery_deficit(health) or any(turn.in_contact(foe) for foe in turn.hostiles):
             return None
     if len(useful) == 1:
         return useful[0]

@@ -910,7 +910,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                     self.assertEqual((action.item.target, reason), (expected, "take"))
 
-    def test_pickup_only_checks_foe_distance_for_incidental_loot(self):
+    def test_pickup_only_checks_melee_contact_for_incidental_loot(self):
         here, far = cell("here"), cell("far", 3)
         foe = {"id": "foe", "name": "orc", "position": far["position"]}
         prize = {"id": "prize", "identity": DEFAULT_OBJECTIVE_IDENTITY, "class": "amulet",
@@ -920,7 +920,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             with self.subTest(reachable=reachable):
                 turn = player_turn([here, far], actors=[foe], hostiles=["foe"],
                                    ground=[{**here, "item": prize, "reachable": reachable}])
-                with patch.object(turn, "distance_to", side_effect=AssertionError("unexpected threat check")):
+                with patch.object(turn, "in_contact", side_effect=AssertionError("unexpected threat check")):
                     chosen = player.choose_pickup(turn, turn.ground_items, returning=False)
                 self.assertEqual(chosen.target if chosen else None, "prize" if reachable else None)
 
@@ -939,6 +939,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    combat={"hp": hp, "max_hp": 10})
                 picked = player.choose_pickup(turn, turn.ground_items, returning=False)
                 self.assertEqual(picked.target if picked else None, expected)
+
+    def test_diagonal_guard_blocks_pickup_only_across_an_open_corner(self):
+        here, diagonal = cell("here"), cell("diagonal", 1, 1)
+        foe = {"id": "orc", "name": "orc", "position": diagonal["position"]}
+        gold = {"id": "gold", "name": "gold", "class": "coin", "quantity": 1, "identified": False}
+        ground = [{**here, "item": gold, "reachable": True}]
+        for blocked in (True, False):
+            with self.subTest(blocked=blocked):
+                room = [here, cell("east", 1, wall=blocked), cell("south", y=1), diagonal]
+                turn = player_turn(room, actors=[foe], hostiles=["orc"], ground=ground)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                picked = player.choose_pickup(turn, turn.ground_items, returning=False)
+                self.assertEqual(picked, turn.ground_items[0].item if blocked else None)
 
     def test_unsafe_pickup_allows_only_a_reachable_outbound_objective(self):
         here = cell("here")
