@@ -2386,9 +2386,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             self.assertIsNone(player.ranged_combat(turn, []))
             query.assert_not_called()
 
-    def test_prefers_a_short_range_shot_when_two_hostiles_are_in_range(self):
+    def test_projectile_selection_orders_delivery_then_range_and_preserves_ties(self):
         from dataclasses import replace
-        from unittest.mock import Mock
+        from itertools import combinations
         from tor_client_bot import ProjectileRange, Shot
 
         near = cell("near", 2)
@@ -2400,20 +2400,39 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         pack = [{"id": name, "name": name, "class": "weapon", "quantity": 1, "identified": False} for name in ("dart", "bow")]
         turn = player_turn(cells, actors=foes, hostiles=["far", "near"], abilities=[ability], inventory=pack)
         dart, bow = turn.inventory
-        for launcher, reason in ((bow, "launch_projectile"), (None, "throw_projectile")):
-            with self.subTest(reason=reason):
-                shots = {foe.target: Shot(turn.abilities[0], foe, foe.cells[0], dart, launcher, 0,
-                                          range=ProjectileRange(2, 4)) for foe in turn.hostiles}
-                near_shot, far_shot = shots["near"], shots["far"]
-                longer_range = replace(far_shot, range=ProjectileRange(4, 8))
-                unknown_range = replace(far_shot, range=None)
-                for offers, expected in (([far_shot, near_shot], near_shot), ([near_shot, far_shot], near_shot),
-                                         ([far_shot], far_shot), ([longer_range, near_shot], longer_range),
-                                         ([near_shot, longer_range], near_shot),
-                                         ([unknown_range, near_shot], near_shot), ([near_shot, unknown_range], near_shot),
-                                         ([far_shot, unknown_range], unknown_range), ([unknown_range], unknown_range)):
-                    turn.ranged_attacks = Mock(return_value=iter(offers))
-                    self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), (expected, reason))
+        targets = {foe.target: foe for foe in turn.hostiles}
+        near_foe, far_foe = targets["near"], targets["far"]
+        short = Shot(turn.abilities[0], near_foe, near_foe.cells[0], dart, bow, 0, range=ProjectileRange(2, 4))
+        long = replace(short, target=far_foe, offset=far_foe.cells[0])
+        unknown = replace(long, range=None)
+
+        # List the policy preferences from best to worst. Each pair must work in either offer order.
+        preferences = [
+            ("short launch", short),
+            ("unknown launch", unknown),
+            ("long launch", long),
+            ("short throw", replace(short, launcher=None)),
+            ("unknown throw", replace(unknown, launcher=None)),
+            ("long throw", replace(long, launcher=None)),
+        ]
+
+        def assert_selection(offers, expected):
+            with patch.object(turn, "ranged_attacks", return_value=iter(offers)):
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+            self.assertIs(action, expected)
+            self.assertEqual(reason, "launch_projectile" if expected.launcher else "throw_projectile")
+
+        for (preferred_name, preferred), (other_name, other) in combinations(preferences, 2):
+            with self.subTest(preferred=preferred_name, other=other_name):
+                assert_selection([other, preferred], preferred)
+                assert_selection([preferred, other], preferred)
+
+        for name, shot in preferences:
+            with self.subTest(equal_priority=name):
+                alternative = replace(shot, socket=1)
+                assert_selection([shot], shot)
+                assert_selection([shot, alternative], shot)
+                assert_selection([alternative, shot], alternative)
 
     def test_throw_range_ends_at_four_and_an_admitted_throw_waits_for_time_to_advance(self):
         from unittest.mock import Mock
