@@ -154,7 +154,6 @@ class RogueReferencePolicyTests(unittest.TestCase):
         session = Session()
         with redirect_stdout(StringIO()) as output:
             self.assertEqual(run(session, ProjectilePolicy(), budget=3), "action_budget")
-        import json
         rows = [json.loads(line) for line in output.getvalue().splitlines()]
         self.assertEqual([row["reason"] for row in rows],
                          ["throw_projectile", "advance_after_failed_projectile", "throw_projectile"])
@@ -1054,7 +1053,6 @@ class RogueReferencePolicyTests(unittest.TestCase):
     def test_spends_all_eligible_advancement_points_before_resuming_exploration(self):
         from contextlib import redirect_stdout
         from io import StringIO
-        from unittest.mock import patch
         from rogue_policy_reference import run
 
         picture = state([cell("here"), cell("east", 1)])
@@ -1242,7 +1240,6 @@ class RogueReferencePolicyTests(unittest.TestCase):
     def test_cancels_a_dangerous_attack_once_then_resumes_the_same_retry(self):
         from contextlib import redirect_stdout
         from io import StringIO
-        import json
         from rogue_policy_reference import run
 
         foe = {"id": "foe", "position": {"x": 1, "y": 0, "z": 0}}
@@ -1459,7 +1456,6 @@ class RogueReferencePolicyTests(unittest.TestCase):
                          ({"type": "move", "direction": "west"}, "find_descent"))
 
     def test_waits_for_slow_paid_work_while_game_time_continues_advancing(self):
-        from unittest.mock import patch
         from rogue_policy_reference import run
 
         def view_at(tick):
@@ -1499,7 +1495,6 @@ class RogueReferencePolicyTests(unittest.TestCase):
     def check_stalled_move(self, cells, direction, *, advances=False):
         from contextlib import redirect_stdout
         from io import StringIO
-        from unittest.mock import patch
         from rogue_policy_reference import run
 
         ready = state(cells)
@@ -1542,7 +1537,6 @@ class RogueReferencePolicyTests(unittest.TestCase):
     def test_submits_one_offered_wait_when_recovery_stops_advancing(self):
         from contextlib import redirect_stdout
         from io import StringIO
-        from unittest.mock import patch
         from rogue_policy_reference import run
 
         initial = state([cell("stairs", down=True)])
@@ -1572,7 +1566,6 @@ class RogueReferencePolicyTests(unittest.TestCase):
     def test_waits_for_confirmed_identification_prompt_to_clear(self):
         from contextlib import redirect_stdout
         from io import StringIO
-        from unittest.mock import patch
         from rogue_policy_reference import run
 
         pending = state([cell("here")])
