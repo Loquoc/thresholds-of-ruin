@@ -1410,6 +1410,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 play(session, player, 1, lambda row: None)
                 self.assertEqual(player.train.call_count, expected)
 
+    def test_earned_training_waits_for_a_visible_landing(self):
+        from unittest.mock import Mock
+        from rogue_runner import play
+        from tor_client_bot import Outcome, Result, Session
+
+        stats = {"hit_dice": {"total": 2}}
+        standing = player_turn([cell("here", down=True)], stats=stats)
+        picture = json.loads(standing.recording())
+        picture["state"]["observation"]["motion"] = {"velocity": [0, 0, -1]}
+        falling = Turn(picture)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, training_checked_at=1)
+        player.train = Mock(return_value=None)
+        confirmed = Result(Outcome.CONFIRMED, None, None)
+        falling.submit = Mock(return_value=confirmed)
+        standing.submit = Mock(return_value=confirmed)
+        terminal = player_turn([], combat={"terminal": True, "victory": False, "dead": False})
+        session = Session(Mock())
+        session.wait_for_decision = Mock(side_effect=[falling, standing, terminal])
+        trace = []
+        play(session, player, 2, trace.append)
+        self.assertEqual([row["reason"] for row in trace], ["settle_fall", "descend"])
+        player.train.assert_called_once_with(standing, session.training)
+
     def test_training_reads_the_talent_options_once_when_choosing_its_second_preference(self):
         from unittest.mock import Mock
         from tor_client_bot import PointPool, Training, TrainingKind, TrainingOption

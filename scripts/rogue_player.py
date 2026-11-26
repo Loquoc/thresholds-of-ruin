@@ -182,8 +182,9 @@ class Adventurer:
     def ready_to_train(self, turn: Turn, *, stalled: bool) -> bool:
         if self.growth_locked or turn.hit_dice is None or turn.hit_dice == self.training_checked_at:
             return False
-        return (not stalled and turn.can_act and not turn.hostiles and not turn.identification
-                and not turn.can_resume and self.pending_stair is None)
+        if stalled or not turn.can_act or turn.can_resume or turn.needs_identification:
+            return False
+        return not turn.falling and not turn.hostiles and self.pending_stair is None
 
     def train(self, turn: Turn, training: Training) -> tuple[dict, Result] | None:
         """Try one safe purchase, then let the next observation show the new build."""
