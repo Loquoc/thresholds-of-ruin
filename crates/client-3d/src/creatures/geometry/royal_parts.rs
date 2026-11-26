@@ -156,7 +156,7 @@ pub(super) fn corset(
     for side in [-1.0, 1.0] {
         for share in [0.42, 0.80] {
             let path = boning_path(body, form, side, share);
-            fitted_ribbon(&mut p.metal, form, &path, true, 0.004, metal);
+            fitted_ribbon(&mut p.gold, form, &path, true, 0.004, metal);
         }
         let top = body.bust.map_or(0.30, |b| b.fold);
         let path: Vec<_> = (0..=40)
@@ -171,13 +171,13 @@ pub(super) fn corset(
                 )
             })
             .collect();
-        fitted_ribbon(&mut p.metal, form, &path, true, 0.004, metal);
+        fitted_ribbon(&mut p.gold, form, &path, true, 0.004, metal);
     }
     let y = sweetheart_top(body, 0.0, 1.0, 0.55) - 0.02;
     let at = torso_surface(form, 0.0, y, true) + Vec3::Z * 0.007;
-    p.metal
+    p.gold
         .blob(at, Vec3::new(0.014, 0.024, 0.007), 1, 0.0, metal);
-    p.satin.blob(
+    p.glass.blob(
         at + Vec3::Z * 0.005,
         Vec3::new(0.009, 0.018, 0.006),
         1,
