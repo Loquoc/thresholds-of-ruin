@@ -329,7 +329,7 @@ def choose_melee_attack(turn: Turn, targets: Iterable[Creature], *, make_space: 
 
 
 def choose_projectile(shots: Iterable[Shot]) -> Shot | None:
-    """Prefer launched shots, then short range, preserving offer order on ties."""
+    """Prefer launches over throws. Within each, prefer short range, then unknown, then long."""
     best_shot = None
     best_rank = None
     for shot in shots:
@@ -339,10 +339,10 @@ def choose_projectile(shots: Iterable[Shot]) -> Shot | None:
         launched = shot.launcher is not None
         if not launched and (shot.equipped_throw or distance > 4):
             continue
-        in_normal_range = shot.range is None or distance <= shot.range.short_cells
-        if launched and in_normal_range:
+        known_short = shot.range is not None and distance <= shot.range.short_cells
+        if launched and known_short:
             return shot
-        rank = launched, in_normal_range
+        rank = launched, known_short, shot.range is None
         if best_rank is None or rank > best_rank:
             best_shot, best_rank = shot, rank
     return best_shot

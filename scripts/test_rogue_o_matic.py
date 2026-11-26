@@ -2322,7 +2322,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_uses_a_loaded_launcher_even_if_a_carried_throw_is_offered_first(self):
         from unittest.mock import Mock
-        from tor_client_bot import Shot
+        from tor_client_bot import ProjectileRange, Shot
 
         cells = [cell(str(x), x) for x in range(4)]
         foe = {"id": "emu", "name": "emu", "position": cells[-1]["position"]}
@@ -2335,7 +2335,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         dart, arrow, bow = turn.inventory
         target, = turn.hostiles
         throw = Shot(turn.abilities[0], target, (3, 0, 0), dart, None, 0)
-        launch = Shot(turn.abilities[1], target, (3, 0, 0), arrow, bow, 0)
+        launch = Shot(turn.abilities[1], target, (3, 0, 0), arrow, bow, 0, range=ProjectileRange(3, 6))
         def offers_until_launch(first):
             if first is throw:
                 yield throw
@@ -2406,9 +2406,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                           range=ProjectileRange(2, 4)) for foe in turn.hostiles}
                 near_shot, far_shot = shots["near"], shots["far"]
                 longer_range = replace(far_shot, range=ProjectileRange(4, 8))
+                unknown_range = replace(far_shot, range=None)
                 for offers, expected in (([far_shot, near_shot], near_shot), ([near_shot, far_shot], near_shot),
                                          ([far_shot], far_shot), ([longer_range, near_shot], longer_range),
-                                         ([near_shot, longer_range], near_shot)):
+                                         ([near_shot, longer_range], near_shot),
+                                         ([unknown_range, near_shot], near_shot), ([near_shot, unknown_range], near_shot),
+                                         ([far_shot, unknown_range], unknown_range), ([unknown_range], unknown_range)):
                     turn.ranged_attacks = Mock(return_value=iter(offers))
                     self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), (expected, reason))
 
