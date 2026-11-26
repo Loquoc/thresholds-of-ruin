@@ -49,6 +49,12 @@ class PendingMeal:
     receipt: Result | None = None
     resolved: bool = False
 
+    def matches_admission(self, turn: Turn) -> bool:
+        """A repeated snapshot cannot establish whether the meal was consumed."""
+        return (turn.tick == self.submitted_at and turn.nutrition is not None
+                and turn.nutrition.reserve == self.reserve_before
+                and carried_quantity(turn, self.identity) == self.quantity_before)
+
     def observed_gain(self, turn: Turn) -> int | None:
         nutrition = turn.nutrition
         if nutrition is None or nutrition.reserve >= nutrition.maximum:
@@ -78,7 +84,7 @@ class MealHistory:
 
     def observe(self, turn: Turn) -> None:
         meal = self.pending
-        if meal is None:
+        if meal is None or turn.tick < meal.submitted_at:
             return
         if meal.receipt and meal.receipt.activity:
             if not meal.resolved:
@@ -92,7 +98,7 @@ class MealHistory:
                 meal.resolved = True
             if turn.nutrition is None and not turn.can_act:
                 return
-        elif not turn.can_act:
+        elif not turn.can_act or meal.matches_admission(turn):
             return
         self.pending = None
         gain = meal.observed_gain(turn)

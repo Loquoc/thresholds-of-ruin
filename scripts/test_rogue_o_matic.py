@@ -5133,6 +5133,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertIsNone(player.meals.pending)
                 self.assertEqual(player.meals.gains, {"fixture.ration": 30} if phase == "resolved" else {})
 
+    def test_meal_without_an_activity_survives_repeated_and_older_observations(self):
+        from tor_client_bot import Result
+
+        ration = {"id": "food", "identity": "fixture.ration", "name": "ration", "class": "food",
+                  "quantity": 1, "identified": True}
+        nutrition = {"kind": "required", "unit_ticks": 100, "elapsed": 0, "maximum": 100,
+                     "reserve": 10, "hunger": "weak"}
+        before = player_turn([cell("here")], tick=10, inventory=[ration], stats={"nutrition": nutrition},
+                             interactions={"inventory": [{"item": "food", "edible": True}]})
+        def consumed(tick, reserve):
+            return player_turn([cell("here")], tick=tick, stats={"nutrition": dict(nutrition, reserve=reserve)})
+
+        for receipt in (None, Result.from_reply({"status": "confirmed"})):
+            with self.subTest(receipt=receipt):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                action, reason = choose(player, before)
+                player.admitted(before, action, receipt, reason=reason)
+                player.observe(consumed(9, 25))
+                player.observe(before)
+                self.assertEqual(player.meals.gains, {})
+                player.observe(consumed(10, 40))
+                self.assertEqual(player.meals.gains, {"fixture.ration": 30})
+
     def test_an_unidentified_meal_replaces_an_unfinished_measurement(self):
         from tor_client_bot import ItemUse, UseItem
 
