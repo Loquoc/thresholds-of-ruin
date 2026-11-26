@@ -1,0 +1,44 @@
+name: Feature or idea
+description: Suggest new gameplay, content, client behaviour or tooling.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [current capabilities and next work](https://github.com/Loquoc/thresholds-of-ruin/blob/main/docs/status.md) to see whether it is already planned.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would this let you do?
+      description: The situation or need behind the idea.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: How it should work from a player's or author's point of view.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Gameplay mechanics
+        - Content or balance
+        - Text client
+        - ASCII client
+        - 3D prototype
+        - Scenario authoring
+        - Performance
+        - Build, tests or tooling
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or references
+      description: Other approaches you considered, or how other games handle it.

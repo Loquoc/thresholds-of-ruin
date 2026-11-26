@@ -1262,6 +1262,25 @@ Luau crates (the same setup failure as the rusqlite update below). The
 benchmark examples, which still cleared the removed objective, were caught
 locally by the performance comparison's release build, before CI.
 
+## Late movement pictures
+
+At 50 Hz the native player body and camera both moved backward when a timed
+325 ms east step ended before its picture arrived. The owning ECS regression
+compares prompt and late geometry and checks that a newer relocation can still
+move the player backward. A separate projection witness applies same-tick
+outcome and picture-delta messages: the live cursor advances before geometry.
+Keep picture sequence separate from live time and readiness. These tests
+measure body and camera transforms, not the rendered pose or network latency.
+
+
+## Cosmetic rebuilds during locomotion
+
+A worn-equipment change recreated the walking body half a cell ahead of its
+played position and discarded its queued step. A native scene test retains the
+costume replacement while checking the root position and the remaining leg
+under a shared world anchor. A new stream still starts with no inherited path.
+This checks scene placement, not rig-specific foot contacts or rendered pixels.
+
 ## Independent client dependency locks
 
 The November 18 rusqlite update changed the server manifest and root lock but
@@ -1489,3 +1508,92 @@ coverage of pursuit and retreat, committed steps, occupied destinations,
 confused movement, guise contact, and Haste/Slow composition. For example,
 a 100-tick base diagonal rounds to 142 before SPD scaling and costs 178 at
 SPD 0. One server unit test also expected the old retreat duration when replaying a scheduled mob escape. Across those two suites, 23 distinct methods exposed the same stale timing assumption. The deliberate first-red feature test is excluded.
+
+### Overlapping projectile reaction cues (2026-11-25)
+
+With two disclosed bolts crossing an actor, the death animation could
+wait for the later cell crossing even when the applied ability and hurt
+reaction pointed to the earlier flight. In the native scene regression
+the hurt cue used 0.7025 s while the death cue used 1.28 s. Both now use
+the applied ability's arrival when available. A separate control with no
+applied cue still uses the outstanding crossing rather than reacting
+immediately. This is presentation timing only; it adds no causal claim
+to the wire events.
+
+### Flytrap projectile contact (2026-11-25)
+
+A lethal projectile notified the 3D scene before reaching the Flytrap.
+The rooted death transition used the pose from notification time and
+blended toward wilt immediately. The real-scene regression compares
+a lethal bolt with a nonlethal bolt using identical timing. On the old
+animation, the neck already differed by about 0.37 radians one frame
+before contact at four cells. The fixed transition continues the current
+bite until contact, or resumes the breathing pose if the bite has finished,
+and starts its existing release from that pose. The regression checks both
+distances without changing the projectile speed, reaction event order or
+root geometry.
+
+### Single-cell projectile disclosure (2026-11-25)
+
+When a bolt left view and reappeared in only one cell, the renderer
+started the endpoint fade immediately. Flight timing counted the hidden
+gap but did not give that cell an arrival; hit reactions
+could therefore start too early. In the native scene regression the
+unlinked hit started at 0 s instead of 0.64 s. Single visible cells now
+have an arrival on the same flight timeline as longer fragments. That
+arrival schedules both the fade and the reaction, including any cast
+lead, without drawing a path through unseen cells. A separate model
+regression checks that a nearby smoothed line cannot claim a cell from
+another fragment. Isolated no-lead points remain immediate.
+
+### Target flash and cast contact (2026-11-25)
+
+A disclosed Spark Lance target flash appeared on the first 20 ms frame,
+even though the caster's impact frame was 382.5 ms into the animation.
+The ordered native scene regression now requires no flash through 380 ms
+and a visible flash at 400 ms. Anonymous flashes stay immediate, private
+status stays off the world, and no missile is invented. The fixture also
+checks the agreed timing when observed harm is already part of the same
+scene batch. The service sends ordered outcome facts separately from
+visual observations; this change does not move hurt reactions derived
+from a later picture.
+
+
+### Timed walk support across a long frame (2026-11-25)
+
+At 240 ms of the same 325 ms cardinal step, an Emu reached about 0.738
+cells along the path in both frame schedules. After warming up to 60 ms,
+one 180 ms frame reset ground support and added zero gait phase, while
+nine 20 ms frames kept walking. The production root and animation systems
+now preserve gait only when both samples still match the same timed leg.
+A real placement still resets footing, and playback tests reject first
+samples, mismatched positions, leg changes and skips as continuity proofs.
+Numerical smoothing and contact solver step limits are unchanged. This is
+a system-level timing test, not a pixel comparison.
+
+### Wardrobe slot ownership and mixed disclosure
+
+The wardrobe checks cover the 34 presets and 51 gear identities. A synthetic
+outfit with a separate cape and robe demonstrates why mere co-occurrence
+cannot determine hood ownership. The equivalent shoulder test keeps the
+same decoration but varies whether the plate is its mount. The emitted
+bridal witness requires all three original cloth layers and preservation of
+both the hem depth and rear train reach after adding waist armor.
+
+The mixed disclosed transition exercises live actor reconciliation with a
+shirt, plate and riding boots, then removes only the plate. It checks
+selection parity, real shin mesh clearance, restored shaft height, and reuse
+of the rig for unchanged snapshots. It does not substitute for sampled
+visual review of pose-dependent cloth.
+
+The forearm-cloth regression first failed on the Phantom with a replacement
+shirt: the old sleeve tatters were still present in the resolved outfit.
+The shared slot test covers both Phantom and Wraith and distinguishes shirts
+and articulated armor from torso-only armor and bracers. It keeps the separate
+hip cloth as an independent witness.
+
+Two head-mesh tests exposed the same missing anatomy gate in the plain helm
+and raised hood: each added hair-pigmented faces to the female Troll. The
+negative oracle checks the covered head, since the uncovered Troll rightly
+has its own crest. Positive witnesses retain that uncovered crest and require
+Human braid and Human/Wraith lock geometry in the appropriate regions.

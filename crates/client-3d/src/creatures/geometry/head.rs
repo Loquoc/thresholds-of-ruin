@@ -240,6 +240,9 @@ impl Recipe {
                     beard(p, hair_color(l));
                 }
                 // What the outfit puts on the head.
+                // Headwear can expose the wearer's hair, but cannot supply it.
+                // Crests, topknots and serpents remain separate anatomy.
+                let has_scalp_hair = grows_scalp_hair(l);
                 match headwear {
                     Headwear::Equipment(kind) => {
                         equipment_headwear::emit(p, kind);
@@ -277,7 +280,7 @@ impl Recipe {
                         }
                         native_helm_rim(&mut p.metal, &helm_shell);
                         p.metal.absorb(helm_shell);
-                        if fem {
+                        if fem && has_scalp_hair {
                             braid(p, Vec3::new(0.0, 0.05, -0.12), hair_color(l));
                         }
                         // A plume of the house colour sweeping back from the crest.
@@ -403,7 +406,7 @@ impl Recipe {
                                 },
                             );
                         }
-                        if fem || style == Style::Wraith {
+                        if has_scalp_hair && (fem || style == Style::Wraith) {
                             // Locks of hair escape the hood to frame the face.
                             let c = hair_color(l);
                             for side in [-1.0f32, 1.0] {
@@ -456,7 +459,7 @@ impl Recipe {
                         headwear_parts::winged_helm(p, metal, feathers);
                         // The crown is tucked under the cap; a braid emerges
                         // below its rear rim, preserving the wearer's hair color.
-                        if fem && grows_scalp_hair(l) {
+                        if fem && has_scalp_hair {
                             headwear_parts::winged_helm_braid(p, hair_color(l));
                         }
                     }
@@ -611,6 +614,110 @@ fn native_helm_rim(b: &mut Builder, shell: &Builder) {
     };
     for triangle in rim.surface_triangles() {
         b.tri(triangle, color);
+    }
+}
+
+#[cfg(test)]
+mod wearer_hair_tests {
+    use super::*;
+    use bevy::render::mesh::VertexAttributeValues;
+
+    fn hair_faces(
+        model: CreatureModel,
+        woman: bool,
+        headwear: Option<&str>,
+        in_region: impl Fn(Vec3) -> bool,
+    ) -> usize {
+        let wearer = Look::with_choice(
+            model,
+            17,
+            Some(Variant {
+                woman,
+                hair: 3,
+                hair_tone: 1,
+                ..default()
+            }),
+        );
+        let mut outfit = Outfit::native(&wearer);
+        outfit.head = Headwear::Bare;
+        let mut wearer = wearer;
+        wearer.outfit = Some(outfit);
+        if let Some(item) = headwear {
+            let mut kit = super::super::super::outfit::Equipment::default();
+            kit.select(item).unwrap();
+            wearer = wearer.equipped(kit);
+        }
+        let mut head = Parts::default();
+        let body = HumanoidBody::resolve(&wearer);
+        Recipe::resolve(&wearer).emit(&mut head, &wearer, body);
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<StandardMaterial>::default();
+        let materials = crate::props::PropMaterials::new(&mut materials);
+        let [r, g, b] = hair_color(&wearer).to_array();
+        let pigment = Color::srgb(r, g, b).to_linear();
+        let pigment = Vec3::new(pigment.red, pigment.green, pigment.blue);
+        let part = head.finish(&mut meshes, &materials);
+        let mesh = meshes.get(&part.0[0].0).unwrap();
+        let Some(VertexAttributeValues::Float32x4(paint)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("head mesh must retain painted vertices");
+        };
+        assert!(paint.len() > 100, "positive head mesh");
+        let Some(VertexAttributeValues::Float32x3(points)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("head mesh must retain positions");
+        };
+        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+        indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .filter(|triangle| {
+                triangle.iter().all(|&i| {
+                    in_region(Vec3::from_array(points[i]))
+                        && Vec3::new(paint[i][0], paint[i][1], paint[i][2]).distance(pigment) < 1e-6
+                })
+            })
+            .count()
+    }
+
+    fn assert_no_added_scalp_hair(item: &str) {
+        for model in [
+            CreatureModel::Troll,
+            CreatureModel::Orc,
+            CreatureModel::Medusa,
+        ] {
+            // These closed recipes cover the native crests, which are not scalp
+            // hair. The headwear must not replace them with a human hairstyle.
+            let equipped = hair_faces(model, true, Some(item), |_| true);
+            assert_eq!(equipped, 0, "{model:?}/{item}");
+        }
+    }
+
+    #[test]
+    fn steel_helm_braids_require_hair_on_the_wearer() {
+        assert!(hair_faces(CreatureModel::Troll, true, None, |_| true) > 0);
+        assert!(
+            hair_faces(CreatureModel::Human, true, Some("helm"), |p| p.y < 0.0
+                && p.z < -0.10)
+                > 0
+        );
+        assert_no_added_scalp_hair("helm");
+    }
+
+    #[test]
+    fn raised_hood_locks_require_hair_on_the_wearer() {
+        for (model, woman) in [(CreatureModel::Human, true), (CreatureModel::Wraith, false)] {
+            assert!(
+                hair_faces(model, woman, Some("hooded-cloak"), |p| p.x.abs() > 0.055
+                    && p.y < 0.14
+                    && p.z > 0.045)
+                    > 0,
+                "{model:?}"
+            );
+        }
+        assert_no_added_scalp_hair("hooded-cloak");
     }
 }
 

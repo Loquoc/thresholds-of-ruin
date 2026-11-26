@@ -181,3 +181,31 @@ missing samples, optional summaries and CLI output. Run:
 ```sh
 python -m unittest discover -s scripts -p test_ci_cost_report.py -v
 ```
+
+## November 25 hosted reuse sample
+
+These exact GitHub Actions runs from the current repository are a small
+sample of successful reuse. Job time is summed using the accounting method
+above. It is neither wall-clock time nor billed time, and the different PR
+and main workloads do not establish counterfactual savings.
+
+| PR | Proof route | PR qualification job time | Fresh main job time |
+| --- | --- | ---: | ---: |
+| #57 | Selected | [1,121 s](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45307812505) | [224 s](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45309529077) |
+| #63 | Selected | [1,119 s](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45323087116) | [281 s](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45324629497) |
+| #71 | Full | [22,725 s](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45529594723) (21 jobs) | [717 s](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45537340268) (7 jobs) |
+
+The #71 main run took 11m 57s of total runner time, including 9m 10s
+for fresh integration. Both platform aggregates passed. The main run
+did not rerun the full platform matrix.
+
+By comparison, three earlier PR runs interrupted by stale tests consumed
+28,597 runner-seconds (7.94 runner-hours), counting successful and canceled
+jobs in those runs as well as the failed jobs. The causes were stale level
+references in geometry-replacing fixtures ([#70](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45487560115)),
+a client mock missing server-authored Identify narration
+([#69](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45504932094)),
+and a stale archive identity assertion
+([#69](https://github.com/Loquoc/thresholds-of-ruin/actions/runs/45510164408)).
+This is the observed cost of those three workflows, not a tally of product
+defects. See the [test-effectiveness ledger](test-effectiveness.md).

@@ -350,6 +350,14 @@ When you find or fix a bug:
    repeated executions/platforms/profiles and subtests separately. A compact
    entry at the coherent fix checkpoint is enough; no per-run paperwork gate.
 
+Before marking an affected PR ready, check for stale expectations at the
+boundary it changes. If authored geometry or metadata changes, exercise fixture
+builders that replace generated rooms. If the save identity changes, check both
+the literal current-format pins and rejection of the previous format. If a
+result moves from client inference to server-authored output, check that client
+mocks carry the real outcome and exercise the user-visible behavior. Run only
+the checks applicable to the changed contract.
+
 ## Independent 3D client
 
 `crates/client-3d` is an independently maintained workspace. The core CI plan

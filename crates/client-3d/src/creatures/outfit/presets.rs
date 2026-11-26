@@ -72,6 +72,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             let wrapped = l.v.pattern % 2 == 1;
             Outfit {
                 veil: None,
+                head_mount: None,
                 regalia: None,
                 head: Headwear::Bare,
                 tunic,
@@ -121,6 +122,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             let tunic = Vec3::new(0.27, 0.4, 0.24);
             Outfit {
                 veil: None,
+                head_mount: Some(HoodMount::Cape),
                 regalia: None,
                 head: Headwear::HoodDown(Vec3::new(0.2, 0.28, 0.17)),
                 tunic,
@@ -200,6 +202,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
         }
         Wardrobe::Knight => Outfit {
             veil: None,
+            head_mount: None,
             regalia: None,
             head: Headwear::Helm,
             tunic: l.cloth,
@@ -253,6 +256,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             let gown = l.cloth * 0.9 + Vec3::new(0.05, 0.0, 0.06);
             Outfit {
                 veil: None,
+                head_mount: None,
                 regalia: None,
                 head: Headwear::Bare,
                 tunic: gown,
@@ -301,6 +305,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             let knit = l.cloth * 0.8 + Vec3::new(0.08, 0.02, 0.1);
             Outfit {
                 veil: None,
+                head_mount: None,
                 regalia: None,
                 head: Headwear::Bare,
                 tunic: knit,
@@ -344,6 +349,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             let print = l.cloth * 0.6 + Vec3::new(0.3, 0.14, 0.06);
             Outfit {
                 veil: None,
+                head_mount: None,
                 regalia: None,
                 head: Headwear::Bare,
                 tunic: print,
@@ -387,6 +393,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             let skirt = Vec3::new(0.46, 0.14, 0.12);
             Outfit {
                 veil: None,
+                head_mount: None,
                 regalia: None,
                 head: Headwear::Bare,
                 tunic: chemise,
