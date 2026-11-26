@@ -254,6 +254,31 @@ class FloorVisits:
         self.previous_reserve = reserve
 
 
+def is_trace_row(row) -> bool:
+    """Check the action and receipt shapes consumed by the progress counters."""
+    if not isinstance(row, dict):
+        return False
+    floor = row.get("floor")
+    if floor is not None and type(floor) is not int:
+        return False
+    if any(row.get(key) is not None and not isinstance(row[key], str)
+           for key in ("previous_intention_phase", "previous_intention_id")):
+        return False
+    if "terminal" in row and not isinstance(row["terminal"], str):
+        return False
+    if "action" not in row:
+        return "terminal" in row
+    action = row["action"]
+    if floor is None or not isinstance(action, dict) or not isinstance(action.get("type"), str):
+        return False
+    result = row.get("result", {})
+    if not isinstance(result, dict):
+        return False
+    receipt = result.get("receipt")
+    return receipt is None or (isinstance(receipt, dict) and
+                               (receipt.get("intention") is None or isinstance(receipt["intention"], str)))
+
+
 def trace_rows(log):
     """Yield an action or terminal report per nonblank line, with None marking a gap."""
     for line in log:
@@ -263,16 +288,7 @@ def trace_rows(log):
             row = json.loads(line.decode("utf-8"))
         except ValueError:
             row = None
-        if not isinstance(row, dict):
-            yield None
-            continue
-        floor = row.get("floor")
-        if floor is not None and type(floor) is not int:
-            yield None
-        elif "terminal" in row or (isinstance(row.get("action"), dict) and floor is not None):
-            yield row
-        else:
-            yield None
+        yield row if is_trace_row(row) else None
 
 
 def trace_report(path):

@@ -737,6 +737,32 @@ assert get_type_hints(play)["player"] is Adventurer
                     self.assertEqual(progress["actions"], 1)
                     self.assertEqual(progress["max_depth"], 1)
 
+    def test_client_trace_keeps_intact_turns_around_malformed_action_results(self):
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import Mock
+        from rogue_o_matic_cohort import play_on_server
+
+        rows = [
+            {"floor": 1, "action": {"type": "wait"}},
+            {"floor": 8, "cell": "bad", "action": {"type": "move"}, "result": None},
+            {"floor": 9, "cell": "bad", "action": {"type": "move"},
+             "result": {"status": "confirmed", "receipt": ["bad"]}},
+            {"floor": 10, "action": {}, "result": {"status": "confirmed"}},
+            {"floor": 3, "cell": "stairs", "action": {"type": "wait"}},
+            {"terminal": "action_budget"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = root / "client.py"
+            client.write_text("".join(f"print({json.dumps(row)!r})\n" for row in rows)
+                              + "raise SystemExit(1)\n", encoding="utf-8")
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            report = play_on_server(server, "test", 1, 2, 15, root / "turns.jsonl", 26, "amulet", client, False)
+        self.assertEqual((report["terminal"], report["actions"], report["max_depth"]), ("action_budget", 2, 3))
+        self.assertEqual(report["stair_transitions"], [])
+
     def test_invalid_floor_rows_do_not_erase_progress_from_valid_observations(self):
         import tempfile
         from pathlib import Path
