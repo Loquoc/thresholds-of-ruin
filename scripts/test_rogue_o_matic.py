@@ -3923,24 +3923,32 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 choice = player.scroll_trial(observed, at_exit=True)
                 self.assertEqual(choice[0].item.target if choice else None, "two" if remaining >= 2 else None)
 
-    def test_failed_emergency_read_allows_a_different_scroll_in_the_same_fight(self):
+    def test_failed_emergency_read_allows_another_scroll_only_if_the_first_survived(self):
         import json
         from tor_client_bot import Result
 
         foe = {"id": "orc", "name": "orc", "position": cell("orc", 1)["position"]}
         turn = scroll_trial_turn([cell("here"), cell("orc", 1)], ("first", "MIR"), ("second", "NAR"),
                                  actors=[foe], hostiles=["orc"], combat={"hp": 1, "max_hp": 10})
-        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        player.opponents.damage_by_target["orc"] = 2
-        action, reason = choose(player, turn)
-        self.assertEqual((action.item.target, reason), ("first", "test_unknown_magic"))
-        result = Result.from_reply({"status": "confirmed", "receipt": read_activity()})
-        player.admitted(turn, action, result, reason=reason)
-        after = Turn({**json.loads(turn.recording()), "finished_intentions": [read_activity("failed")]})
-        player.observe(after)
-        retry = player.combat(after)
-        self.assertIsNotNone(retry)
-        self.assertEqual((retry[0].item.target, retry[1]), ("second", "test_unknown_magic"))
+        for consumed in (False, True):
+            with self.subTest(consumed=consumed):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.opponents.damage_by_target["orc"] = 2
+                action, reason = choose(player, turn)
+                self.assertEqual((action.item.target, reason), ("first", "test_unknown_magic"))
+                result = Result.from_reply({"status": "confirmed", "receipt": read_activity()})
+                player.admitted(turn, action, result, reason=reason)
+                picture = json.loads(turn.recording())
+                if consumed:
+                    picture["state"]["observation"]["inventory"].pop(0)
+                after = Turn({**picture, "finished_intentions": [read_activity("failed")]})
+                player.observe(after)
+                retry = player.combat(after)
+                if consumed:
+                    self.assertFalse(retry and retry[1] == "test_unknown_magic")
+                else:
+                    self.assertIsNotNone(retry)
+                    self.assertEqual((retry[0].item.target, retry[1]), ("second", "test_unknown_magic"))
 
     def test_cancels_only_its_own_stalled_queued_stair_and_waits_once_before_retry(self):
         import json

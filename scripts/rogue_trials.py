@@ -83,12 +83,15 @@ class ScrollTrials:
             return item
         return None
 
+    def record_sample(self, scroll: Item) -> None:
+        self.sampled.add(trial_appearance(scroll))
+        self.tried_in_encounter = True
+
     def admitted(self, turn: Turn, floor: int, scroll: Item, receipt: Result | None) -> None:
         if receipt and receipt.activity:
             self.pending = PendingScrollTrial(floor, turn.tick, receipt, scroll)
         else:
-            self.tried_in_encounter = True
-            self.sampled.add(trial_appearance(scroll))
+            self.record_sample(scroll)
 
     def observe(self, turn: Turn) -> None:
         trial = self.pending
@@ -99,8 +102,7 @@ class ScrollTrials:
             self.interrupted(turn)
             return
         if phase is ActivityPhase.RESOLVED or receipt_history_expired(turn, phase, trial.submitted_at):
-            self.sampled.add(trial_appearance(trial.scroll))
-            self.tried_in_encounter = True
+            self.record_sample(trial.scroll)
             self.pending = None
 
     def interrupted(self, turn: Turn) -> None:
@@ -109,7 +111,7 @@ class ScrollTrials:
             return
         self.stalled.add((trial.floor, trial.scroll.target))
         if stack_was_reduced(turn, trial.scroll):
-            self.sampled.add(trial_appearance(trial.scroll))
+            self.record_sample(trial.scroll)
         self.pending = None
 
 
