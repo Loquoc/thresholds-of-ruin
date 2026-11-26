@@ -1,7 +1,7 @@
 """Rogue equipment decisions using disclosed player information."""
 
 from collections import Counter, defaultdict
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Iterator
 
 from tor_client_bot import Action, EquipmentSlot, Item, ItemUse, Shot, Turn, Unequip, UseItem, Zap
 
@@ -31,8 +31,13 @@ def offered_item_use(turn: Turn, identity: str, use: ItemUse) -> UseItem | None:
     return None
 
 
+def _readable_remove_curse_scrolls(turn: Turn) -> Iterator[Item]:
+    return (item for item in turn.inventory if item.identity == "item.scroll.remove-curse" and ItemUse.READ in item.uses)
+
+
 def remove_curse_scroll(turn: Turn) -> UseItem | None:
-    return offered_item_use(turn, "item.scroll.remove-curse", ItemUse.READ)
+    scroll = next(_readable_remove_curse_scrolls(turn), None)
+    return UseItem(scroll, ItemUse.READ) if scroll else None
 
 
 def needs_identification(item: Item, turn: Turn) -> bool:
@@ -100,20 +105,23 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
                   if choice.slot.kind == "body_armor" and not choice.item.known_cursed]
     if not candidates:
         return None
-    cure = remove_curse_scroll(turn)
+    cures = list(_readable_remove_curse_scrolls(turn))
+    cure_count = sum(scroll.quantity for scroll in cures)
     can_identify_armor = any("armor" in identification_categories(item) for item in turn.inventory)
     best = None
     best_rank = None
     for choice in candidates:
         slot, item = choice.slot, choice.item
-        if slot.removal_blocked and not cure:
+        if slot.removal_blocked and not cures:
             continue
         worn = slot.occupant
         estimated = item.physical_reduction is None or (worn is not None and worn.physical_reduction is None)
         if estimated and can_identify_armor and (needs_identification(item, turn) or (worn and needs_identification(worn, turn))):
             continue
         current = _armor_protection(worn) if worn else 0
-        rating = _armor_protection(item, account_for_curse=cure is None)
+        # Unlocking the worn armor consumes a scroll before the replacement can be tried.
+        cures_needed = 2 if slot.removal_blocked else 1
+        rating = _armor_protection(item, account_for_curse=cure_count < cures_needed)
         if rating is None or current is None or rating <= current:
             continue
         rank = rating - current, item.physical_reduction is not None
@@ -124,8 +132,8 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
     if best is None:
         return None
     choice, estimated = best
-    if choice.slot.removal_blocked and cure is not None:
-        return cure, "remove_armor_curse"
+    if choice.slot.removal_blocked:
+        return UseItem(cures[0], ItemUse.READ), "remove_armor_curse"
     action = Unequip(choice.slot) if choice.slot.occupant else choice
     return action, "try_armor" if estimated else "upgrade_armor"
 

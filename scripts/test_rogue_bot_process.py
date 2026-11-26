@@ -2130,6 +2130,12 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43)
 
     def test_locked_armor_suppresses_a_detour_for_plate(self):
+        self.check_locked_armor(last_cure=False)
+
+    def test_locked_armor_preserves_the_last_cure_for_an_unmeasured_replacement(self):
+        self.check_locked_armor(last_cure=True)
+
+    def check_locked_armor(self, *, last_cure):
         from utility_potions_package import fixture
 
         contents = fixture()
@@ -2141,6 +2147,10 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
                                            "item.scroll.identify-armor"],
                          loadout=[{"archetype": "rogue.ring_mail", "quantity": 1, "equipped_slot": 2},
                                   {"archetype": "rogue.identify_armor", "quantity": 1}])
+        if last_cure:
+            character["known_identities"].extend(["item.armor.chain-mail", "item.scroll.remove-curse"])
+            character["loadout"].extend([{"archetype": "rogue.chain_mail", "quantity": 1},
+                                         {"archetype": "rogue.remove_curse", "quantity": 1}])
         region, = contents["regions"]
         region.update(actors=[], items=[{"id": 10, "archetype": "rogue.plate_mail", "at": [5, 2, 0]}])
         self.check_policy_scenario(contents, "locked-armor", """
@@ -2158,11 +2168,26 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert turn.submit(prompt.select(mail)).status is Outcome.CONFIRMED
     turn = game.wait_for_decision()
     assert next(slot for slot in turn.equipment if slot.kind == "body_armor").removal_blocked
+    if LAST_CURE:
+        assert any(item.identity == "item.scroll.remove-curse" and ItemUse.READ in item.uses for item in turn.inventory)
+        from rogue_gear import choose_armor
+        chain = next(item for item in turn.inventory if item.identity == "item.armor.chain-mail")
+        assert chain.physical_reduction is None
+        assert choose_armor(turn) is None, choose_armor(turn)
+        player = Adventurer(26, "item.amulet.amulet-of-yendor")
+        player.observe(turn)
+        action, reason = player.choose(turn)
+        assert action is not None and reason != "remove_armor_curse", (action, reason)
+        assert turn.submit(action).status is Outcome.CONFIRMED
+        after = game.wait_for_decision()
+        assert any(item.identity == "item.scroll.remove-curse" for item in after.inventory)
+        assert next(slot for slot in after.equipment if slot.kind == "body_armor").removal_blocked
+        raise SystemExit(0)
     plate = next(g for g in turn.ground_items if g.item.identity == "item.armor.plate-mail")
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
     assert plate.cell.key not in player.loot_goals(turn, turn.ground_items, returning=False).supplies
-""")
+""".replace("LAST_CURE", repr(last_cure)))
 
     def test_outbound_player_detours_for_armor(self):
         self.check_armor_route(carrying=False)
