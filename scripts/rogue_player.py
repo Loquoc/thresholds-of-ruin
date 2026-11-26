@@ -909,6 +909,9 @@ class Adventurer:
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
         food_cells = memory.cells_with_item(lambda item: item.category == "food")
+        # Reachable food here is handled by pickup. A route must lead to a different square.
+        if turn.cell is not None:
+            food_cells.discard(turn.cell.key)
         avoid = self.danger_until.keys() | self.supplies_guarded_until.keys()
         return route_around_danger(turn, memory, food_cells, avoid)
 

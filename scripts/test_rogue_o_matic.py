@@ -4763,6 +4763,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn(track, ground=ground, stats=hungry)
         self.assertEqual(choose(player, turn), (Pickup(turn.ground_items[0].item), "take"))
 
+    def test_unreachable_food_on_the_current_cell_does_not_hide_a_distant_ration(self):
+        track = [cell("here"), cell("hall", 1), cell("ration", 2)]
+        ground = [{**site, "item": {"id": site["key"], "name": "meal", "class": "food",
+                                    "quantity": 1, "identified": False}, "reachable": False}
+                  for site in (track[0], track[-1])]
+        turn = player_turn(track, ground=ground, stats={"nutrition": {"hunger": "weak"}})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.EAST), "forage"))
+
     def test_foraging_prefers_a_safe_ration_but_can_use_the_only_known_route(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         cells = [cell("near", -1), cell("here"), cell("passage", 1), cell("far", 2)]
