@@ -66,7 +66,7 @@ fn guarded_step_preserves_portal_orientation_and_checks_every_destination_body_c
         }
         game.act(crate::ActorId(2), crate::Action::Wait).unwrap();
         assert_eq!(game.tick(), 100);
-        assert_eq!(game.actors[&actor].ready_at, 300);
+        assert_eq!(game.actors[&actor].ready_at, 325);
         assert_eq!(
             game.actors[&actor].location,
             if blocked { cell(7, 2, 0) } else { destination }
@@ -132,7 +132,7 @@ fn guarded_step_can_take_the_same_explicit_stair_as_an_ordinary_step() {
         ),
         ordinary
     );
-    assert_eq!(game.actors[&actor].ready_at, 275);
+    assert_eq!(game.actors[&actor].ready_at, 294);
     assert_eq!(game.actors[&actor].location, destination);
 }
 #[test]

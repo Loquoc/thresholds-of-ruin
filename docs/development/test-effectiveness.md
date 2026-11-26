@@ -1479,3 +1479,13 @@ still exceeds the reader limit, leaving fresh CI enabled. The external evidence
 bounds and both smoke requirements are unchanged. The regression tests cover
 the production plan writer and both post-merge plan readers at realistic lane
 sizes, plus fallback when the compact encoding is still too large.
+
+### Interpolated walking speed (2026-11-25)
+
+The first full simulation unit run under rules identity 73 found one stale
+expectation shared by 22 test methods. Their SPD 0 actors still expected
+the original walking pace. Updating the independent expected ticks preserves
+coverage of pursuit and retreat, committed steps, occupied destinations,
+confused movement, guise contact, and Haste/Slow composition. For example,
+a 100-tick base diagonal rounds to 142 before SPD scaling and costs 178 at
+SPD 0. One server unit test also expected the old retreat duration when replaying a scheduled mob escape. Across those two suites, 23 distinct methods exposed the same stale timing assumption. The deliberate first-red feature test is excluded.

@@ -21,7 +21,7 @@ future work. No hosted
 qualification or measured hosted saving is claimed.
 
 **Current formats:** protocol **77**, save format **74**, scenario format **38**,
-ruleset **`interactions-v72`**, scenario validator **`tor-scenario-52`**.
+ruleset **`interactions-v73`**, scenario validator **`tor-scenario-52`**.
 Unsupported identities are rejected rather than migrated. Save format 74 records verified host rollbacks so replay retires the admitted action.
 Identification results remain available in the turn and History. Protocol 77
 delivers the rollback reason in the owner's failed-action update. Rules-identity

@@ -402,6 +402,13 @@ Sources: [environment and exposure execution](../../crates/simulation/src/abilit
 
 ## Timing, payment, interruption and recovery
 
+The walking rule interpolates the *Stormlight Handbook* movement rates
+at SPD 0, 2, 4, 6, 8 and 9 (20, 25, 30, 40, 60 and 80 feet per Move).
+Interpolate distance per action linearly before converting it to ticks. Above
+SPD 9, extend the final slope by 20 feet per point. SPD 2 is the reference
+pace. Multiply the directional step cost by 25, divide by movement rate, round
+up, then apply Haste or Slow. An actor without attributes uses reference pace.
+
 For ordinary Speed-scaled ability/weapon timing, each phase uses the ceiling of
 `base_ticks × 5 / (5 + Speed)`, with the supported minimum and bounds. Nonzero
 strike offsets are scaled from their absolute authored offset, not by adding

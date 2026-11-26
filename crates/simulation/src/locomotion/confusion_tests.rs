@@ -39,7 +39,7 @@ fn confused_draws_once_from_fixed_actor_local_nine_cells() {
             }
         );
         assert_eq!(game.rules_rng, after);
-        assert_eq!(game.actors[&actor].ready_at, 100);
+        assert_eq!(game.actors[&actor].ready_at, 125);
         assert_eq!(
             matches!(outcome.kind, OutcomeKind::Waited),
             dx == 0 && dy == 0
@@ -58,10 +58,7 @@ fn confused_paid_stay_and_obstruction_keep_requested_diagonal_cost() {
         let outcome = game.act(actor, Action::Move(Direction::NorthEast)).unwrap();
         assert_eq!(outcome.kind, OutcomeKind::Waited);
         assert_eq!(game.actors[&actor].location, from);
-        assert_eq!(
-            game.actors[&actor].ready_at,
-            crate::movement_cost(100, Direction::NorthEast).unwrap()
-        );
+        assert_eq!(game.actors[&actor].ready_at, 178);
         assert_eq!(
             game.rules_rng,
             if blocked {
@@ -550,8 +547,8 @@ fn confused_rotated_samples_pay_without_widening_vertical_capability() {
                 );
                 assert_eq!(game.actors[&actor].orientation, frame);
                 assert_eq!(matches!(outcome.kind, OutcomeKind::Moved { .. }), moves);
-                assert_eq!(game.actors[&actor].ready_at, 100);
-                assert_eq!((outcome.at_tick, outcome.next_tick), (0, 100));
+                assert_eq!(game.actors[&actor].ready_at, 125);
+                assert_eq!((outcome.at_tick, outcome.next_tick), (0, 125));
                 assert_eq!(
                     game.rules_rng, after,
                     "no replacement draw for a denied sample"
@@ -677,7 +674,7 @@ fn confused_vertical_guise_samples_cannot_bypass_cardinal_or_diagonal_flight_gat
                 assert_eq!(outcome.kind, OutcomeKind::Waited);
                 assert_eq!(game.actors[&actor].location, from);
                 assert_eq!(game.actors[&actor].orientation, frame);
-                assert_eq!(game.actors[&actor].ready_at, 100);
+                assert_eq!(game.actors[&actor].ready_at, 125);
                 assert_eq!(game.rules_rng, after);
                 assert_eq!(game.health(subject), health);
                 assert!(

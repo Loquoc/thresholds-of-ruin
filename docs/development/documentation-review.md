@@ -144,7 +144,7 @@ escapes, blocked/unknown-route behavior, same-region folded-chart rejection,
 preview purity and checkpointed AI execution. Additional
 candidate searches are an explicit correctness cost, not a measured speedup.
 The approved deterministic correction was introduced under historical rules identity 57.
-The current `interactions-v72` additionally covers shared item use, carrier
+The current `interactions-v73` additionally covers shared item use, carrier
 generation, disclosed resource-aware ranged positioning and useful item pursuit
 without a fixed three-cell gameplay cutoff, plus fresh-shot avoidance of disclosed
 nonhostile interception before the target in an ordinary local chart. This does
