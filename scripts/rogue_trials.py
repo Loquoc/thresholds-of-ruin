@@ -39,10 +39,10 @@ class PotionTrials:
                      and trial_appearance(item) not in self.sampled), None)
 
     def admitted(self, turn: Turn, potion: Item, receipt: Result | None) -> None:
+        self.submitted_at = turn.tick
         appearance = trial_appearance(potion)
         if receipt and receipt.activity and appearance not in self.sampled:
             self.pending = potion, receipt
-            self.submitted_at = turn.tick
         else:
             self.sampled.add(appearance)
 

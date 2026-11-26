@@ -224,17 +224,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_potion_trials_remember_appearance_across_distinct_items(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        for target, name, appearance, should_sample in (
+        samples = (
             ("first", "first bottle", "amber", True),
             ("second", "other bottle", "amber", False),
             ("third", "other bottle", "cloudy", True),
             ("fourth", "plain flask", None, True),
             ("fifth", "plain flask", None, False),
-        ):
+        )
+        for tick, (target, name, appearance, should_sample) in enumerate(samples):
             with self.subTest(target=target):
                 item = {"id": target, "class": "potion", "name": name, "appearance": appearance,
                         "quantity": 1, "identified": False}
-                turn = player_turn([cell("exit", down=True)], inventory=[item],
+                turn = player_turn([cell("exit", down=True)], inventory=[item], tick=tick,
                                    interactions={"inventory": [{"item": target, "drinkable": True}]})
                 action, reason = choose(player, turn)
                 self.assertEqual(reason == "test_unknown_potion", should_sample)
@@ -2062,7 +2063,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                             interactions={"inventory": [{**offer, "item": "b"}]})
         self.assertEqual(choose(policy, other), (Move(Direction.DOWN), "descend"))
 
-    def test_missing_drink_receipt_allows_a_new_appearance_after_time_advances(self):
+    def test_new_potion_appearance_waits_for_time_to_advance_after_any_admission(self):
         from tor_client_bot import Result
 
         potions = [{"id": name, "name": name, "class": "potion", "quantity": 1, "identified": False}
@@ -2071,17 +2072,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             return player_turn([cell("stairs", down=True)], tick=tick, inventory=potions, interactions={
                 "inventory": [{"item": potion["id"], "drinkable": True} for potion in potions]})
 
-        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        before = scene(100)
-        action, reason = choose(player, before)
-        self.assertEqual(action.item.target, "smoky")
-        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "drink", "phase": "queued"}
-        player.admitted(before, action, Result.from_reply({"status": "confirmed", "receipt": receipt}), reason=reason)
-        self.assertFalse(player.potion_trials.sampled)
-        self.assertEqual(choose(player, before)[1], "descend")
-        self.assertEqual(choose(player, scene(50))[1], "descend")
-        action, reason = choose(player, scene(200))
-        self.assertEqual((action.item.target, reason), ("blue", "test_unknown_potion"))
+        activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": "drink", "phase": "queued"}
+        confirmed = Result.from_reply({"status": "confirmed"})
+        queued = Result.from_reply({"status": "confirmed", "receipt": activity})
+        for receipt in (queued, confirmed, None):
+            with self.subTest(receipt=receipt):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                before = scene(100)
+                action, reason = choose(player, before)
+                self.assertEqual(action.item.target, "smoky")
+                player.admitted(before, action, receipt, reason=reason)
+                self.assertEqual(player.potion_trials.sampled, set() if receipt is queued else {"smoky"})
+                self.assertEqual(choose(player, before)[1], "descend")
+                self.assertEqual(choose(player, scene(50))[1], "descend")
+                action, reason = choose(player, scene(200))
+                self.assertEqual((action.item.target, reason), ("blue", "test_unknown_potion"))
 
     def test_potion_trial_retries_only_when_a_failed_drink_left_the_stack_intact(self):
         from tor_client_bot import Result
