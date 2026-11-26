@@ -3890,8 +3890,8 @@ mod ordered_strikes_ai_replay_tests {
                 Direction::NorthEast
                 | Direction::SouthEast
                 | Direction::SouthWest
-                | Direction::NorthWest => 142,
-                _ => 100,
+                | Direction::NorthWest => 178,
+                _ => 125,
             };
             let expected_ready = engine.game.tick() + debt + movement;
             let first_record = engine.archive.records.len();

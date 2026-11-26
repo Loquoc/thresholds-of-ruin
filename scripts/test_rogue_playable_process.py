@@ -37,7 +37,7 @@ from rogue_magic_receipts import (
 
 from rogue_test_support import (
     DisclosedFloorGraph, assert_room_gold_receipt, disclosed_melee_candidate, disclosed_step_action,
-    first_floor_foes, observe_walkthrough_boundaries, walkthrough_search_targets,
+    disclosed_frames, ordered_combat_events, first_floor_foes, observe_walkthrough_boundaries, walkthrough_search_targets,
     fixed_walkthrough_package,
 )
 
@@ -1086,14 +1086,7 @@ class RogueChecks:
                 # Only a lethal attack can add XP in this walkthrough. Walking
                 # and taking finite stock do not need another private page.
                 growth = self.overview(player)
-                events = []
-                for line in player.transcript[start:]:
-                    if not line.startswith("{"):
-                        continue
-                    state = json.loads(line).get("state")
-                    # Acknowledgements can repeat an earlier turn's events.
-                    if state is not None and int(state["revision"]) > int(before["state"]["revision"]):
-                        events.extend(state["observation"]["combat"]["events"])
+                events = list(ordered_combat_events(disclosed_frames(player, start), after=before))
                 died = any(event["type"] == "died" and event["actor"] == nearby["id"]
                            for event in events)
                 earned_after = int(growth["growth"]["earned_xp"])

@@ -73,6 +73,23 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
         return package
 
+    @non_graphical
+    def test_speed_five_walks_in_72_ticks(self):
+        package = self.package()
+        path = package / "scenario.toml"
+        manifest = tomllib.loads(path.read_text(encoding="utf-8"))
+        manifest["creatures"]["species"]["figure"]["attributes"]["speed"] = 5
+        manifest["characters"][0]["turn_ticks"] = 100
+        path.write_text(toml_source(manifest), encoding="utf-8")
+        checked = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
+                                 capture_output=True, text=True, timeout=30)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        self.server(scenario=package)
+        player, start = self.client()
+        moved = self.act(player, {"type": "move", "direction": "east"})
+        self.assertIsNone(moved["error"])
+        self.assertEqual(int(observation(moved)["tick"]) - int(observation(start)["tick"]), 72)
+
     def advance(self, subject, peers, predicate=settled):
         for _ in range(24):
             current = self.snapshot(subject)

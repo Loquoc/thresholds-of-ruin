@@ -430,8 +430,8 @@ class AiInteractionProcesses(ProcessTestCase):
         self.assertEqual(first["to"]["x"], 2)
         self.assertIn(first["to"]["y"], (1, 3))
         taken = next(entry for entry in seeker if entry["content"]["event"]["type"] == "taken")
-        # Five steps: two 142-tick diagonals and three 100-tick cardinals.
-        self.assertEqual(taken["tick"], 584)
+        # Five steps: two 130-tick diagonals and three 91-tick cardinals.
+        self.assertEqual(taken["tick"], 533)
         self.assertEqual(taken["content"]["action"], {"type": "take", "item": 1001, "quantity": 25})
         ice = [entry for entry in entries if entry["actor"] == 4 and "event" in entry["content"]]
         self.assertTrue(ice)

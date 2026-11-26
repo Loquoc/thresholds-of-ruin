@@ -81,7 +81,11 @@ fn autonomous_retreat_selects_a_typed_self_step_and_keeps_ordinary_turn_identity
     );
     assert_eq!(
         game.actors[&actor].ready_at,
-        200 + crate::movement_cost(100, direction.into()).unwrap()
+        200 + if tor_world::Direction::from(direction).components().is_some() {
+            178
+        } else {
+            125
+        }
     );
     assert!(game.preparation(actor).is_none());
 }

@@ -124,8 +124,29 @@ impl crate::Actor {
         &self,
         direction: tor_world::Direction,
     ) -> Result<u64, crate::GameError> {
-        self.action_duration_ticks(crate::movement_cost(self.turn_ticks.get(), direction)?)
+        let directional = crate::movement_cost(self.turn_ticks.get(), direction)?;
+        let speed = self.combat.as_ref().map_or(2, |combat| {
+            combat
+                .creature()
+                .derived()
+                .attributes
+                .get(crate::attributes::Attribute::Speed)
+        });
+        self.action_duration_ticks(walking_ticks(directional, speed)?)
     }
+}
+
+// Rates are in half-feet so interpolation and upward rounding stay exact.
+fn walking_ticks(directional: u64, speed: u16) -> Result<u64, crate::GameError> {
+    let speed = u128::from(speed);
+    let rate = match speed {
+        0..=4 => 40 + 5 * speed,
+        5..=6 => 60 + 10 * (speed - 4),
+        7..=8 => 80 + 20 * (speed - 6),
+        _ => 120 + 40 * (speed - 8),
+    };
+    u64::try_from((u128::from(directional) * 50).div_ceil(rate))
+        .map_err(|_| crate::GameError::Schedule(crate::ScheduleError::TimeExhausted))
 }
 
 #[cfg(test)]
@@ -176,12 +197,41 @@ mod tests {
     }
 
     #[test]
+    fn movement_uses_current_speed() {
+        for (speed, expected) in [(0, 127), (1, 113), (2, 101), (3, 92), (4, 85), (5, 73)] {
+            let mut game = fixture(ActionDuration::Normal);
+            let actor = crate::ActorId(1);
+            let mut build = game.creature(actor).unwrap().build().clone();
+            let mut attributes = build.initial_attributes().values();
+            attributes.speed = speed;
+            build
+                .set_initial_attributes(crate::attributes::Attributes::new(attributes).unwrap())
+                .unwrap();
+            game.rebuild_creature(actor, build).unwrap();
+            game.act(actor, crate::Action::Move(tor_world::Direction::East))
+                .unwrap();
+            assert_eq!(game.actors[&actor].ready_at, expected, "SPD {speed}");
+        }
+    }
+    #[test]
+    fn walking_rate_interpolates_and_extends_above_nine() {
+        for (speed, expected) in [125, 112, 100, 91, 84, 72, 63, 50, 42, 32, 25]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(super::walking_ticks(100, speed as u16).unwrap(), expected);
+        }
+        assert_eq!(super::walking_ticks(1, 1000).unwrap(), 1);
+        assert!(super::walking_ticks(u64::MAX, 0).is_err());
+    }
+
+    #[test]
     fn ordinary_actions_capture_scaled_cost_after_diagonal_and_transfer_rounding() {
         use crate::{Action, ActorId};
-        for (rate, turn, half_turn, diagonal) in [
-            (ActionDuration::Normal, 101, 51, 143),
-            (ActionDuration::Haste, 51, 26, 72),
-            (ActionDuration::Slow, 202, 102, 286),
+        for (rate, turn, half_turn, cardinal, diagonal) in [
+            (ActionDuration::Normal, 101, 51, 127, 179),
+            (ActionDuration::Haste, 51, 26, 64, 90),
+            (ActionDuration::Slow, 202, 102, 254, 358),
         ] {
             for family in 0..6 {
                 let mut game = fixture(rate);
@@ -189,7 +239,7 @@ mod tests {
                 let at = game.actors[&actor].location;
                 let (action, expected) = match family {
                     0 => (Action::Wait, turn),
-                    1 => (Action::Move(tor_world::Direction::North), turn),
+                    1 => (Action::Move(tor_world::Direction::North), cardinal),
                     2 => (Action::Move(tor_world::Direction::NorthEast), diagonal),
                     3 => {
                         let item = game
@@ -408,7 +458,7 @@ mod tests {
     #[test]
     fn self_step_freezes_scaled_duration_and_rejects_slow_schedule_overflow() {
         let actor = crate::ActorId(1);
-        for (rate, expected) in [(ActionDuration::Haste, 72), (ActionDuration::Slow, 286)] {
+        for (rate, expected) in [(ActionDuration::Haste, 90), (ActionDuration::Slow, 358)] {
             let game = fixture(rate);
             let step = crate::abilities::StepCommitment::capture(
                 &game,

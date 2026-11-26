@@ -28,7 +28,7 @@ fn self_step_diagnostic_uses_its_frozen_self_recipient_and_timing() {
                 record.preparation,
                 record.recovery
             ),
-            (0, 100, 100, 200)
+            (0, 100, 100, 225)
         );
         assert_eq!(record.intention, Some(intention));
         assert!(record.outcome.effects.iter().any(|effect|matches!(effect,

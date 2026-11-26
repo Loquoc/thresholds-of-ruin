@@ -143,11 +143,8 @@ impl InspectionTrace {
     }
 }
 
-// Workload-v1 bound, not a scheduler or AI pacing change: base/cardinal turns
-// cost 100 ticks; diagonal movement ceil(sqrt(2) * 100) = 142; fixed melee 80 + 20 = 100.
-// Requiring a meaningful action at most 200 ticks apart covers every two player
-// turns, including the final partial AI round when a real client stops the save.
-const PLAYER_TURN_TICKS: u64 = 100;
+// The SPD 0 benchmark player takes 125 ticks per cardinal step.
+const PLAYER_TURN_TICKS: u64 = 125;
 const MEANINGFUL_GAP_LIMIT: u64 = 200;
 #[derive(Default)]
 pub(super) struct SustainedActivity {
@@ -517,11 +514,15 @@ mod execution_trace_tests {
 
     fn sustained_entries() -> Vec<JournalEntry> {
         let mut entries = Vec::new();
-        for turn in 0..7 {
+        for tick in (0..=1000).step_by(25) {
             for actor in 1..=101 {
+                let cadence = if actor == 1 { 125 } else { 100 };
+                if tick % cadence != 0 {
+                    continue;
+                }
                 let mut value = entry();
                 value.actor = ActorId(actor);
-                value.tick = turn * 100;
+                value.tick = tick;
                 entries.push(value);
             }
         }
@@ -544,10 +545,10 @@ mod execution_trace_tests {
     fn sustained_activity_covers_all_ids_through_bounded_gaps() {
         let mut entries = sustained_entries();
         let full = sustained(&entries).unwrap();
-        assert_eq!(full.player_moves, 7);
+        assert_eq!(full.player_moves, 9);
         assert_eq!(full.player_first_tick, 0);
-        assert_eq!(full.player_last_tick, 600);
-        assert_eq!(full.player_turn_ticks, 100);
+        assert_eq!(full.player_last_tick, 1000);
+        assert_eq!(full.player_turn_ticks, 125);
         assert_eq!(full.max_gap_limit_ticks, 200);
         assert_eq!(
             full.actors.keys().copied().collect::<Vec<_>>(),
@@ -556,7 +557,7 @@ mod execution_trace_tests {
         assert!(full
             .actors
             .values()
-            .all(|row| row.meaningful_actions == 7 && row.max_gap_ticks == 100));
+            .all(|row| row.meaningful_actions == 11 && row.max_gap_ticks == 100));
         for entry in &mut entries {
             if entry.actor == ActorId(101) && !entry.tick.is_multiple_of(200) {
                 wait(entry);
@@ -564,14 +565,14 @@ mod execution_trace_tests {
         }
         let bounded = sustained(&entries).unwrap();
         assert_eq!(bounded.actors[&101].max_gap_ticks, 200);
-        assert_eq!(bounded.actors[&101].meaningful_actions, 4);
+        assert_eq!(bounded.actors[&101].meaningful_actions, 6);
         // Final partial AI round: exactly200 ticks behind is still in the bound.
         for entry in &mut entries {
-            if entry.actor == ActorId(101) && entry.tick == 600 {
+            if entry.actor == ActorId(101) && entry.tick == 1000 {
                 wait(entry);
             }
         }
-        assert_eq!(sustained(&entries).unwrap().actors[&101].last_tick, 400);
+        assert_eq!(sustained(&entries).unwrap().actors[&101].last_tick, 800);
     }
     #[test]
     fn sustained_activity_rejects_middle_stall_with_identical_endpoints_and_count() {
@@ -592,7 +593,7 @@ mod execution_trace_tests {
             .filter(|entry| entry.actor == ActorId(101))
             .map(|entry| entry.tick)
             .collect::<Vec<_>>();
-        assert_eq!(ticks, [0, 20, 40, 300, 400, 500, 600]);
+        assert_eq!(ticks, [0, 20, 40, 300, 400, 500, 600, 700, 800, 900, 1000]);
         assert_eq!(ticks.len() as u64, full.actors[&101].meaningful_actions);
         assert_eq!(ticks[0], full.actors[&101].first_tick);
         assert_eq!(*ticks.last().unwrap(), full.actors[&101].last_tick);
@@ -639,9 +640,9 @@ mod execution_trace_tests {
         let mut bad_player = valid;
         bad_player
             .iter_mut()
-            .find(|entry| entry.actor == ActorId(1) && entry.tick == 200)
+            .find(|entry| entry.actor == ActorId(1) && entry.tick == 250)
             .unwrap()
-            .tick = 201;
+            .tick = 251;
         assert!(sustained(&bad_player)
             .unwrap_err()
             .to_string()

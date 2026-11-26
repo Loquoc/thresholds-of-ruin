@@ -434,7 +434,7 @@ fn ordinary_movement_into_a_guise_pays_for_contact_without_entering_or_attacking
     let outcome = game.act(OWNER, Action::Move(Direction::East)).unwrap();
     assert_eq!(outcome.kind, crate::OutcomeKind::Waited);
     assert_eq!(game.actors[&OWNER].location, at(1, 2, 2));
-    assert_eq!(game.actors[&OWNER].ready_at, 100);
+    assert_eq!(game.actors[&OWNER].ready_at, 125);
     assert_eq!(game.health(SUBJECT), health);
     assert_eq!(game.rules_rng, rng);
     assert!(game.actors[&SUBJECT].guise.appearance().is_some());
@@ -465,7 +465,7 @@ fn queued_movement_contact_retains_its_destination_and_executes_after_restore() 
     assert_eq!(execution.intention.id, intention);
     assert_eq!(execution.outcome.unwrap().kind, crate::OutcomeKind::Waited);
     assert_eq!(restored.actors[&OWNER].location, at(1, 2, 2));
-    assert_eq!(restored.actors[&OWNER].ready_at, 100);
+    assert_eq!(restored.actors[&OWNER].ready_at, 125);
     assert_eq!(restored.rules_rng, rng);
     assert!(restored.actors[&SUBJECT].guise.appearance().is_some());
 }

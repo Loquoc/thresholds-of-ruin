@@ -19,8 +19,8 @@ from rogue_earned_route_process import (
 
 def rules_as_historical_v60(raw):
     """Normalize only current identity for immutable historical source comparisons."""
-    assert raw.count(b'id = "interactions-v72"') == 1
-    return raw.replace(b'id = "interactions-v72"', b'id = "interactions-v60"', 1)
+    assert raw.count(b'id = "interactions-v73"') == 1
+    return raw.replace(b'id = "interactions-v73"', b'id = "interactions-v60"', 1)
 
 
 def rules_before_effect_presentation(raw):
@@ -1961,8 +1961,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v61"', b'import = "interactions-v60"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v61"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v61"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v61': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(rules_as_historical_v60(bundled_current)).hexdigest(), prior['rules_dependencies']['interactions-v60'])
@@ -1997,8 +1997,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v62"', b'import = "interactions-v61"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v62"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v62"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v62': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v62"', b'id = "interactions-v61"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v61'])
@@ -2033,8 +2033,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v63"', b'import = "interactions-v62"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v63"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v63"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v63': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v63"', b'id = "interactions-v62"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v62'])
@@ -2069,8 +2069,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v64"', b'import = "interactions-v63"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v64"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v64"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v64': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v64"', b'id = "interactions-v63"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v63'])
@@ -2105,8 +2105,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v65"', b'import = "interactions-v64"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v65"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v65"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v65': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v65"', b'id = "interactions-v64"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v64'])
@@ -2141,8 +2141,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v66"', b'import = "interactions-v65"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v66"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v66"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v66': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v66"', b'id = "interactions-v65"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v65'])
@@ -2177,8 +2177,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v67"', b'import = "interactions-v66"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v67"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v67"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v67': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v67"', b'id = "interactions-v66"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v66'])
@@ -2213,8 +2213,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v68"', b'import = "interactions-v67"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v68"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v68"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v68': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v68"', b'id = "interactions-v67"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v67'])
@@ -2249,8 +2249,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v69"', b'import = "interactions-v68"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v69"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v69"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v69': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v69"', b'id = "interactions-v68"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v68'])
@@ -2285,8 +2285,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v70"', b'import = "interactions-v69"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v70"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v70"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v70': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v70"', b'id = "interactions-v69"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v69'])
@@ -2321,8 +2321,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v71"', b'import = "interactions-v70"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         bundled_current = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled_current.count(b'id = "interactions-v72"'), 1)
-        bundled = bundled_current.replace(b'id = "interactions-v72"', b'id = "interactions-v71"', 1)
+        self.assertEqual(bundled_current.count(b'id = "interactions-v73"'), 1)
+        bundled = bundled_current.replace(b'id = "interactions-v73"', b'id = "interactions-v71"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v71': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v71"', b'id = "interactions-v70"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v70'])
@@ -2356,7 +2356,8 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 self.assertEqual(current.count(b'import = "interactions-v72"'), 1)
                 current = current.replace(b'import = "interactions-v72"', b'import = "interactions-v71"', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
-        bundled = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
+        bundled = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes().replace(
+            b'id = "interactions-v73"', b'id = "interactions-v72"', 1)
         self.assertEqual(source['rules_dependencies'], {'interactions-v72': hashlib.sha256(bundled).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v72"', b'id = "interactions-v71"', 1)).hexdigest(), prior['rules_dependencies']['interactions-v71'])
@@ -2403,8 +2404,26 @@ class RouteResumeHardeningTests(unittest.TestCase):
         self.assertTrue(source['reference'].endswith('transition-sha256:' + hashlib.sha256(raw).hexdigest()))
         self.assertIn('compiler and route qualification pending', source['reference'])
         self.assertIn('source bytes only', transition['only_transformation'])
+    def test_current_baseline_v47_advances_only_the_movement_rules_identity(self):
+        import hashlib
+        from arena_evaluation import files
+        from process_harness import ROOT
+        prior = ROOT / 'scripts/fixtures/rogue-earned-baseline-v46'
+        current = prior.with_name('rogue-earned-baseline-v47')
+        source = json.loads((current / 'source.json').read_bytes())
+        transition = (current / 'format-transition.json').read_bytes()
+        self.assertEqual(files(current / 'package'), source['package_inputs'])
+        self.assertEqual(json.loads(transition)['previous_source_sha256'],
+                         hashlib.sha256((prior / 'source.json').read_bytes()).hexdigest())
+        self.assertTrue(source['reference'].endswith(hashlib.sha256(transition).hexdigest()))
+        self.assertEqual(source['rules_dependencies'], {'interactions-v73': hashlib.sha256(
+            (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()).hexdigest()})
+        for name in source['package_inputs']:
+            old = (prior / 'package' / name).read_bytes()
+            expected = old.replace(b'interactions-v72', b'interactions-v73', 1) if name == 'rules.toml' else old
+            self.assertEqual((current / 'package' / name).read_bytes(), expected)
         loader = (ROOT / 'scripts/test_rogue_earned_route_process.py').read_text()
-        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v46'", loader)
+        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v47'", loader)
 
     def test_artifact_capacity_is_infrastructure_not_controller_failure(self):
         self.assertEqual(classify_failure(ValueError('JSON artifact exceeds bounded size')),

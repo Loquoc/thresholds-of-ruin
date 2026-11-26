@@ -253,7 +253,7 @@ fn ordered_strikes_cancel_and_escape_are_atomic_exact_retryable_transactions() {
         assert!(combat.sequence.is_none());
         assert_eq!(
             combat.recovery_remaining,
-            if step.is_some() { 350 } else { 250 }
+            if step.is_some() { 375 } else { 250 }
         );
         let replayed = command(&mut engine, ActorId(1), "cancel-sequence", cancel);
         assert!(replayed.duplicate);

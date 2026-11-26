@@ -268,7 +268,7 @@ fn guarded_step_moves_only_at_preparation_completion_and_pays_one_move() {
     game.act(ActorId(2), Action::Wait).unwrap();
     assert_eq!(game.tick(), 100);
     assert_eq!(game.actors[&actor].location, cell(2, 1, 0));
-    assert_eq!(game.actors[&actor].ready_at, 300);
+    assert_eq!(game.actors[&actor].ready_at, 325);
     assert!(game.preparation(actor).is_none());
     assert!(
         !game.physics.displaced.contains(&actor),
@@ -352,14 +352,14 @@ fn newly_occupied_step_retains_braced_and_all_committed_timing_and_cost() {
     );
     expected.advance_active(100);
     expected.finish(identity).unwrap();
-    expected.advance_active(42);
+    expected.advance_active(78);
     // Another actor takes an ordinary turn and occupies the selected cell first.
     game.act(ActorId(2), Action::Move(tor_world::Direction::NorthWest))
         .unwrap();
-    assert_eq!(game.tick(), 142);
+    assert_eq!(game.tick(), 178);
     assert_eq!(game.actors[&ActorId(2)].location, cell(2, 1, 0));
     assert_eq!(game.actors[&ActorId(1)].location, cell(2, 2, 0));
-    assert_eq!(game.actors[&ActorId(1)].ready_at, 300);
+    assert_eq!(game.actors[&ActorId(1)].ready_at, 325);
     assert!(game.preparation(ActorId(1)).is_none());
     let creature = game.creature(ActorId(1)).unwrap();
     assert_eq!(
@@ -381,7 +381,7 @@ fn newly_occupied_step_retains_braced_and_all_committed_timing_and_cost() {
             .find(|condition| condition.condition.as_str() == "braced")
             .unwrap()
             .remaining,
-        Some(158)
+        Some(122)
     );
     drop(creature);
     game.act(ActorId(2), Action::Move(tor_world::Direction::North))
@@ -395,7 +395,7 @@ fn newly_occupied_step_retains_braced_and_all_committed_timing_and_cost() {
 
 #[test]
 fn guarded_step_diagonal_cost_uses_the_configured_ordinary_duration() {
-    for (base, step) in [(1, 2), (75, 107), (100, 142)] {
+    for (base, step) in [(1, 3), (75, 134), (100, 178)] {
         let mut game = guarded_step_game(base);
         start_step(&mut game, "north_west");
         let actor = crate::ActorId(1);
@@ -1214,7 +1214,7 @@ fn ordinary_queued_movement_control_retains_one_identity_and_other_actor_turn() 
     assert_eq!(execution.intention.id, identity);
     execution.outcome.unwrap();
     assert_eq!(game.actors[&crate::ActorId(1)].location, cell(2, 1, 0));
-    assert_eq!(game.actors[&crate::ActorId(1)].ready_at, 100);
+    assert_eq!(game.actors[&crate::ActorId(1)].ready_at, 125);
     assert_eq!(game.next_actor(), Some(crate::ActorId(2)));
     assert_eq!(game.tick(), 0);
 }
@@ -1302,7 +1302,7 @@ fn guarded_step_keeps_captured_speed_and_ordinary_duration_while_rechecking_geom
         start_step(&mut game, "north");
         let frozen = game.preparation(actor).unwrap().plan.clone();
         assert_eq!(frozen.preparation(), 100);
-        assert_eq!(frozen.recovery(), 200);
+        assert_eq!(frozen.recovery(), 225);
         let mut build = game.creature(actor).unwrap().build().clone();
         let mut attributes = build.initial_attributes().values();
         attributes.speed = 5;
@@ -1327,8 +1327,8 @@ fn guarded_step_keeps_captured_speed_and_ordinary_duration_while_rechecking_geom
         game.act(crate::ActorId(2), crate::Action::Wait).unwrap();
         assert_eq!(game.tick(), 100);
         assert_eq!(
-            game.actors[&actor].ready_at, 300,
-            "old speed and ordinary 100-tick step are paid once"
+            game.actors[&actor].ready_at, 325,
+            "old speed and ordinary 125-tick step are paid once"
         );
         assert_eq!(
             game.actors[&actor].location,

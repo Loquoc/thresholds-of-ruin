@@ -58,11 +58,8 @@ def events_since(player, start):
 
 
 class RogueWraithProcesses(ProcessTestCase):
-    # Retained seed0 reached the survived drain. This narrower source-free
-    # prefix still requires its own qualification; never search seeds in CI.
-    # Rebind source/binary and constructor seeds after integration; the same
-    # numeric seed does not promise byte-identical outcomes for changed inputs.
-    seed = 0
+    # Fixed v73 witness for the eight emus and survived autonomous Wraith drain.
+    seed = 2
 
     def setUp(self):
         super().setUp()

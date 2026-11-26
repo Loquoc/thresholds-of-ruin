@@ -517,7 +517,7 @@ fn ordered_strikes_escape_is_one_atomic_ordinary_move_with_tail_debt() {
     game.cancel_intention_with_step(ActorId(1), intention, Some(Direction::West))
         .unwrap();
     assert_eq!(game.actors[&ActorId(1)].location.position.x, 0);
-    assert_eq!(game.actors[&ActorId(1)].ready_at, 150);
+    assert_eq!(game.actors[&ActorId(1)].ready_at, 175);
     assert_eq!(game.health(ActorId(2)).unwrap().0, 97);
     let escaped = game.clone();
     assert!(game
@@ -1211,7 +1211,11 @@ fn ordered_strikes_fleeing_ai_uses_atomic_escape_and_old_preparation_identity() 
     let Action::Move(direction) = action else {
         panic!("a valid ordinary retreat is available")
     };
-    let duration = crate::movement_cost(100, direction).unwrap();
+    let duration = if direction.components().is_some() {
+        178
+    } else {
+        125
+    };
     let before = game.clone();
     // The public controlled/AI cancellation boundary applies the identical debt.
     game.cancel_intention_with_step(ActorId(1), original, Some(tor_world::Direction::East))
@@ -3763,7 +3767,11 @@ fn ordered_strikes_self_step_retreat_never_replaces_paid_prefix() {
     assert!(game.preparation(ActorId(1)).is_none());
     assert_eq!(
         game.actors[&ActorId(1)].ready_at,
-        50 + crate::movement_cost(100, direction).unwrap()
+        50 + if direction.components().is_some() {
+            178
+        } else {
+            125
+        }
     );
     assert_eq!(game.creature(ActorId(1)).unwrap().costs(), &before);
     assert_eq!(game.health(ActorId(2)).unwrap().0, 97);

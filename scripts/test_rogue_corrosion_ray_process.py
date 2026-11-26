@@ -269,7 +269,7 @@ class RogueCorrosionRayProcesses(ProcessTestCase):
                 (self.directory/"cross-flight-pending.json").write_text(json.dumps(saved,indent=2))
                 pending = saved["actors"]["3"]["pending"]
                 self.assertEqual(saved["tick"],200)
-                self.assertEqual(pending["started"],142)
+                self.assertEqual(pending["started"],158)
                 self.assertTrue(pending["active"])
                 self.assertEqual(pending["plan"]["kind"],"ray")
                 self.assertEqual(pending["plan"]["ability"],"rogue.breath_weapon")
@@ -287,7 +287,7 @@ class RogueCorrosionRayProcesses(ProcessTestCase):
                 self.assertEqual(checkpoint(self,clients[0]),saved)
             self.assertIsNone(self.act(clients[owner],{"type":"wait"})["error"])
         after = self.decision_snapshots(clients)
-        self.assertEqual([u64(observation(f)["tick"]) for f in after],[242,242])
+        self.assertEqual([u64(observation(f)["tick"]) for f in after],[258,258])
         self.assertEqual([u64(combat(f)["hp"]) for f in after],[0,8])
         self.assertTrue(combat(after[0])["dead"])
         self.assertFalse(combat(after[1])["dead"])
@@ -299,7 +299,7 @@ class RogueCorrosionRayProcesses(ProcessTestCase):
         entries = [r["record"]["entry"] for r in payloads if "record" in r]
         (self.directory/"cross-flight-journal.json").write_text(json.dumps(entries,indent=2),encoding="utf-8")
         starts = [r for r in entries if r.get("actor") == 3 and r["content"]["type"] == "intention_started"]
-        self.assertEqual([r["tick"] for r in starts],[0,142])
+        self.assertEqual([r["tick"] for r in starts],[0,158])
         move,breath = [r["content"] for r in starts]
         self.assertEqual(move["action"]["type"],"move")
         self.assertEqual(move["event"],{"type":"moved","from":{"region":1,"x":1,"y":2,"z":0},

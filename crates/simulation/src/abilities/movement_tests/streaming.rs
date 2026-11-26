@@ -72,7 +72,7 @@ fn a_frozen_prepared_self_step_keeps_its_captured_destination_loaded() {
     game.tick = 1100;
     game.resolve_preparations().unwrap();
     assert_eq!(game.actors[&crate::ActorId(1)].location, destination);
-    assert_eq!(game.actors[&crate::ActorId(1)].ready_at, 1300);
+    assert_eq!(game.actors[&crate::ActorId(1)].ready_at, 1325);
 }
 #[test]
 fn paused_self_step_keeps_the_original_destination_and_claim_through_checkpoint() {

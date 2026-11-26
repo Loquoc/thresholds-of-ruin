@@ -43,7 +43,7 @@ fn each_primary_captures_a_fresh_contact_but_pays_the_ability_only_once() {
     // This ordinary action brings the target back into contact for primary two.
     game.act(target, crate::Action::Move(tor_world::Direction::West))
         .unwrap();
-    assert_eq!(game.tick(), 210);
+    assert_eq!(game.tick(), 235);
     assert_eq!(game.actors[&target].location, cell(5, 3, 3));
     assert_eq!(game.health(target), Some((22, 30)));
     assert!(game.preparation(source).is_none());

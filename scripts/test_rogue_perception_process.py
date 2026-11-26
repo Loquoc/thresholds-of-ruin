@@ -348,7 +348,7 @@ class RoguePerceptionProcesses(ProcessTestCase):
             self.assertTrue(all(action["type"] in ("move", "wait") for _, action in starts))
         elif variant == "rogue":
             self.assertEqual([(at, action["type"], action.get("id")) for at, action in starts],
-                             [(0, "move", None), (100, "move", None), (200, "use_ability", "basic_melee")])
+                             [(0, "move", None), (112, "move", None), (224, "use_ability", "basic_melee")])
         else:
             self.assertEqual([(at, action["type"], action.get("id")) for at, action in starts],
                              [(0, "use_ability", GAZE), (200, "move", None)])
