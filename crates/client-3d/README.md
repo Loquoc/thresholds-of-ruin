@@ -680,6 +680,13 @@ richer resource presentation and pause/accessibility settings remain unfinished.
 
 ## How it works
 
+- Currently perceived terrain, creatures, and objects stay readable in
+  darkness, with a cooler palette when the server reports no light. Explored
+  terrain outside current sight uses subdued grayscale, based on the last
+  sighting. Unknown terrain stays masked, even if a special sense discloses
+  an actor there. Only actual illumination enables decorative lamps and
+  emissive materials; the client does not change gameplay visibility.
+
 - `portrait.rs` renders the existing displayed actor into one adaptive texture,
   capped at 768 by 1024 pixels. It shares mesh handles and animation, restores
   original render layers on close or actor changes, and includes newly prepared

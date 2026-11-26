@@ -581,7 +581,13 @@ fn setup(
             sums: None,
         },
     });
-    for chunk in cave.update(solids, open.clone(), open, blocked) {
+    for chunk in cave.update(
+        solids,
+        open.into_iter()
+            .map(|cell| (cell, crate::lighting::Appearance::Lit))
+            .collect(),
+        blocked,
+    ) {
         if let Some(mesh) = cave.build(chunk).rock {
             commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(rock.clone())));
         }

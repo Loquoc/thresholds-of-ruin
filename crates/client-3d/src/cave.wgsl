@@ -255,17 +255,28 @@ fn fragment(
     let cut_top = floor_w * smoothstep(cave.player.w + 1.5, cave.player.w + 1.7, wp.y);
     color = mix(color, vec3(0.025, 0.024, 0.035), cut_top);
 
-    // RGB is occlusion/memory; alpha is an explicit server illumination mask.
-    // It is independent of occlusion, which can make lit rock very dark.
-    let lit = pbr_input.material.base_color.a;
+    // RGB is geometric occlusion; alpha separately encodes the chart state:
+    // 0 remembered, 0.5 perceived without light, 1 physically illuminated.
+    let coverage = pbr_input.material.base_color.a;
+    let lit = select(0.0, 1.0, coverage > 0.75);
     let shade = pbr_input.material.base_color.rgb;
     pbr_input.material.base_color = vec4(color * shade, 1.0);
     pbr_input.material.perceptual_roughness = mix(0.88, 0.22, wet * floor_w);
     pbr_input.material.reflectance = vec3(mix(0.3, 0.6, wet * floor_w));
     let glow = cave.moss.rgb * cave.moss.w * moss * floor_w
         + cave.accent.rgb * fleck * 0.25 * (1.0 - floor_w);
-    let room = color * shade * vec3(1.0, 0.9, 0.78) * cave.light.x;
-    pbr_input.material.emissive = vec4((glow * shade + room) * (1.0 - cut_top) * lit, 1.0);
+    let room = color * shade * mix(vec3(0.64, 0.76, 0.95), vec3(1.0, 0.9, 0.78), lit) * cave.light.x;
+    pbr_input.material.emissive = vec4((glow * shade * lit + room) * (1.0 - cut_top), 1.0);
+
+    if (coverage < 0.25) {
+        // Map memory has texture and shape, but cannot pick up a moving
+        // torch, cast a colorful reflection or masquerade as current sight.
+        let gray = dot(color * shade, vec3(0.2126, 0.7152, 0.0722));
+        let value = gray * (0.16 + 0.17 * floor_w);
+        var remembered: FragmentOutput;
+        remembered.color = main_pass_post_lighting_processing(pbr_input, vec4(vec3(value), 1.0));
+        return remembered;
+    }
 
     // Bump the facets with fine grain so torchlight rakes across the rock.
     var grad = vec3(0.0);
@@ -290,9 +301,11 @@ fn fragment(
     } else {
         out.color = apply_pbr_lighting(pbr_input);
     }
-    // Dark body awareness and memory remain readable without accepting light
-    // from the artistic fill or an adjacent decorative point light.
-    out.color = mix(vec4(vec3(0.018, 0.022, 0.035) * shade, 1.0), out.color, lit);
+    if (lit < 0.5) {
+        // A disclosed dark cell should read close to torchlight at play
+        // distance. This is camera fill, not another in-world light source.
+        out.color = vec4(out.color.rgb * vec3(1.05, 1.12, 1.20), out.color.a);
+    }
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
 }

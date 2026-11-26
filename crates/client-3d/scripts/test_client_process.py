@@ -1634,7 +1634,9 @@ class Native3DProcesses(ProcessTestCase):
                 if window.child.poll() is None:
                     native("Escape", False)
             server.stop(save=False)
-        self.assertGreater(luminance[True], luminance[False] * 1.25, luminance)
+        self.assertGreater(luminance[True], luminance[False], luminance)
+        self.assertGreater(luminance[False], luminance[True] * 0.50,
+                           f"the currently disclosed scene is too dark to read: {luminance}")
 
     def _native_window(self, client, *, expected_title="Thresholds of Ruin \u2014 3D prototype"):
         if os.name == "nt":
