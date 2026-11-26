@@ -271,6 +271,9 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     if slot is None or (slot.removal_blocked and turn.hostiles):
         return None
     worn = slot.occupant
+    if worn and melee_score(worn) >= 0 and any(turn.distance_to(foe) <= 1 for foe in turn.hostiles):
+        # Replacing a weapon takes two actions. Keep a usable one while a foe is in contact.
+        return None
 
     def rank(item: Item | None) -> tuple[bool, float]:
         if item is None:

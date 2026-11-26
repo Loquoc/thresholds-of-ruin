@@ -774,6 +774,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = picture()
         self.assertEqual(turn.inventory[1].weapon_attack.mean_damage, 8)
         self.assertEqual(choose(player, turn), (Unequip(turn.equipment[0]), "change_weapon"))
+
+        # Keep the mace and strike while the swap would leave the player unarmed in contact.
+        contact = cell("enemy", 1)
+        foe = {"id": "orc", "name": "orc", "position": contact["position"]}
+        strike = {"id": "basic_melee", "name": "Strike", "basic_attack": True, "target_kind": "actor",
+                  "reach": {"kind": "melee"}, "cooldown_remaining": 0, "cost": None}
+        fight = player_turn([cell("here"), contact], actors=[foe], hostiles=["orc"], inventory=inventory,
+                            abilities=[strike], interactions={"slots": [slot], "inventory": offers})
+        self.assertEqual(choose(player, fight), (fight.attack(fight.hostiles[0]), "melee"))
+
         del offers[0]["equipped_slot"]
         turn = picture()
         self.assertEqual(choose(player, turn), (Equip(turn.inventory[1], turn.equipment[0]), "equip_melee"))
