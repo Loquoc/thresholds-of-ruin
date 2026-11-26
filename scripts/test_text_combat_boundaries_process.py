@@ -423,7 +423,7 @@ class TextCombatBoundaryProcesses(ProcessTestCase):
         hp, maximum = u64(observation(final)["combat"]["hp"]), u64(observation(final)["combat"]["max_hp"])
         self.assertEqual(hp, u64(observation(before)["combat"]["hp"]) - 5)
         self.assertIn((hp, maximum), boundary.health)
-        self.assertEqual(observation(final)["tick"], "100")
+        self.assertEqual(observation(final)["tick"], "125")
         self.assertEqual(final["travel"]["id"], receipt["entry_id"])
         self.assertEqual(final["travel"]["phase"], "hazard")
         self.assertEqual(final["travel"]["completed_steps"], "1")

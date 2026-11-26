@@ -143,8 +143,8 @@ def validate_sustained_activity(report, moves, activity):
     """Offline v1 gap proof; does not change pacing or sampled command work."""
     proof = report.get("sustained_activity")
     require(isinstance(proof, dict), "Missing sustained meaningful-activity proof")
-    expected = dict(player_moves=moves, player_turn_ticks=100, player_first_tick=0,
-                    player_last_tick=(moves - 1) * 100, max_gap_limit_ticks=200)
+    expected = dict(player_moves=moves, player_turn_ticks=125, player_first_tick=0,
+                    player_last_tick=(moves - 1) * 125, max_gap_limit_ticks=200)
     require(all(type(proof.get(key)) is int and proof[key] == value for key, value in expected.items()),
             "Noncanonical sustained workload interval")
     actors = proof.get("actors")

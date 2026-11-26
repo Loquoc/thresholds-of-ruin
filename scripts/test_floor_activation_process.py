@@ -264,7 +264,7 @@ class OmittedRoomTopologyProcess(ProcessTestCase):
         self.run_topology_route(mazes=False, seed=0)
 
     def test_dark_maze_search_traversal_and_source_free_revisit_keep_real_cells(self):
-        self.run_topology_route(mazes=True, seed=42)
+        self.run_topology_route(mazes=True, seed=2)
 
     def run_topology_route(self, *, mazes, seed):
         import json

@@ -293,6 +293,7 @@ fn stale_exact_ground_source_rejection_is_atomic_after_ordinary_pickup() {
     )
     .unwrap();
     support::act_as(&mut engine, PARTNER, Action::Wait).unwrap();
+    support::act_as(&mut engine, PARTNER, Action::Wait).unwrap();
     support::act_as(
         &mut engine,
         PLAYER,
@@ -302,6 +303,7 @@ fn stale_exact_ground_source_rejection_is_atomic_after_ordinary_pickup() {
         },
     )
     .unwrap();
+    support::act_as(&mut engine, PLAYER, Action::Wait).unwrap();
     let before = engine.state(PARTNER).unwrap();
     let before_boundary = engine.causal_boundary(PARTNER).unwrap();
     let counts = engine.profile_counts();

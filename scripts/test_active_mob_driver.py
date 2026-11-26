@@ -105,19 +105,19 @@ class ScriptedRun:
 
 def activity(moves=300):
     action = dict(executions=moves, moves=1, combat_starts=moves - 1, waits=0,
-                  first_tick=0, last_tick=(moves - 1) * 100, portal_crossings=0)
+                  first_tick=0, last_tick=(moves - 1) * 125, portal_crossings=0)
     region = {**action, **{field: action[field] * 5 for field in
                             ("executions", "moves", "combat_starts", "waits", "portal_crossings")}}
     sustained = dict(meaningful_actions=moves, first_tick=0,
-                     last_tick=(moves - 1) * 100, max_gap_ticks=100)
+                     last_tick=(moves - 1) * 125, max_gap_ticks=125)
     return dict(workload=driver.WORKLOAD, version=1, mode="inspect", seed=42,
                 regions=20, ai=100, all_active=True, all_alive=True,
                 actor_ids=[str(i) for i in range(1, 102)], state_sha256="a" * 64,
                 activity=dict(actors={str(i): action.copy() for i in range(2, 102)},
                               regions={str(i): region.copy() for i in range(1, 21)},
                               player_moves=moves, player_crossings=(moves + 1) // 8),
-                sustained_activity=dict(player_moves=moves, player_turn_ticks=100,
-                                        player_first_tick=0, player_last_tick=(moves - 1) * 100,
+                sustained_activity=dict(player_moves=moves, player_turn_ticks=125,
+                                        player_first_tick=0, player_last_tick=(moves - 1) * 125,
                                         max_gap_limit_ticks=200,
                                         actors={str(i): sustained.copy() for i in range(2, 102)}))
 
@@ -365,16 +365,16 @@ class ActivityEvidence(unittest.TestCase):
 
     def test_sustained_activity_requires_late_work_canonical_window_and_all_ais(self):
         expected = activity()
-        expected["sustained_activity"]["actors"]["101"]["last_tick"] = 29700
+        expected["sustained_activity"]["actors"]["101"]["last_tick"] = 37375 - 200
         driver.validate_activity(expected, 300)  # Exactly 200-tick trailing gap is allowed.
         broken = copy.deepcopy(expected)
-        broken["sustained_activity"]["actors"]["101"]["last_tick"] = 29699
+        broken["sustained_activity"]["actors"]["101"]["last_tick"] = 37375 - 201
         self.assertEqual(broken["activity"], expected["activity"])
         with self.assertRaisesRegex(ValueError, "AI 101 stopped meaningful activity"):
             driver.validate_activity(broken, 300)
         for mutate in (
                 lambda r: r.pop("sustained_activity"),
-                lambda r: r["sustained_activity"].update(player_last_tick=29901),
+                lambda r: r["sustained_activity"].update(player_last_tick=37376),
                 lambda r: r["sustained_activity"].update(player_turn_ticks=101),
                 lambda r: r["sustained_activity"].update(max_gap_limit_ticks=201),
                 lambda r: r["sustained_activity"]["actors"].pop("101"),

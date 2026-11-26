@@ -2163,6 +2163,7 @@ with ExitStack() as stack:
         self.install_bot_extension()
         code = """
 import os
+import time
 from contextlib import ExitStack
 from rogue_player import Adventurer
 from tor_client_bot import Direction, Move, Outcome, Session, Wait
@@ -2185,9 +2186,21 @@ with ExitStack() as stack:
     receipt = turn.submit(step)
     assert receipt.status is Outcome.CONFIRMED
     player.admitted(turn, step, receipt, reason=reason)
-    for enemy in (east, north):
-        assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
-    after = game.wait_for_decision()
+    def next_player_turn(*, advance_east=False):
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            turn = game.observe()
+            if turn.can_act:
+                return turn
+            for enemy in (east, north):
+                enemy_turn = enemy.observe()
+                if enemy_turn.can_act:
+                    move = Move(Direction.WEST) if advance_east and enemy is east else Wait()
+                    assert enemy_turn.submit(move).status is Outcome.CONFIRMED
+            time.sleep(0.01)
+        raise AssertionError("Player did not regain its turn")
+
+    after = next_player_turn()
     assert after.cell.key == destination
     assert sum(after.in_contact(foe) for foe in after.hostiles) == (0 if approaching else 1)
     if approaching:
@@ -2196,9 +2209,7 @@ with ExitStack() as stack:
         assert isinstance(action, Wait) and reason == "hold_corridor", (action, reason)
         for _ in range(2):
             assert after.submit(action).status is Outcome.CONFIRMED
-            assert east.wait_for_decision().submit(Move(Direction.WEST)).status is Outcome.CONFIRMED
-            assert north.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
-            after = game.wait_for_decision()
+            after = next_player_turn(advance_east=True)
             player.observe(after)
             action, reason = player.choose(after)
             assert after.cell.key == destination
