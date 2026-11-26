@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 from collections import Counter
+from dataclasses import dataclass
 from importlib.machinery import EXTENSION_SUFFIXES
 from importlib.util import find_spec
 import json
@@ -15,40 +16,37 @@ import sys
 import tomllib
 
 from process_harness import Process, ROOT
-from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH
+from rogue_combat import combat_death_cause
+from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH, player_exit_code
 
 
-POLICY_FILES = ("rogue_o_matic.py", "rogue_player.py", "rogue_gear.py")
-SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
+POLICY_FILES = (
+    "rogue_o_matic.py",
+    "rogue_player.py",
+    "rogue_combat.py",
+    "rogue_activity.py",
+    "rogue_runner.py",
+    "rogue_gear.py",
+    "rogue_equipment_history.py",
+    "rogue_food.py",
+    "rogue_retreat.py",
+    "rogue_search.py",
+    "rogue_loot.py",
+    "rogue_training.py",
+    "rogue_trials.py",
+)
 
 
 def death_cause(report):
-    events = report.get("last_combat_events", [])
-    player = report.get("self_target")
-    for index in range(len(events) - 1, -1, -1):
-        event = events[index]
-        if event["type"] != "died" or (player is not None and event["actor"] != player):
-            continue
-        actor = event["actor"]
-        if event.get("cause") == "starvation":
+    history = report.get("last_combat_events", report.get("events_since_previous_action", []))
+    if cause := combat_death_cause(history, report.get("self_target")):
+        return cause
+    nutrition = report.get("last_nutrition")
+    if isinstance(nutrition, dict) and nutrition.get("kind") == "required":
+        reserve = nutrition.get("reserve")
+        threshold = nutrition.get("starve_at")
+        if type(reserve) is int and type(threshold) is int and reserve <= threshold:
             return "starvation"
-        for prior in reversed(events[:index]):
-            if prior["type"] == "interrupted" and prior.get("actor") == actor:
-                continue
-            if (prior["type"] in {"ability", "unseen_ability"} and prior.get("target") == actor
-                    and prior.get("outcome") == "applied"):
-                if prior["type"] == "unseen_ability" and prior.get("caster") != actor:
-                    return "unseen_ability"
-                ability = (prior.get("ability") or {}).get("id")
-                if prior.get("caster") != actor or ability in SELF_DAMAGE_ABILITIES:
-                    return ability or "unidentified_ability"
-            break
-        if event.get("cause") == "injury":
-            return "injury"
-        break
-    nutrition = report.get("last_nutrition", {})
-    if nutrition.get("kind") == "required" and nutrition["reserve"] <= nutrition["starve_at"]:
-        return "starvation"
     return "undisclosed"
 
 
@@ -100,102 +98,247 @@ def campaign_inputs(server, scenario, actor, policy):
     return inputs
 
 
+def reported_max_depth(row: dict) -> int:
+    """Return a positive floor number, or zero when the report supplies no usable depth."""
+    depth = row.get("max_depth")
+    return depth if type(depth) is int and depth > 0 else 0
+
+
+def summarize_equipment(rows):
+    """Sum per-run item counts. An empty equipment report contributes to coverage."""
+    totals = {}
+    reported = 0
+    for row in rows:
+        equipment = row.get("equipment_opportunities")
+        if not isinstance(equipment, dict):
+            continue
+        reported += 1
+        for category, stages in equipment.items():
+            if isinstance(stages, dict):
+                counts = totals.setdefault(category, Counter())
+                counts.update({stage: n for stage, n in stages.items() if type(n) is int and n >= 0})
+    return {"runs_reporting_equipment": reported, "equipment_opportunity_totals": totals}
+
+
 def summarize(rows):
+    reached = Counter(map(reported_max_depth, rows))
+    unobserved = reached.pop(0, 0)
+    distribution = {str(floor): reached[floor] for floor in sorted(reached)}
+    if unobserved:
+        distribution["unobserved"] = unobserved
+    victories = 0
+    acquisitions = 0
+    for row in rows:
+        verified = row["terminal"] == "victory" and row.get("victory_verified") is True
+        victories += verified
+        acquisitions += verified or row.get("amulet_acquired") is True
     return {
         "runs": len(rows),
-        "victories": sum(row["terminal"] == "victory" and row.get("victory_verified") is True
-                         for row in rows),
-        "amulets_acquired": sum(bool(row.get("amulet_acquired")) for row in rows),
-        "max_depth": max((row.get("max_depth", 0) for row in rows), default=0),
+        "victories": victories,
+        "amulets_acquired": acquisitions,
+        "max_depth": max(reached, default=0),
+        "runs_by_max_depth": distribution,
         "deaths_by_cause": dict(sorted(Counter(
             death_cause(row) for row in rows if row["terminal"] == "death").items())),
+        **summarize_equipment(rows),
         "results": rows,
     }
 
 
+def observed_reserve(row: dict) -> int | None:
+    """Return a signed nutrition reading when the trace contains an integer sample."""
+    value = row.get("nutrition_reserve")
+    return value if type(value) is int else None
+
+
+@dataclass(frozen=True)
+class TraceSite:
+    floor: int
+    cell: str
+    known_cells: int | None
+
+    @classmethod
+    def from_trace(cls, row):
+        if row.get("floor") is None or row.get("cell") is None:
+            return None
+        count = row.get("known_cells")
+        return cls(row["floor"], row["cell"], count if type(count) is int and count >= 0 else None)
+
+    def retraces_without_discovery(self, start, via) -> bool:
+        """The two steps returned to their start with unchanged map coverage."""
+        return self.known_cells is not None and self == start and self.known_cells == via.known_cells
+
+
+@dataclass(frozen=True)
+class AdmittedMove:
+    intention: str
+    origin: TraceSite
+    reason: str | None
+    tick: int | None
+    reserve: int | None
+
+    @classmethod
+    def from_trace(cls, row: dict, origin: TraceSite):
+        result = row.get("result", {})
+        if row.get("action", {}).get("type") != "move" or result.get("status") != "confirmed":
+            return None
+        receipt = result.get("receipt") or {}
+        if intention := receipt.get("intention"):
+            return cls(intention, origin, row.get("reason"), row.get("tick"), observed_reserve(row))
+        return None
+
+    def record_supply_cost(self, row: dict, detours: dict) -> None:
+        """Count a resolved step even when its elapsed time cannot be measured."""
+        detours["resolved_steps"] += 1
+        end_tick = row.get("tick")
+        if type(self.tick) is int and type(end_tick) is int and end_tick >= self.tick:
+            detours["ticks"] += end_tick - self.tick
+        else:
+            detours["untimed_steps"] = detours.get("untimed_steps", 0) + 1
+        end_reserve = observed_reserve(row)
+        if end_reserve is not None and self.reserve is not None:
+            detours["reserve_spent"] += max(0, self.reserve - end_reserve)
+
+    def resolved_at(self, row, site: TraceSite) -> bool:
+        return (row.get("previous_intention_id") == self.intention
+                and row.get("previous_intention_phase") == "resolved"
+                and self.origin.floor == site.floor and self.origin.cell != site.cell)
+
+
+class FloorVisits:
+    """Accumulate travel, nutrition, and search outcomes by floor across repeat visits."""
+
+    def __init__(self) -> None:
+        self.floors: dict[str, dict[str, int | None]] = {}
+        self.transitions: list[dict[str, int | None]] = []
+        self.previous_floor: int | None = None
+        self.previous_reserve: int | None = None
+        self.pending_searches: dict[str, str] = {}
+
+    def resolve_search(self, row: dict) -> None:
+        phase = row.get("previous_intention_phase")
+        if phase in {"resolved", "failed", "cancelled"}:
+            search_floor = self.pending_searches.pop(row.get("previous_intention_id"), None)
+            if search_floor is not None and phase != "cancelled":
+                self.floors[search_floor][f"searches_{phase}"] += 1
+
+    def record_observation(self, row: dict) -> None:
+        floor = row["floor"]
+        reserve = observed_reserve(row)
+        metrics = self.floors.setdefault(str(floor), {
+            "searches_admitted": 0, "searches_resolved": 0, "searches_failed": 0,
+            "moves_admitted": 0,
+            "first_reserve": None, "last_reserve": None, "lowest_reserve": None,
+        })
+        if reserve is not None:
+            if metrics["first_reserve"] is None:
+                metrics["first_reserve"] = reserve
+            metrics["last_reserve"] = reserve
+            low = metrics["lowest_reserve"]
+            metrics["lowest_reserve"] = reserve if low is None else min(low, reserve)
+        if "action" in row and row.get("result", {}).get("status") == "confirmed":
+            action = row["action"]
+            if action["type"] == "move":
+                metrics["moves_admitted"] += 1
+            elif action["type"] == "use_ability" and action.get("id") == "rogue.search":
+                metrics["searches_admitted"] += 1
+                receipt = row["result"].get("receipt") or {}
+                if intention := receipt.get("intention"):
+                    self.pending_searches[intention] = str(floor)
+        if self.previous_floor is not None and self.previous_floor != floor:
+            self.transitions.append({
+                "from": self.previous_floor, "to": floor,
+                "before_reserve": self.previous_reserve, "after_reserve": reserve,
+            })
+        self.previous_floor = floor
+        self.previous_reserve = reserve
+
+
+def is_trace_row(row) -> bool:
+    """Check the action and receipt shapes consumed by the progress counters."""
+    if not isinstance(row, dict):
+        return False
+    floor = row.get("floor")
+    if floor is not None and type(floor) is not int:
+        return False
+    if any(row.get(key) is not None and not isinstance(row[key], str)
+           for key in ("previous_intention_phase", "previous_intention_id")):
+        return False
+    if "terminal" in row and not isinstance(row["terminal"], str):
+        return False
+    if "action" not in row:
+        return "terminal" in row
+    action = row["action"]
+    if floor is None or not isinstance(action, dict) or not isinstance(action.get("type"), str):
+        return False
+    result = row.get("result", {})
+    if not isinstance(result, dict):
+        return False
+    receipt = result.get("receipt")
+    return receipt is None or (isinstance(receipt, dict) and
+                               (receipt.get("intention") is None or isinstance(receipt["intention"], str)))
+
+
+def trace_rows(log):
+    """Yield an action or terminal report per nonblank line, with None marking a gap."""
+    for line in log:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line.decode("utf-8"))
+        except ValueError:
+            row = None
+        yield row if is_trace_row(row) else None
+
+
 def trace_report(path):
     progress = {"actions": 0, "max_depth": 0, "amulet_acquired": False,
-                "closest_return_floor": None, "floors": {}, "stair_transitions": []}
-    previous = None
+                "closest_return_floor": None}
+    visits = FloorVisits()
     terminal = None
-    pending_searches = {}
     last_move = None
     previous_origin = None
-    with path.open(encoding="utf-8") as log:
-        for line in log:
-            if not line.strip():
-                continue
+    with path.open("rb") as log:
+        for row in trace_rows(log):
             terminal = None
-            try:
-                row = json.loads(line)
-            except ValueError:
+            if row is None:
+                # Costs and transitions need consecutive observations. Totals from intact rows survive.
+                last_move = previous_origin = None
+                visits.previous_floor = None
+                visits.previous_reserve = None
                 continue
-            if not isinstance(row, dict):
-                continue
-            if row.get("cell") is not None and row.get("known_cells") is not None:
+            site = TraceSite.from_trace(row)
+            if site is not None:
                 detours = progress.setdefault("supply_detours", {"ticks": 0, "reserve_spent": 0, "resolved_steps": 0})
-                progress.setdefault("reversals_without_new_terrain", 0)
-                site = row["floor"], row["known_cells"], row["cell"]
-                if (last_move and last_move["intention"] == row.get("previous_intention_id")
-                        and row.get("previous_intention_phase") == "resolved" and last_move["site"][0] == site[0]
-                        and last_move["site"][2] != site[2]):
-                    if previous_origin == site and last_move["site"][1] == site[1]:
+                if site.known_cells is not None:
+                    progress.setdefault("reversals_without_new_terrain", 0)
+                if last_move and last_move.resolved_at(row, site):
+                    if site.retraces_without_discovery(previous_origin, last_move.origin):
                         progress["reversals_without_new_terrain"] += 1
-                    previous_origin = last_move["site"]
-                    if last_move["reason"] == "seek_supplies":
-                        detours["resolved_steps"] += 1
-                        detours["ticks"] += row["tick"] - last_move["tick"]
-                        if row.get("nutrition_reserve") is not None and last_move["reserve"] is not None:
-                            detours["reserve_spent"] += max(0, last_move["reserve"] - row["nutrition_reserve"])
+                    previous_origin = last_move.origin
+                    if last_move.reason == "seek_supplies":
+                        last_move.record_supply_cost(row, detours)
                 else:
                     previous_origin = None
-                last_move = None
-                result = row.get("result", {})
-                intention = result.get("receipt", {}).get("intention")
-                if row.get("action", {}).get("type") == "move" and result.get("status") == "confirmed" and intention:
-                    last_move = {"intention": intention, "site": site, "reason": row.get("reason"),
-                                 "tick": row["tick"], "reserve": row.get("nutrition_reserve")}
+                last_move = AdmittedMove.from_trace(row, site)
             else:
                 last_move = previous_origin = None
-            phase = row.get("previous_intention_phase")
-            if phase and (search_floor := pending_searches.pop(row.get("previous_intention_id"), None)) is not None:
-                if phase in {"resolved", "failed"}:
-                    progress["floors"][search_floor][f"searches_{phase}"] += 1
+            visits.resolve_search(row)
+            progress["amulet_acquired"] |= row.get("amulet_acquired") is True
             if "terminal" in row:
                 terminal = row
-            elif "action" in row:
+                # Older summaries have no observed position. Their max_depth is a run total.
+                if row.get("cell") is None or row.get("floor") is None:
+                    continue
+            else:
                 progress["actions"] += 1
-                progress["amulet_acquired"] |= row.get("amulet_acquired") is True
-                floor = row["floor"]
-                if progress["amulet_acquired"]:
-                    closest = progress["closest_return_floor"]
-                    progress["closest_return_floor"] = floor if closest is None else min(closest, floor)
-                progress["max_depth"] = max(progress["max_depth"], floor)
-                reserve = row.get("nutrition_reserve")
-                metrics = progress["floors"].setdefault(str(floor), {
-                    "searches_admitted": 0, "searches_resolved": 0, "searches_failed": 0,
-                    "moves_admitted": 0,
-                    "first_reserve": reserve, "last_reserve": reserve, "lowest_reserve": reserve,
-                })
-                if reserve is not None:
-                    metrics["last_reserve"] = reserve
-                    low = metrics["lowest_reserve"]
-                    metrics["lowest_reserve"] = reserve if low is None else min(low, reserve)
-                if row.get("result", {}).get("status") == "confirmed":
-                    action = row["action"]
-                    if action["type"] == "move":
-                        metrics["moves_admitted"] += 1
-                    elif action["type"] == "use_ability" and action.get("id") == "rogue.search":
-                        metrics["searches_admitted"] += 1
-                        receipt = row["result"].get("receipt") or {}
-                        if intention := receipt.get("intention"):
-                            pending_searches[intention] = str(floor)
-                if previous is not None and previous[0] != floor:
-                    progress["stair_transitions"].append({
-                        "from": previous[0], "to": floor,
-                        "before_reserve": previous[1], "after_reserve": reserve,
-                    })
-                previous = floor, reserve
+            visits.record_observation(row)
+            floor = row["floor"]
+            progress["max_depth"] = max(progress["max_depth"], floor)
+            if progress["amulet_acquired"]:
+                closest = progress["closest_return_floor"]
+                progress["closest_return_floor"] = floor if closest is None else min(closest, floor)
+    progress.update(floors=visits.floors, stair_transitions=visits.transitions)
     return terminal, progress
 
 
@@ -249,21 +392,19 @@ def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(policy_imports), "TOR_SERVER_TOKEN": token},
             )
         report, progress = trace_report(trace)
-        if report is None or result.returncode != int(report["terminal"] != "victory"):
+        if report is None or result.returncode != player_exit_code(report["terminal"]):
             return {"terminal": "client_error", "exit_code": result.returncode, **progress}
-        report = {**progress, **report}
-        if report["terminal"] == "victory":
-            try:
-                verified = verify_victory(address, token, actor, objective_identity)
-            except RuntimeError as error:
-                return {**report, "terminal": "client_error",
-                        "victory_verified": False, "verification_error": str(error)}
-            if not verified:
-                return {**report, "terminal": "client_error",
-                        "victory_verified": False,
-                        "verification_error": "Fresh player observation did not confirm victory with the retrieval item"}
-            report["victory_verified"] = True
-        return report
+        deepest = max(progress["max_depth"], reported_max_depth(report))
+        report = {**progress, **report, "max_depth": deepest, "amulet_acquired": progress["amulet_acquired"]}
+        if report["terminal"] != "victory":
+            return report
+        try:
+            if verify_victory(address, token, actor, objective_identity):
+                return {**report, "victory_verified": True, "amulet_acquired": True}
+            message = "Fresh player observation did not confirm victory with the retrieval item"
+        except RuntimeError as error:
+            message = str(error)
+        return {**report, "terminal": "client_error", "victory_verified": False, "verification_error": message}
     except subprocess.TimeoutExpired:
         _, progress = trace_report(trace)
         return {"terminal": "wall_timeout", **progress}

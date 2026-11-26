@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterator, Set
+from collections.abc import Callable, Iterable, Iterator, Set
 from dataclasses import dataclass
 
 from .game import Turn
-from .models import HORIZONTAL, Direction, Move, OpenDoor
+from .models import HORIZONTAL, Cell, Direction, Move, OpenDoor
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +19,7 @@ class RememberedCell:
     stairs_up: bool
     stairs_down: bool
     trapped: bool
+    closed_door: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +33,19 @@ class RememberedItem:
 
 
 CARDINAL = (Direction.WEST, Direction.EAST, Direction.NORTH, Direction.SOUTH)
+ROUTE_DIRECTIONS = (*CARDINAL, Direction.NORTH_EAST, Direction.SOUTH_EAST, Direction.SOUTH_WEST, Direction.NORTH_WEST)
+
+
+@dataclass(frozen=True, slots=True)
+class _Link:
+    destination: str
+    corners: tuple[str, ...] = ()
+
+    def matches_partial_diagonal(self, destination: str, horizontal: Cell | None, vertical: Cell | None) -> bool:
+        """A missing corner provides no new evidence about a previously observed diagonal."""
+        return (self.destination == destination
+                and (horizontal is None or horizontal.key == self.corners[0])
+                and (vertical is None or vertical.key == self.corners[1]))
 
 
 class FloorMap:
@@ -43,56 +57,61 @@ class FloorMap:
         self.items: dict[str, tuple[RememberedItem, ...]] = {}
         self._neighbors: dict[str, dict[Direction, str]] = {}
         self._traps: set[str] = set()
-        self._links: dict[str, dict[Direction, str]] = {}
+        self._links: dict[str, dict[Direction, _Link]] = {}
 
     def observe(self, turn: Turn) -> None:
         if turn.cell:
             self.visited.add(turn.cell.key)
         plane = {cell.offset[:2]: cell for cell in turn.visible_cells if cell.offset[2] == 0}
-        sightings: dict[str, list[RememberedItem]] = {}
-        for ground in turn.ground_items:
-            cell = ground.cell
-            if cell and cell.offset[2] == 0:
-                item = ground.item
-                sightings.setdefault(cell.key, []).append(
-                    RememberedItem(item.name, item.identity, item.category, item.quantity)
-                )
+        self._observe_ground_items(turn, plane.values())
         for (x, y), cell in plane.items():
-            if cell.key in sightings:
-                self.items[cell.key] = tuple(sightings[cell.key])
-            else:
-                self.items.pop(cell.key, None)
             if cell.trap:
                 self._traps.add(cell.key)
             else:
                 self._traps.discard(cell.key)
             self.cells[cell.key] = RememberedCell(
-                cell.key, cell.wall, cell.stairs_up, cell.stairs_down, cell.trap is not None
+                cell.key, cell.wall, cell.stairs_up, cell.stairs_down, cell.trap is not None,
+                cell.door is not None and not cell.door.open,
             )
             links = self._links.setdefault(cell.key, {})
             neighbors = self._neighbors.setdefault(cell.key, {})
-            for direction in (
-                *CARDINAL,
-                Direction.NORTH_EAST,
-                Direction.SOUTH_EAST,
-                Direction.SOUTH_WEST,
-                Direction.NORTH_WEST,
-            ):
+            for direction in ROUTE_DIRECTIONS:
                 dx, dy = HORIZONTAL[direction]
                 neighbor = plane.get((x + dx, y + dy))
                 if neighbor is None:
                     continue
                 if direction in CARDINAL:
                     neighbors[direction] = neighbor.key
-                if dx and dy:
-                    corners = (plane.get((x + dx, y)), plane.get((x, y + dy)))
-                    if any(c is None or c.wall or (c.door and not c.door.open) for c in corners):
-                        links.pop(direction, None)
-                        continue
-                if cell.wall or neighbor.wall:
-                    links.pop(direction, None)
-                else:
-                    links[direction] = neighbor.key
+                    # Remember the edge even if a wall currently conceals a door.
+                    links[direction] = _Link(neighbor.key)
+                    continue
+                horizontal = plane.get((x + dx, y))
+                vertical = plane.get((x, y + dy))
+                if horizontal is not None and vertical is not None:
+                    links[direction] = _Link(neighbor.key, (horizontal.key, vertical.key))
+                elif direction in links and not links[direction].matches_partial_diagonal(neighbor.key, horizontal, vertical):
+                    del links[direction]
+
+    def _observe_ground_items(self, turn: Turn, visible_floor: Iterable[Cell]) -> None:
+        """Replace piles on visible floor squares and retain the last sighting elsewhere."""
+        sightings: dict[str, dict[str, RememberedItem]] = {}
+        for ground in turn.ground_items:
+            cell = ground.cell
+            if cell and cell.offset[2] == 0:
+                item = ground.item
+                # A stack can appear at several offsets for the same physical square.
+                sightings.setdefault(cell.key, {})[item.target] = RememberedItem(
+                    item.name, item.identity, item.category, item.quantity
+                )
+        for cell in visible_floor:
+            self.items.pop(cell.key, None)
+        for key, stacks in sightings.items():
+            self.items[key] = tuple(stacks.values())
+
+    @property
+    def known_traps(self) -> frozenset[str]:
+        """Snapshot of floor cells whose last observation showed a trap."""
+        return frozenset(self._traps)
 
     @property
     def frontier(self) -> set[str]:
@@ -102,6 +121,10 @@ class FloorMap:
             for key, sides in self._neighbors.items()
             if len(sides) < 4 and not self.cells[key].wall and key not in self.visited
         }
+
+    def cells_with_item(self, matches: Callable[[RememberedItem], bool]) -> set[str]:
+        """Keys of cells last seen containing at least one matching item."""
+        return {key for key, items in self.items.items() if any(matches(item) for item in items)}
 
     def stairs(self, direction: Direction) -> set[str]:
         """Cell keys last seen with stairs leading in the given vertical direction."""
@@ -123,23 +146,32 @@ class FloorMap:
             return False
         return sum(self.cells[neighbor].wall for neighbor in sides.values()) == 3
 
-    def reachable(self, start: str) -> Iterator[tuple[RememberedCell, int]]:
-        """Traverse known floor cells in order of distance, ignoring transient occupants."""
+    def _passages_from(self, key: str) -> Iterator[str]:
+        """Use current terrain for both the destination and any diagonal corners."""
+        for link in self._links.get(key, {}).values():
+            if self.cells[link.destination].wall:
+                continue
+            if link.corners and any(self.cells[k].wall or self.cells[k].closed_door for k in link.corners):
+                continue
+            yield link.destination
+
+    def reachable(self, start: str, *, avoid: Set[str] = frozenset()) -> Iterator[tuple[RememberedCell, int]]:
+        """Traverse known floor from start by distance, without entering any excluded cell."""
         if start not in self.cells or self.cells[start].wall:
             return
-        seen = {start}
+        seen = {start, *avoid}
         queue = deque([(start, 0)])
         while queue:
             key, distance = queue.popleft()
             yield self.cells[key], distance
-            for neighbor in self._links.get(key, {}).values():
+            for neighbor in self._passages_from(key):
                 if neighbor not in seen:
                     seen.add(neighbor)
                     queue.append((neighbor, distance + 1))
 
-    def distance(self, start: str, goals: set[str]) -> int | None:
-        """Fewest known horizontal steps to a goal, ignoring transient occupants."""
-        return next((distance for cell, distance in self.reachable(start) if cell.key in goals), None)
+    def distance(self, start: str, goals: set[str], *, avoid: Set[str] = frozenset()) -> int | None:
+        """Fewest known horizontal steps to a goal without entering an excluded cell."""
+        return next((distance for cell, distance in self.reachable(start, avoid=avoid) if cell.key in goals), None)
 
     def toward_unexplored(self, turn: Turn, *, avoid: Set[str] = frozenset()) -> Move | OpenDoor | None:
         """Head for a frontier, then any unvisited floor. Excluded cells stay off the route."""
@@ -152,10 +184,15 @@ class FloorMap:
                avoid: Set[str] = frozenset(), max_steps: int | None = None) -> Move | OpenDoor | None:
         """Choose a first step on a known route within the optional horizontal step limit."""
         if prefer_safe and self._traps:
-            step = self._route(turn, goals, self._traps | avoid, max_steps)
+            step = self.toward_avoiding_traps(turn, goals, avoid=avoid, max_steps=max_steps)
             if step is not None:
                 return step
         return self._route(turn, goals, avoid, max_steps)
+
+    def toward_avoiding_traps(self, turn: Turn, goals: set[str], *, avoid: Set[str] = frozenset(),
+                              max_steps: int | None = None) -> Move | OpenDoor | None:
+        """Return a step only if the entire route avoids known traps and excluded cells."""
+        return self._route(turn, goals, self._traps | avoid, max_steps)
 
     def _route(self, turn: Turn, goals: set[str], excluded: Set[str], max_steps: int | None) -> Move | OpenDoor | None:
         here = turn.cell
@@ -163,18 +200,22 @@ class FloorMap:
             return None
         seen = {here.key, *excluded}
         queue: deque[tuple[str, Move | OpenDoor, int]] = deque()
-        for direction, neighbor in self._links.get(here.key, {}).items():
+        # The first action and its destination must come from the same view of the actor.
+        for direction in ROUTE_DIRECTIONS:
+            destination = turn.cell_at(direction.offset)
+            if destination is None or destination.key in seen:
+                continue
             first = turn.step(direction)
-            if first is not None and neighbor not in seen:
-                queue.append((neighbor, first, 1))
-                seen.add(neighbor)
+            if first is not None:
+                queue.append((destination.key, first, 1))
+                seen.add(destination.key)
         while queue:
             key, first, distance = queue.popleft()
             if key in goals:
                 return first
             if max_steps is not None and distance >= max_steps:
                 continue
-            for neighbor in self._links.get(key, {}).values():
+            for neighbor in self._passages_from(key):
                 if neighbor not in seen:
                     seen.add(neighbor)
                     queue.append((neighbor, first, distance + 1))

@@ -299,3 +299,11 @@ check stopped the original run before application verification because both
 dependency manifests changed; the tooling lint job itself passed. The two
 updated review hashes cover only these manifest changes. The final PR head
 still requires hosted qualification.
+
+## Rogue-o-matic policy test selection
+
+The planner now selects the existing cohort checks when any of nine extracted
+Rogue-o-matic policy or session modules change. It also recognizes
+`RogueReferencePolicyTests`, which checks the pre-refactor policy against
+in-memory observations and session fixtures. Both changes use the existing
+test jobs, runner limits, dependencies, and artifact retention.

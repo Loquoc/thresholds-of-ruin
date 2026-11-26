@@ -54,9 +54,10 @@ class PurchasePreview:
 
 
 class TrainingRefused(RuntimeError):
-    def __init__(self, result: Result):
+    def __init__(self, result: Result, operation: str = "preview"):
         super().__init__(result.reason or result.status.value)
         self.result = result
+        self.operation = operation
 
 
 def _basis(page: dict) -> tuple:
@@ -79,13 +80,13 @@ class Training:
         self._opened = False
         self._overview_basis: tuple | None = None
 
-    def _page(self, command: str) -> dict:
+    def _page(self, command: str, *, operation: str | None = None) -> dict:
         self._preview = None
         reply = self._connection.advancement(command)
         result = Result.from_reply(reply)
         if result.status is not Outcome.CONFIRMED:
             self._opened = False
-            raise TrainingRefused(result)
+            raise TrainingRefused(result, operation or command)
         page = reply.get("page")
         if page is None:
             raise ValueError("Confirmed training request returned no page")
@@ -106,15 +107,16 @@ class Training:
         if not self._opened:
             self.overview()
         page = self._page(section)
-        basis = _basis(page)
         while True:
-            if _basis(page) != basis:
-                raise TrainingRefused(Result(Outcome.STALE, None, "Build changed during browsing"))
+            basis = _basis(page)
+            if basis != self._overview_basis:
+                self._opened = False
+                raise TrainingRefused(Result(Outcome.STALE, None, "Build changed during browsing"), section)
             for row in page["entries"]:
                 yield basis, row["value"]
             if page["next"] is None:
                 return
-            page = self._page("next")
+            page = self._page("next", operation=section)
 
     def pools(self) -> tuple[PointPool, ...]:
         return tuple(
@@ -158,16 +160,17 @@ class Training:
             raise TrainingRefused(Result(Outcome.STALE, None, "Choose from the same build"))
         if not self._opened:
             self.overview()
-            if self._overview_basis != pool._basis:
-                raise TrainingRefused(Result(Outcome.STALE, None, "Choose from the current build"))
+        if self._overview_basis != pool._basis:
+            raise TrainingRefused(Result(Outcome.STALE, None, "Choose from the current build"))
         if option.kind not in pool.allowed or pool.available == 0:
             raise ValueError("Choose an available point pool for this purchase")
         if (form is None and option.forms) or (form is not None and form not in option.forms):
             raise ValueError("Choose a form offered for this purchase")
         verb = "skill" if option.kind is TrainingKind.SKILL else option.kind.value
         command = f"purchase {pool.hit_die} {pool.identity} {verb} {option.identity}"
-        page = self._page(command if form is None else f"{command} form {form}")
+        page = self._page(command if form is None else f"{command} form {form}", operation="preview")
         if _basis(page) != pool._basis:
+            self._opened = False
             raise TrainingRefused(Result(Outcome.STALE, None, "Build changed before preview"))
         health = page["entries"][0]["value"]["health"]
         self._preview = PurchasePreview(
