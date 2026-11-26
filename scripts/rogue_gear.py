@@ -96,13 +96,17 @@ def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | N
 
 
 def choose_armor(turn: Turn) -> tuple[Action, str] | None:
+    candidates = [choice for choice in turn.equip_choices()
+                  if choice.slot.kind == "body_armor" and not choice.item.known_cursed]
+    if not candidates:
+        return None
     cure = remove_curse_scroll(turn)
     can_identify_armor = any("armor" in identification_categories(item) for item in turn.inventory)
     best = None
     best_rank = None
-    for choice in turn.equip_choices():
+    for choice in candidates:
         slot, item = choice.slot, choice.item
-        if slot.kind != "body_armor" or item.known_cursed or (slot.removal_blocked and not cure):
+        if slot.removal_blocked and not cure:
             continue
         worn = slot.occupant
         estimated = item.physical_reduction is None or (worn is not None and worn.physical_reduction is None)

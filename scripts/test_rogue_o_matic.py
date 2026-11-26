@@ -345,6 +345,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    known_item_uses=[{"item": "lore", "identifies": categories}])
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
 
+    def test_armor_selection_skips_scroll_checks_when_no_armor_can_be_worn(self):
+        from rogue_gear import choose_armor
+
+        slot = {"id": "body_armor", "name": "Armor"}
+        mail = {"id": "plate", "class": "armor", "identity": "item.armor.plate-mail",
+                "name": "plate", "identified": True, "quantity": 1}
+        turn = player_turn([cell("here")], inventory=[mail], interactions={"slots": [slot], "inventory": [
+            {"item": "plate", "slot": slot, "known_cursed": True}]})
+        with patch("rogue_gear.identification_categories", side_effect=AssertionError("no armor to identify")):
+            self.assertIsNone(choose_armor(turn))
+
     def test_blocked_armor_upgrade_uses_a_readable_known_cure(self):
         from rogue_gear import choose_armor
         from tor_client_bot import ItemUse, UseItem
