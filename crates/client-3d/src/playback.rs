@@ -31,6 +31,8 @@ pub(crate) struct Path {
     pub span: (u64, usize),
     /// Fast-forward count when the path began; a later skip finishes it.
     pub skips: u64,
+    /// An own outcome can disclose this step ahead of its picture.
+    pub own_frame: Option<u64>,
 }
 
 impl Path {
@@ -63,10 +65,11 @@ pub(crate) struct Walk {
     legs: VecDeque<Path>,
     /// Spans recently walked, so a late report of a finished one is known.
     known: VecDeque<(u64, usize)>,
-    /// Where and when the last finished leg ended.
-    finished: Option<(Vec3, f64)>,
+    finished: Option<FinishedLeg>,
     /// When the walk was last shown, so a stretch keeps the body in place.
     shown_at: Option<f64>,
+    /// Previous shown time when this frame continues the same timed leg.
+    continuous_since: Option<f64>,
     /// Legs that have begun playing, for diagnostics.
     pub legs_walked: u32,
     /// Pauses shorter than [`CONTINUE_SECONDS`] between walked legs: a step
@@ -78,6 +81,13 @@ pub(crate) struct Walk {
     walking_now: bool,
     /// Whether the front leg has been counted as begun.
     started: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FinishedLeg {
+    to: Vec3,
+    end: f64,
+    own_frame: Option<u64>,
 }
 
 /// Where a walking body is this frame.
@@ -117,7 +127,7 @@ impl Walk {
         let resuming = self.legs.is_empty()
             && self
                 .finished
-                .is_some_and(|(_, end)| now - end < CONTINUE_SECONDS);
+                .is_some_and(|leg| now - leg.end < CONTINUE_SECONDS);
         let due_soon = leg.start > now && leg.start - now <= CONTINUE_SECONDS;
         if leg.start < now || (resuming && due_soon) {
             let length = (leg.end - leg.start).max(0.0);
@@ -171,15 +181,25 @@ impl Walk {
 
     /// Where a body's next chained leg begins: the end of the last one, while
     /// the walk is still going or only just ended. A body at rest starts from
-    /// its authoritative cell instead.
-    pub fn origin(&self, now: f64) -> Option<Vec3> {
-        match self.legs.back() {
-            Some(last) => Some(last.to),
-            None => self
-                .finished
-                .filter(|(_, end)| now - end < CONTINUE_SECONDS)
-                .map(|(to, _)| to),
-        }
+    /// its authoritative cell instead, once its picture has caught up.
+    pub fn origin(&self, now: f64, picture: u64) -> Option<Vec3> {
+        self.legs
+            .back()
+            .map(|leg| leg.to)
+            .or_else(|| self.awaiting_picture(picture))
+            .or_else(|| {
+                self.finished
+                    .filter(|leg| now - leg.end < CONTINUE_SECONDS)
+                    .map(|leg| leg.to)
+            })
+    }
+
+    /// Keep a completed own step's endpoint until the picture includes or
+    /// supersedes its outcome. Another actor's goal always comes from the picture.
+    pub fn awaiting_picture(&self, picture: u64) -> Option<Vec3> {
+        self.finished
+            .filter(|leg| leg.own_frame.is_some_and(|frame| picture < frame))
+            .map(|leg| leg.to)
     }
 
     /// A later report of a span this body already walks: retime its end if it
@@ -194,6 +214,16 @@ impl Walk {
 
     /// The pose at `now`, dropping finished legs. A fast-forward finishes all.
     pub fn at(&mut self, now: f64, skips: u64) -> Pose {
+        // The current front must have been shown already and must still own
+        // this entire interval. Starting, finishing, or skipping a leg does
+        // not establish continuity even if the new endpoint has a timed pose.
+        self.continuous_since = self.shown_at.filter(|previous| {
+            self.started
+                && *previous < now
+                && self.legs.front().is_some_and(|leg| {
+                    leg.skips == skips && leg.start <= *previous && now < leg.end
+                })
+        });
         self.shown_at = Some(now);
         let pose = self.pose(now, skips);
         let walking = matches!(pose, Pose::At(_));
@@ -214,7 +244,11 @@ impl Walk {
         while let Some(leg) = self.legs.front() {
             let (at, done) = leg.at(now, skips);
             if done {
-                self.finished = Some((leg.to, leg.end));
+                self.finished = Some(FinishedLeg {
+                    to: leg.to,
+                    end: leg.end,
+                    own_frame: leg.own_frame,
+                });
                 self.legs.pop_front();
                 self.started = false;
             } else if now < leg.start {
@@ -228,6 +262,20 @@ impl Walk {
             }
         }
         Pose::Free
+    }
+
+    /// Was this large displacement actually sampled along one timed leg?
+    pub(crate) fn continues_between(&self, from: Vec3, to: Vec3) -> bool {
+        let (Some(previous), Some(now), Some(leg)) =
+            (self.continuous_since, self.shown_at, self.legs.front())
+        else {
+            return false;
+        };
+        // A retime or an out-of-band root transform need not match the path.
+        // Recompute only for a displacement the animation might call a snap.
+        const TOLERANCE_SQUARED: f32 = 1e-6;
+        leg.at(previous, leg.skips).0.distance_squared(from) < TOLERANCE_SQUARED
+            && leg.at(now, leg.skips).0.distance_squared(to) < TOLERANCE_SQUARED
     }
 
     /// Whether a leg is still queued or playing.
@@ -739,6 +787,7 @@ fn new_walks(timed: impl IntoIterator<Item = Timed>) -> Vec<Timed> {
 /// without a step (a teleport or resynchronization) keeps the ordinary ease.
 pub(crate) fn start_walks(
     game: &Game,
+    picture: u64,
     timed: Vec<Timed>,
     from: &HashMap<ActorTarget, Vec3>,
     bodies: &mut Query<&mut ActorBody>,
@@ -770,7 +819,7 @@ pub(crate) fn start_walks(
             _ => None,
         };
         let Some(start) = own
-            .and_then(|_| body.walk.origin(game.playback.now))
+            .and_then(|_| body.walk.origin(game.playback.now, picture))
             .or_else(|| from.get(&timed.span.actor).copied())
         else {
             continue;
@@ -789,6 +838,7 @@ pub(crate) fn start_walks(
             end: timed.end,
             span: timed.key,
             skips: game.playback.skips,
+            own_frame: own.map(|_| timed.span.frame),
         });
     }
 }
@@ -833,6 +883,7 @@ mod tests {
             end: 2.0,
             span: (0, 0),
             skips: 4,
+            own_frame: None,
         };
         assert_eq!(path.at(1.5, 4), (Vec3::X, false));
         assert_eq!(path.at(0.5, 4), (Vec3::ZERO, false), "waits at its start");
@@ -873,6 +924,7 @@ mod tests {
                         end: step.end,
                         span: step.key,
                         skips: 0,
+                        own_frame: None,
                     });
                 }
                 next += 1;
@@ -1088,7 +1140,26 @@ mod tests {
             end,
             span: (1, index),
             skips: 0,
+            own_frame: None,
         }
+    }
+
+    #[test]
+    fn only_matching_samples_inside_the_same_leg_prove_continuous_motion() {
+        let mut walk = Walk::default();
+        walk.push(leg(0.0, 1.0, 1.25, 0));
+        walk.push(leg(1.0, 1.25, 1.5, 1));
+        let (a, b, c) = (Vec3::X * 0.25, Vec3::X * 0.75, Vec3::X * 1.25);
+        assert_eq!(walk.at(1.0625, 0), Pose::At(a));
+        assert!(!walk.continues_between(Vec3::ZERO, a), "first sample");
+        assert_eq!(walk.at(1.1875, 0), Pose::At(b));
+        assert!(walk.continues_between(a, b));
+        assert!(!walk.continues_between(Vec3::ZERO, b), "out-of-band start");
+        assert!(!walk.continues_between(a, Vec3::X), "out-of-band end");
+        assert_eq!(walk.at(1.3125, 0), Pose::At(c));
+        assert!(!walk.continues_between(b, c), "different leg");
+        assert_eq!(walk.at(1.375, 1), Pose::Free);
+        assert!(!walk.continues_between(c, Vec3::X * 2.0), "fast-forward");
     }
 
     #[test]
@@ -1279,6 +1350,155 @@ mod tests {
     }
 
     #[test]
+    fn completed_own_step_does_not_move_back_toward_a_late_picture() {
+        use crate::{camera, interact::Panel, CameraRig};
+        use std::time::Duration;
+
+        fn own_step(game: Res<Game>, mut bodies: Query<&mut ActorBody>) {
+            let actor = *game.actors.keys().next().unwrap();
+            let mut step = timed(0, 0.0, 0.325);
+            step.span.actor = actor;
+            step.span.frame = 2;
+            step.span.kind = SpanKind::OwnStep {
+                direction: tor_protocol::Direction::East,
+            };
+            start_walks(
+                &game,
+                1,
+                vec![step],
+                &HashMap::from([(actor, crate::scene::stand(IVec3::ZERO))]),
+                &mut bodies,
+            );
+        }
+
+        let sample = |picture_ms| {
+            let mut app = App::new();
+            app.insert_resource(Time::<()>::default())
+                .init_resource::<Game>()
+                .init_resource::<CameraRig>()
+                .init_resource::<Panel>()
+                .add_systems(Update, (camera::rig_camera, camera::follow_actors).chain());
+            let world = app.world_mut();
+            let mut view = crate::test_support::view(1);
+            // These messages all share one tick. The live cursor includes the
+            // move outcome, but only the picture sequence dates geometry.
+            view.shown.cursor.sequence = 2;
+            let mut game = world.resource_mut::<Game>();
+            game.view = Some(view);
+            game.snap_camera = true;
+            world.spawn(Camera3d::default());
+            let label = world.spawn_empty().id();
+            let ring = world.spawn_empty().id();
+            let root = world
+                .spawn((
+                    ActorBody {
+                        appearance_seed: None,
+                        appearance_key: String::new(),
+                        model: tor_client_3d_model::CreatureModel::Emu,
+                        wearing: Default::default(),
+                        hostile: false,
+                        goal: crate::scene::stand(IVec3::ZERO),
+                        walk: Walk::default(),
+                        own: true,
+                        label,
+                        ring,
+                        name: String::new(),
+                        height: 1.0,
+                    },
+                    Transform::from_translation(crate::scene::stand(IVec3::ZERO)),
+                ))
+                .id();
+            world
+                .resource_mut::<Game>()
+                .actors
+                .insert(ActorTarget::from_digest([1; 32]), root);
+            world.run_system_cached(own_step).unwrap();
+
+            let mut samples = Vec::new();
+            for ms in (20..=400).step_by(20) {
+                let world = app.world_mut();
+                world
+                    .resource_mut::<Time>()
+                    .advance_by(Duration::from_millis(20));
+                world.resource_mut::<Game>().playback.now = ms as f64 / 1000.0;
+                if ms == picture_ms {
+                    let mut game = world.resource_mut::<Game>();
+                    game.feet_world = IVec3::X;
+                    game.view.as_mut().unwrap().picture_sequence = 2;
+                    world.get_mut::<ActorBody>(root).unwrap().goal = crate::scene::stand(IVec3::X);
+                } else if ms == 400 {
+                    // A new authoritative relocation can move backward.
+                    let mut game = world.resource_mut::<Game>();
+                    game.feet_world = -IVec3::X;
+                    game.view.as_mut().unwrap().picture_sequence = 3;
+                    world.get_mut::<ActorBody>(root).unwrap().goal = crate::scene::stand(-IVec3::X);
+                }
+                app.update();
+                if [320, 340, 380, 400].contains(&ms) {
+                    let world = app.world();
+                    let at = world.get::<Transform>(root).unwrap().translation.x;
+                    let camera = world.resource::<CameraRig>().focus.x;
+                    samples.push((at, camera));
+                }
+            }
+            samples
+        };
+
+        let prompt = sample(300);
+        let late = sample(380);
+        assert_eq!(
+            prompt[0], late[0],
+            "both streams are still walking at 320 ms"
+        );
+        assert!(
+            prompt[1].0 >= prompt[0].0,
+            "the prompt picture must not pull backward"
+        );
+        assert!(
+            late[3].0 < late[2].0 && late[3].1 < late[2].1,
+            "the new location must supersede the walk"
+        );
+        assert!(
+            late[1].0 == 1.0 && late[1].1 >= late[0].1,
+            "late picture pulled the body or camera backward: {late:?}; prompt: {prompt:?}"
+        );
+    }
+
+    #[test]
+    fn awaiting_geometry_follows_the_last_own_leg_not_an_npc_or_a_retime() {
+        let mut walk = Walk::default();
+        let mut first = leg(0.0, 1.0, 1.25, 0);
+        first.own_frame = Some(6);
+        let mut second = leg(1.0, 1.25, 1.5, 1);
+        second.own_frame = Some(7);
+        walk.push(first);
+        walk.push(second);
+        assert_eq!(walk.at(1.125, 0), Pose::At(Vec3::X * 0.5));
+        assert_eq!(walk.at(1.125, 1), Pose::Free, "skip finishes both legs");
+        assert!(
+            walk.retime(second.span, 4.0),
+            "retime cannot replay an old leg"
+        );
+        assert_eq!(walk.awaiting_picture(6), Some(Vec3::X * 2.0));
+        assert_eq!(
+            walk.origin(3.0, 6),
+            Some(Vec3::X * 2.0),
+            "still awaiting the picture"
+        );
+        assert_eq!(walk.awaiting_picture(7), None);
+        assert_eq!(
+            walk.origin(3.0, 7),
+            None,
+            "a caught-up picture wins after a rest"
+        );
+
+        let mut other = Walk::default();
+        other.push(leg(0.0, 1.0, 1.25, 0));
+        assert_eq!(other.at(1.5, 0), Pose::Free);
+        assert_eq!(other.awaiting_picture(0), None);
+    }
+
+    #[test]
     fn own_steps_chain_by_direction_while_walking_and_rest_on_the_cell() {
         // Recorded travel: the picture that shows the observer's new cell can
         // arrive a step late, so own legs follow the disclosed directions.
@@ -1287,21 +1507,25 @@ mod tests {
         assert_eq!(step_offset(tor_protocol::Direction::Up), Vec3::Y);
         let mut walk = Walk::default();
         assert_eq!(
-            walk.origin(1.0),
+            walk.origin(1.0, 0),
             None,
             "a body at rest starts from its cell"
         );
         walk.push(leg(0.0, 1.0, 1.25, 0));
         assert_eq!(
-            walk.origin(1.1),
+            walk.origin(1.1, 0),
             Some(Vec3::X),
             "the next leg starts where this ends"
         );
         assert!(walk.retime((1, 0), 1.4));
         assert_eq!(walk.at(1.45, 0), Pose::Free);
-        assert_eq!(walk.origin(1.5), Some(Vec3::X), "just ended: still chained");
         assert_eq!(
-            walk.origin(2.0),
+            walk.origin(1.5, 0),
+            Some(Vec3::X),
+            "just ended: still chained"
+        );
+        assert_eq!(
+            walk.origin(2.0, 0),
             None,
             "after a rest the cell is authoritative"
         );

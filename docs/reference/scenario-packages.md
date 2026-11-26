@@ -842,9 +842,14 @@ the original fixture's three material variants. It is not world generation.
 
 ### Level names
 
-Level labels are presentation only. They do not change room or streaming scope,
-encounters, or geography. An authored region can belong to one named level;
-regions without an entry keep their usual location display.
+An authored region can belong to one named level. A random teleport scroll
+uses the reader's level ID, not its display name, to find legal landings across
+its authored rooms. The server loads the entire bounded destination group
+before drawing, without making those rooms active. A group whose storage bounds
+exceed 65,536 cells is not sampled; as with a group with no legal landing, the
+scroll is spent without movement. Unassigned rooms and generated floors keep
+their existing teleport rules. Labels do not otherwise affect streaming scope,
+encounters, or geography.
 
 ```toml
 [levels.names]

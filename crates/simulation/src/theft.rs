@@ -609,6 +609,19 @@ impl Game {
         plan: &crate::abilities::Plan,
     ) -> Result<BTreeSet<RegionId>, GameError> {
         let mut members = BTreeSet::new();
+        if matches!(plan, crate::abilities::Plan::Read { .. })
+            && plan
+                .on_success()
+                .iter()
+                .any(|effect| matches!(effect, crate::abilities::PlannedEffect::TeleportRandom))
+        {
+            members.extend(
+                self.scroll_teleport_regions(plan.actor())
+                    .into_iter()
+                    .flatten()
+                    .copied(),
+            );
+        }
         if let Some(ray) = plan
             .as_ray()
             .filter(|ray| ray.traversal == crate::abilities::RayTraversal::FirstBody)

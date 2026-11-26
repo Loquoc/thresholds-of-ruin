@@ -4,7 +4,8 @@
 use super::super::geometry::equipment_footwear::FootwearAppearance;
 use super::super::geometry::equipment_gloves::GloveAppearance;
 use super::super::geometry::equipment_headwear::HeadwearKind;
-use super::outerwear::{OuterwearAppearance, OuterwearHood};
+use super::outerwear::{OuterwearAppearance, OuterwearCut, OuterwearHood};
+use super::slots::{self, Claims, GearPiece, Slot};
 use super::shirts::ShirtAppearance;
 use super::*;
 
@@ -49,6 +50,18 @@ impl BodyItem {
         ("breastplate", Self::SteelBreastplate),
         ("plate-mail", Self::PlateMail),
     ];
+
+    pub(in crate::creatures) fn articulated_limbs(self) -> bool {
+        matches!(self, Self::SplintMail | Self::BandedMail | Self::PlateMail)
+    }
+
+    pub(super) fn bracer(self) -> Option<Vec3> {
+        match self {
+            Self::Leather | Self::StuddedLeather | Self::RingMail => Some(Vec3::new(0.43, 0.24, 0.12)),
+            Self::ScaleMail | Self::ChainMail => Some(Vec3::new(0.55, 0.56, 0.6)),
+            _ => None,
+        }
+    }
 
     /// Leather and mail give a little with the body; scales and plates do not.
     pub fn flexible(self) -> bool {
@@ -115,6 +128,10 @@ pub(crate) struct Equipment {
 pub(crate) struct Composition {
     pub outfit: Outfit,
     pub body: Option<BodyItem>,
+    /// An independent armor panel over an authored skirt stack.
+    pub tassets: Option<Skirt>,
+    /// Retain both pieces while fitting the footwear below the knee.
+    pub footwear_below_knee: bool,
 }
 
 impl Composition {
@@ -138,9 +155,22 @@ impl Composition {
                 skirt.color = outfit.tunic * shade;
             }
         }
+        let mut outfit = look.equipment.compose(outfit);
+        let body = look.equipment.body;
+        let mut armor_panel = None;
+        if let Some(color) = body.and_then(BodyItem::tassets) {
+            let plated_legs = outfit.legs == Legs::Plate;
+            if outfit.skirt.is_some_and(|skirt| skirt.layers.iter().any(Option::is_some)) {
+                armor_panel = Some(tassets(color, None, plated_legs));
+            } else {
+                outfit.skirt = Some(tassets(color, outfit.skirt, plated_legs));
+            }
+        }
         Self {
-            outfit: look.equipment.compose(outfit),
-            body: look.equipment.body,
+            footwear_below_knee: slots::footwear_fits_below_knee(look.equipment, &outfit),
+            outfit,
+            body,
+            tassets: armor_panel,
         }
     }
 }
@@ -225,85 +255,54 @@ impl Equipment {
     }
 
     pub fn select(&mut self, name: &str) -> Result<(), String> {
-        if let Some(kind) = GloveAppearance::parse(name) {
-            self.hands = Some(kind);
-            return Ok(());
-        }
-        if let Some(kind) = OuterwearAppearance::parse(name) {
-            self.back = Some(BackItem::Appearance(kind));
-            return Ok(());
-        }
-        if let Some(kind) = ShirtAppearance::parse(name) {
-            self.shirt = Some(kind);
-            return Ok(());
-        }
-        if let Some(kind) = HeadwearKind::parse(name) {
-            self.head = Some(HeadItem::Appearance(kind));
-            return Ok(());
-        }
-        if let Some(kind) = FootwearAppearance::parse(name) {
-            self.feet = Some(FootItem::Appearance(kind));
-            return Ok(());
-        }
-        match name {
-            "helm" => self.head = Some(HeadItem::SteelHelm),
-            "boots" => self.feet = Some(FootItem::LeatherBoots),
-            "cloak" => self.back = Some(BackItem::TravelCloak),
-            _ => match BodyItem::NAMES.iter().find(|(spelled, _)| *spelled == name) {
-                Some(&(_, item)) => self.body = Some(item),
-                None => {
-                    return Err(format!(
-                        "unknown equipment {name}; expected helm, boots, cloak, a study hat/footwear name, or body armour ({})",
-                        BodyItem::NAMES.map(|(spelled, _)| spelled).join(", ")
-                    ))
-                }
-            },
+        match GearPiece::parse(name) {
+            Some(GearPiece::Shirt(item)) => self.shirt = Some(item),
+            Some(GearPiece::Body(item)) => self.body = Some(item),
+            Some(GearPiece::Head(item)) => self.head = Some(item),
+            Some(GearPiece::Hands(item)) => self.hands = Some(item),
+            Some(GearPiece::Feet(item)) => self.feet = Some(item),
+            Some(GearPiece::Back(item)) => self.back = Some(item),
+            None => {
+                return Err(format!(
+                    "unknown equipment {name}; expected helm, boots, cloak, a study hat/footwear name, or body armour ({})",
+                    BodyItem::NAMES.map(|(spelled, _)| spelled).join(", ")
+                ));
+            }
         }
         Ok(())
     }
 
     pub(super) fn compose(self, mut base: Outfit) -> Outfit {
+        let back_recipe = self.outerwear().map(OuterwearAppearance::recipe);
+        let head_claim = self.head.map(GearPiece::Head).map(GearPiece::claims).unwrap_or_default();
+        let hood_claim = slots::admit_hood(
+            head_claim, back_recipe.map_or(OuterwearHood::None, |recipe| recipe.hood),
+        );
+        let mut claims = Claims::default();
+        for gear in [
+            self.body.map(GearPiece::Body),
+            self.hands.map(GearPiece::Hands),
+            self.feet.map(GearPiece::Feet),
+            self.back.map(GearPiece::Back),
+        ].into_iter().flatten() {
+            claims.merge(gear.claims());
+        }
+        claims.merge(head_claim);
+        claims.merge(hood_claim);
+        slots::apply_preset_conflicts(&mut base, claims);
         if let Some(item) = self.body {
-            // Lighter armours add bracers over the sleeves; splinted, banded
-            // and plate armour arm the limbs as well, as on the style sheets.
-            match item {
-                BodyItem::Leather | BodyItem::StuddedLeather | BodyItem::RingMail => {
-                    base.cuffs = Some(Vec3::new(0.43, 0.24, 0.12));
-                }
-                BodyItem::ScaleMail | BodyItem::ChainMail => {
-                    base.cuffs = Some(Vec3::new(0.55, 0.56, 0.6));
-                }
-                BodyItem::SplintMail | BodyItem::BandedMail | BodyItem::PlateMail => {
-                    base.arms = Arms::Plate;
-                    base.legs = Legs::Plate;
-                    base.cuffs = None;
-                }
-                BodyItem::SteelBreastplate => {}
+            if item.articulated_limbs() {
+                base.arms = Arms::Plate;
+                base.legs = Legs::Plate;
+            } else if let Some(color) = item.bracer() {
+                base.cuffs = Some(color);
             }
-            if let Some(color) = item.tassets() {
-                let plated = matches!(base.legs, Legs::Plate);
-                base.skirt = Some(tassets(color, base.skirt, plated));
-            }
-            // An overlaid plate covers sewn bodice ornaments; independent
-            // neck jewelry and straps are fitted onto the resolved exterior.
-            base.torso_ornament = None;
-            base.regalia = None;
         }
         if let Some(item) = self.head {
-            base.veil = None;
             base.head = match item {
                 HeadItem::SteelHelm => Headwear::Helm,
                 HeadItem::Appearance(kind) => Headwear::Equipment(kind),
             };
-            if base.neck_drape.is_some_and(|drape| drape.covered_by_helm) {
-                base.neck_drape = None;
-            }
-            // Covered decoration is suppressed in the resolved result only.
-            if matches!(item, HeadItem::SteelHelm)
-                || matches!(item, HeadItem::Appearance(kind) if kind.covers_ears())
-            {
-                base.trimmings.earrings = None;
-            }
         }
         if let Some(item) = self.feet {
             base.feet = Feet::Boots(Boots {
@@ -322,37 +321,42 @@ impl Equipment {
                     cuffed: false,
                 });
             }
-            base.trimmings.boot_tops = None;
         }
         if let Some(kind) = self.hands {
             base.hands = Pigment::Fixed(kind.color());
         }
-        if let Some(kind) = self.outerwear() {
-            let recipe = kind.recipe();
-            base.cloak = recipe.cloak();
-            if let Some(robe) = recipe.robe() {
-                base.robe = Some(robe);
+        match self.back {
+            Some(BackItem::TravelCloak) => {
+                base.cloak = Some(Cloak::new(
+                    Vec3::new(0.18, 0.29, 0.23),
+                    Vec3::new(0.48, 0.40, 0.25),
+                ));
             }
-            if recipe.hood != OuterwearHood::None && self.head.is_none() {
-                base.neck_drape = Some(NeckDrape {
-                    color: recipe.cloth,
-                    tail: false,
-                    meet_neckline: false,
-                    covered_by_helm: true,
-                });
+            Some(BackItem::Appearance(_)) => {
+                let recipe = back_recipe.expect("appearance has a recipe");
+                base.cloak = recipe.cloak();
+                if let Some(robe) = recipe.robe() {
+                    base.robe = Some(robe);
+                }
+                if hood_claim.occupied.has(Slot::HoodCollar) {
+                    let mount = if recipe.cut == OuterwearCut::Robe {
+                        HoodMount::Robe
+                    } else {
+                        HoodMount::Cape
+                    };
+                    base.neck_drape = Some(NeckDrape {
+                        color: recipe.cloth,
+                        tail: false,
+                        meet_neckline: false,
+                        hood_mount: Some(mount),
+                    });
+                    if hood_claim.occupied.has(Slot::Head) {
+                        base.head = Headwear::Hood { color: recipe.cloth, pointed: false };
+                        base.head_mount = Some(mount);
+                    }
+                }
             }
-            if recipe.hood == OuterwearHood::Raised && self.head.is_none() {
-                base.head = Headwear::Hood {
-                    color: recipe.cloth,
-                    pointed: false,
-                };
-            }
-        }
-        if let Some(BackItem::TravelCloak) = self.back {
-            base.cloak = Some(Cloak::new(
-                Vec3::new(0.18, 0.29, 0.23),
-                Vec3::new(0.48, 0.40, 0.25),
-            ));
+            None => {}
         }
         base
     }
@@ -649,7 +653,7 @@ mod tests {
             let resolved = Composition::resolve(&equipped);
             assert_eq!(
                 resolved.outfit.neck_drape,
-                (!drape.covered_by_helm).then_some(drape)
+                drape.hood_mount.is_none().then_some(drape)
             );
             assert_eq!(
                 Composition::resolve(&equipped.equipped(Equipment::default())),

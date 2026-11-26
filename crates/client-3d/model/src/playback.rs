@@ -224,7 +224,7 @@ fn length(d: [f64; 3]) -> f64 {
     d.iter().map(|v| v * v).sum::<f64>().sqrt()
 }
 
-/// One straight piece of a missile's flight, timed from the effect's start.
+/// One straight piece or single disclosed point of a missile's flight.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Leg<P> {
     pub from: P,
@@ -232,23 +232,37 @@ pub struct Leg<P> {
     /// Seconds after the effect starts.
     pub delay: f64,
     pub duration: f64,
+    // The segment and inclusive run indices own arrival lookup. Proximity
+    // to a smoothed line cannot lend its timing to a different fragment.
+    disclosed: (usize, usize, usize),
 }
 
-/// Time the straight runs of every disclosed segment at `cells_per_second`.
+impl<P> Leg<P> {
+    pub fn is_point(&self) -> bool {
+        self.disclosed.1 == self.disclosed.2
+    }
+}
+
+/// Time straight runs and single-cell segments at `cells_per_second`.
 /// A hidden gap between segments is not drawn, but it delays the next
 /// segment by the distance between the two disclosed endpoints.
 pub fn flight_legs<P: Cell>(segments: &[Vec<P>], cells_per_second: f64) -> Vec<Leg<P>> {
     let mut legs = Vec::new();
     let mut clock = 0.0;
     let mut last: Option<P> = None;
-    for segment in segments {
+    for (segment_index, segment) in segments.iter().enumerate() {
         let Some(&first) = segment.first() else {
             continue;
         };
         if let Some(previous) = last {
             clock += length(delta(previous, first)) / cells_per_second;
         }
-        for (start, end) in straight_runs(segment) {
+        let runs = if segment.len() == 1 {
+            vec![(0, 0)]
+        } else {
+            straight_runs(segment)
+        };
+        for (start, end) in runs {
             let (from, to) = (segment[start], segment[end]);
             let duration = length(delta(from, to)) / cells_per_second;
             legs.push(Leg {
@@ -256,6 +270,7 @@ pub fn flight_legs<P: Cell>(segments: &[Vec<P>], cells_per_second: f64) -> Vec<L
                 to,
                 delay: clock,
                 duration,
+                disclosed: (segment_index, start, end),
             });
             clock += duration;
         }
@@ -268,14 +283,11 @@ pub fn flight_legs<P: Cell>(segments: &[Vec<P>], cells_per_second: f64) -> Vec<L
 /// segment. A target anywhere else gets no arrival: its reaction plays at the
 /// effect, and the flight is never drawn toward it.
 pub fn arrival<P: Cell>(segments: &[Vec<P>], legs: &[Leg<P>], cell: P) -> Option<f64> {
-    if !segments
-        .iter()
-        .flatten()
-        .any(|disclosed| *disclosed == cell)
-    {
-        return None;
-    }
     legs.iter().find_map(|leg| {
+        let (segment, start, end) = leg.disclosed;
+        if !segments.get(segment)?.get(start..=end)?.contains(&cell) {
+            return None;
+        }
         let total = delta(leg.from, leg.to);
         let offset = delta(leg.from, cell);
         let length2: f64 = total.iter().map(|d| d * d).sum();

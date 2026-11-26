@@ -110,6 +110,70 @@ fn from_observation(observed: tor_protocol::Observation) -> ClientState {
 }
 
 #[test]
+fn projected_picture_sequence_waits_for_geometry_not_live_outcomes() {
+    use tor_protocol::{
+        Direction, Event, OutcomeFact, OutcomeFacts, SnapshotId, StateDelta, StreamCursor,
+        StreamUpdate, UpdateBody,
+    };
+    let mut client = from_observation(observation());
+    let palette = Palette::default();
+    let before = view(&client, &palette);
+    let tick = before.tick;
+    let update = |sequence, body| StreamUpdate {
+        context: before.context.clone(),
+        actor: before.shown.actor,
+        branch: before.branch.clone(),
+        cursor: StreamCursor { sequence, tick },
+        body,
+    };
+    client
+        .apply(update(
+            1,
+            UpdateBody::Outcome {
+                visual_changed: true,
+                facts: OutcomeFacts {
+                    self_target: client.state().observation.self_target,
+                    status: client.outcome_status().cloned(),
+                    actor_names: vec![],
+                    facts: vec![OutcomeFact::OwnAction {
+                        event: Event::Moved {
+                            direction: Direction::East,
+                        },
+                        name: None,
+                        underfoot: None,
+                        basic_attack: false,
+                    }],
+                },
+                event: None,
+            },
+        ))
+        .unwrap();
+    let pending = view(&client, &palette);
+    assert_eq!(pending.shown.cursor.sequence, 1);
+    assert_eq!(pending.picture_sequence, 0);
+    assert_eq!(pending.feet, before.feet);
+
+    let mut next = client.state().clone();
+    next.revision += 1;
+    next.snapshot = SnapshotId("picture-after-step".into());
+    next.observation.position.x += 1;
+    client
+        .apply(update(
+            2,
+            UpdateBody::ObservationDelta {
+                base: client.observation_base(),
+                state: Box::new(StateDelta::between(client.state(), &next).unwrap()),
+                event: None,
+            },
+        ))
+        .unwrap();
+    let arrived = view(&client, &palette);
+    assert_eq!(arrived.tick, before.tick, "both pictures share a tick");
+    assert_eq!(arrived.picture_sequence, 2);
+    assert_eq!(arrived.feet.x, before.feet.x + 1);
+}
+
+#[test]
 fn own_body_and_corpses_use_disclosed_appearance_without_parsing_names() {
     use tor_protocol::{
         AppearanceSeed, CreatureAppearance, GroundItemView, PaletteBody, PaletteUpdate,

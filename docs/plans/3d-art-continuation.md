@@ -2123,6 +2123,28 @@ humanoid footwear or a full wardrobe merely by having a humanoid upper body.
   separate from visual head/hand/torso/foot anchors and fit dimensions. Distinguish
   putting equipment on from retaining it through a body transformation.
 
+### Wardrobe identities and visual slots
+
+Before geometry is fitted, an equipped recipe declares its identity, the
+visual slots it occupies, which preset slots it replaces and which
+accessories it covers. Those are separate decisions. When an authored
+parent disappears, its mounted accessory follows it; a robe hood does not
+follow a separate cape. A secondary hood claim yields to a separately
+selected hat or helm. Shirt selection replaces decorative plate but leaves
+armor explicitly equipped in the body slot. Old forearm cloth gives way
+to a replacement shirt or full articulated arm plates, but remains with a
+torso-only breastplate. Unrelated pieces, such as the separate torn skirt,
+do not follow the sleeve. Hoods and helmets can expose an eligible wearer's
+hair, but cannot supply scalp hair to a wearer without it. Model-specific
+crests, topknots and serpents remain separate anatomy.
+
+Keep identity and attachment data in the catalog, not in branches keyed by
+outfit names. Overlap can also mean fitting both pieces rather than removing
+one. The boot shaft fits below any retained knee plate; layered gowns keep
+their hem, train and linings underneath fitted waist armor. Mesh code
+chooses dimensions using the resulting pieces. These are renderer rules,
+not changes to game rules or exhaustive contact guarantees.
+
 ### NetHack reference boundary
 
 The researched baseline is NetHack 3.6.7, specifically

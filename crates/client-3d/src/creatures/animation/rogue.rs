@@ -262,14 +262,27 @@ pub(super) fn rooted_pose(p: &mut Pose, clock: f32, seed: f32, action: Option<(M
     p.r(J::Jaw, bow(1.5 * gape));
 }
 
-/// Let both lobes close from their last living gape while the stalk starts
-/// wilting. Only the joints above the roots change, not the base or targeting.
+/// Play the rooted attack up to actual contact, then close the lobes from
+/// the reached pose without changing the roots or targeting.
 pub(super) fn release_rooted_pose(p: &mut Pose, a: &Anim) {
-    let Some((entry, fall)) = fall_entry(a, 0.24) else {
+    let (Some(entry), Some(death_phase)) = (a.death_entry, a.dead) else {
         return;
     };
+    let elapsed = (a.time - entry.started_at).max(0.0);
+    let alive_for = elapsed.min(entry.impact_delay);
+    // Positive death phase also handles explicit seeks past the entry blend.
+    let release =
+        (elapsed - entry.impact_delay).max(death_phase.max(0.0) * a.death_motion.duration());
+    let fall = ease(release / 0.24);
+    if fall >= 1.0 {
+        return;
+    }
+    let action = entry.action.and_then(|(motion, phase)| {
+        let phase = phase + alive_for / motion.duration();
+        (phase < 1.0).then_some((motion, phase))
+    });
     let mut live = Pose::new();
-    rooted_pose(&mut live, entry.started_at, a.seed, entry.action);
+    rooted_pose(&mut live, entry.started_at + alive_for, a.seed, action);
     for j in [J::Neck, J::Torso, J::Head, J::Jaw] {
         p.rot[j as usize] = live.rot[j as usize].slerp(p.rot[j as usize], fall);
     }

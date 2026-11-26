@@ -1067,6 +1067,33 @@ fn breastplate_clears_emitted_underlayers_and_cloak_clears_plate_through_swing()
 }
 
 #[test]
+fn equipped_waist_armor_keeps_the_rendered_bridal_train_and_linings() {
+    use crate::creatures::rogue_tests::{points_under, spawn_one};
+    let bride = female(CreatureModel::Human, 2).dressed(Wardrobe::RoyalBride);
+    let measured = |look: &Look| {
+        let (world, rig, _, meshes) = spawn_one(look);
+        rig.skirt_layers.iter().map(|&layer| {
+            let points = points_under(&world, &meshes, layer);
+            assert!(points.len() > 100, "measured layer is an actual garment");
+            points.iter().fold((f32::INFINITY, f32::INFINITY), |(y,z), p| {
+                (y.min(p.y), z.min(p.z))
+            })
+        }).collect::<Vec<_>>()
+    };
+    let dressed = measured(&bride);
+    assert_eq!(dressed.len(), 3);
+    assert!(dressed[0].1 < dressed[1].1.min(dressed[2].1) - 0.2);
+    let mut gear = Equipment::default();
+    gear.select("leather").unwrap();
+    let armored = measured(&bride.equipped(gear));
+    assert_eq!(armored.len(), 4, "tassets must add a mesh, not replace the dress");
+    assert!(armored[0].0 > -0.35, "tassets remain short");
+    for (actual, original) in armored[1..].iter().zip(&dressed) {
+        assert!((actual.0 - original.0).abs() < 0.02 && (actual.1 - original.1).abs() < 0.02);
+    }
+}
+
+#[test]
 fn equipped_plate_covers_lateral_torso_underlayers_in_sylvan_fixture() {
     let mut base = Look::with_choice(
         CreatureModel::Human,

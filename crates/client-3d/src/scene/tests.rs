@@ -156,6 +156,7 @@ fn project(
     mut meshes: ResMut<Assets<Mesh>>,
     view: Res<Fixture>,
     mut bodies: Query<&mut ActorBody>,
+    transforms: Query<&Transform, With<ActorBody>>,
 ) {
     align(&mut commands, &mut game, &view.0);
     let died = view
@@ -175,6 +176,7 @@ fn project(
         &mut meshes,
         &view.0,
         &mut bodies,
+        &transforms,
         &died,
     );
     game.pending.extend(view.0.events.iter().cloned());
@@ -950,6 +952,68 @@ fn live_sword_swaps_align_handles_and_clear_unequipped_meshes() {
 }
 
 #[test]
+fn worn_gear_changes_do_not_snap_a_walking_body_to_its_goal() {
+    use crate::playback::{Path, Pose};
+
+    let mut app = app(CreatureModel::Human);
+    app.world_mut()
+        .insert_resource(creatures::loading::ModelLoading::blocked_for_tests());
+    app.update();
+    let world = app.world_mut();
+    let id = world.resource::<Fixture>().0.actors[0].id;
+    let old = world.resource::<Game>().actors[&id];
+    let from = stand(IVec3::X);
+    let goal = stand(IVec3::X * 2);
+    let mut body = world.get_mut::<ActorBody>(old).unwrap();
+    body.goal = goal;
+    body.walk.push(Path {
+        from,
+        to: goal,
+        start: 1.0,
+        end: 2.0,
+        span: (0, 0),
+        skips: 0,
+        own_frame: None,
+    });
+    let mid = from.lerp(goal, 0.5);
+    assert_eq!(body.walk.at(1.5, 0), Pose::At(mid));
+    world.get_mut::<Transform>(old).unwrap().translation = mid;
+    {
+        let mut fixture = world.resource_mut::<Fixture>();
+        fixture.0.actors[0].position.x = 2;
+        fixture.0.actors[0].wearing.body = Some(ItemModel::RingMail);
+    }
+
+    app.update();
+    let world = app.world_mut();
+    let fresh = world.resource::<Game>().actors[&id];
+    assert_ne!(
+        fresh, old,
+        "the disclosed outfit must still replace the rig"
+    );
+    assert_eq!(world.get::<ActorBody>(fresh).unwrap().goal, goal);
+    assert_eq!(
+        world.get::<Transform>(fresh).unwrap().translation,
+        mid,
+        "replacing worn equipment must not move the body ahead of playback"
+    );
+    assert_eq!(
+        world.get_mut::<ActorBody>(fresh).unwrap().walk.at(1.75, 0),
+        Pose::At(from.lerp(goal, 0.75)),
+        "the replacement rig must continue the already accepted leg"
+    );
+
+    // A new stream epoch has no claim on the previous presentation path.
+    world.resource_mut::<Fixture>().0.context.epoch += 1;
+    app.update();
+    let world = app.world();
+    let reset = world.resource::<Game>().actors[&id];
+    assert_ne!(reset, fresh);
+    assert_eq!(world.get::<Transform>(reset).unwrap().translation, goal);
+    assert!(!world.get::<ActorBody>(reset).unwrap().walk.walking());
+}
+
+#[test]
 fn disclosed_equipment_changes_rebuild_the_rig_and_removal_restores_the_costume() {
     let mut app = app(CreatureModel::Human);
     let rendered = |app: &mut App, wearing: tor_client_3d_model::Wearing| {
@@ -986,6 +1050,81 @@ fn disclosed_equipment_changes_rebuild_the_rig_and_removal_restores_the_costume(
     );
     let (_, restored) = rendered(&mut app, Default::default());
     assert_eq!(restored, costume, "removal restores the body's own costume");
+}
+
+#[test]
+fn mixed_disclosed_gear_refits_the_boots_when_only_plate_is_removed() {
+    use bevy::render::mesh::VertexAttributeValues;
+    use tor_client_3d_model::{WearableLook, Wearing};
+
+    let mut app = app(CreatureModel::Human);
+    let apply = |app: &mut App, wearing: Wearing, names: &[&str]| {
+        app.world_mut().resource_mut::<Fixture>().0.actors[0].wearing = wearing;
+        update(app);
+        let world = app.world();
+        let entity = *world.resource::<Game>().actors.values().next().unwrap();
+        let body = world.get::<ActorBody>(entity).unwrap();
+        let mut equipment = creatures::Equipment::default();
+        for name in names {
+            equipment.select(name).unwrap();
+        }
+        assert_eq!(
+            body.appearance_key,
+            Look::of(CreatureModel::Human, creatures::individual(body.appearance_seed))
+                .equipped(equipment).key,
+            "live visible identity must match the same selected gear"
+        );
+        let rig = world.get::<creatures::Rig>(entity).expect("live actor rig");
+        let shin = rig.joint(creatures::J::ShinL).expect("human shin");
+        let mats = &world.resource::<PropLibrary>().materials;
+        let meshes = world.resource::<Assets<Mesh>>();
+        let bounds = |material| {
+            let mut ymin = f32::INFINITY;
+            let mut ymax = f32::NEG_INFINITY;
+            for child in world.get::<Children>(shin).unwrap().iter() {
+                if world.get::<MeshMaterial3d<StandardMaterial>>(child).map(|m| m.0.id()) != Some(material) {
+                    continue;
+                }
+                let mesh = meshes.get(&world.get::<Mesh3d>(child).unwrap().0).unwrap();
+                let Some(VertexAttributeValues::Float32x3(points)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else {
+                    panic!("emitted mesh positions");
+                };
+                let local = world.get::<Transform>(child).unwrap().compute_affine();
+                for point in points {
+                    let y = local.transform_point3(Vec3::from(*point)).y;
+                    ymin = ymin.min(y);
+                    ymax = ymax.max(y);
+                }
+            }
+            (ymin, ymax)
+        };
+        (entity, bounds(mats.metal().id()), bounds(mats.satin().id()))
+    };
+
+    let shirt = Wearing { shirt_look: Some(WearableLook::HawaiianShirt), ..Wearing::default() };
+    let plate = Wearing { body: Some(ItemModel::PlateMail), ..shirt };
+    let both = Wearing {
+        feet: Some(ItemModel::RingMail),
+        feet_look: Some(WearableLook::RidingBoots),
+        ..plate
+    };
+    let (shirt_rig, _, _) = apply(&mut app, shirt, &["hawaiian-shirt"]);
+    let (plate_rig, _, _) = apply(&mut app, plate, &["hawaiian-shirt", "plate-mail"]);
+    assert_ne!(shirt_rig, plate_rig);
+    let choices = &["hawaiian-shirt", "plate-mail", "riding-boots"];
+    let (mixed_rig, knee, shaft) = apply(&mut app, both, choices);
+    assert_ne!(plate_rig, mixed_rig);
+    assert!(knee.0.is_finite() && shaft.1.is_finite() && shaft.1 < knee.0);
+    assert_eq!(apply(&mut app, both, choices).0, mixed_rig, "unchanged view reuses the rig");
+
+    let unarmored = Wearing { body: None, ..both };
+    let choices = &["hawaiian-shirt", "riding-boots"];
+    let (new_rig, no_knee, tall) = apply(&mut app, unarmored, choices);
+    assert_ne!(new_rig, mixed_rig);
+    assert!(no_knee.0.is_infinite());
+    assert!(tall.1 > shaft.1 + 0.010, "shaft regains its height without armor");
+    assert!((tall.0 - shaft.0).abs() < 1e-6, "ankle stays seated");
+    assert_eq!(apply(&mut app, unarmored, choices).0, new_rig);
 }
 
 #[test]

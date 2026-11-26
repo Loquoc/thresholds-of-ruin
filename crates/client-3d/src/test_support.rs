@@ -25,6 +25,7 @@ pub(crate) fn view(revision: u64) -> View {
         },
         context,
         branch,
+        picture_sequence: revision,
         feet: Position { x: 0, y: 0, z: 0 },
         visible: vec![],
         object_models: Default::default(),

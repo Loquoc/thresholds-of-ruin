@@ -265,16 +265,21 @@ pub(super) fn compose(l: &Look) -> Outfit {
         Style::Phantom => Some((l.cloth * 0.85, true, false)),
         _ => None,
     }
-    .map(|(color, tail, covered_by_helm)| NeckDrape {
+    .map(|(color, tail, hood)| NeckDrape {
         color,
         tail,
-        covered_by_helm,
+        hood_mount: hood.then_some(HoodMount::Robe),
         meet_neckline: style == Style::Caster,
     });
     Outfit {
         veil: None,
         regalia: None,
         head,
+        head_mount: match style {
+            Style::Caster => Some(HoodMount::Robe),
+            Style::Wraith => Some(HoodMount::Cape),
+            _ => None,
+        },
         tunic,
         bodice: Bodice {
             cover: Cover::Full,

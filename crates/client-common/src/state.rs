@@ -675,6 +675,11 @@ impl ClientState {
         self.observation_base.cursor.sequence >= self.last_visual_change
     }
 
+    /// Stream sequence of the retained picture, which may lag live outcomes.
+    pub fn observation_sequence(&self) -> u64 {
+        self.observation_base.cursor.sequence
+    }
+
     pub fn observation_base(&self) -> ObservationBase {
         self.observation_base.clone()
     }
