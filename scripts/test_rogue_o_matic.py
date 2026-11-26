@@ -1868,6 +1868,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.observe(Turn({**later, "finished_intentions": [search_activity("resolved")]}))
         self.assertEqual(player.search_history.wall_searches["wall"], 1)
 
+    def test_a_repeated_ready_turn_waits_for_the_pending_search_before_exploring(self):
+        from tor_client_bot import Result
+
+        turn = search_turn([cell("end"), cell("hall", -1), cell("east", 1, wall=True),
+                            cell("north", y=-1, wall=True), cell("south", y=1, wall=True)])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        action, reason = choose(player, turn)
+        self.assertEqual(reason, "search")
+        receipt = Result.from_reply({"status": "confirmed", "receipt": search_activity()})
+        player.admitted(turn, action, receipt)
+        self.assertEqual(choose(player, turn), (Wait(), "await_search_result"))
+        self.assertEqual(player.search_history.wall_searches["east"], 0)
+        finished = Turn({**json.loads(turn.recording()), "finished_intentions": [search_activity("resolved")]})
+        self.assertEqual(choose(player, finished)[1], "search")
+        self.assertEqual(player.search_history.wall_searches["east"], 1)
+
     def test_search_with_expired_history_keeps_only_its_admission_count(self):
         from tor_client_bot import Result
 

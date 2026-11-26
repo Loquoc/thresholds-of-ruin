@@ -1060,6 +1060,8 @@ class Adventurer:
             return decision
         if trapped:
             return self.respond_to_bear_trap(turn)
+        if self.search_history.pending_search is not None:
+            return Wait(), "await_search_result"
         if not returning and not any(g.item.identity == self.objective for g in ground_items):
             if search := self.search_dead_end(turn, memory):
                 return search, "search"
