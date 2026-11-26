@@ -36,6 +36,8 @@ pub struct View {
     pub shown: ReplyContext,
     pub context: StreamContext,
     pub branch: BranchId,
+    /// Stream sequence of the geometry in this view, not the live selection cursor.
+    pub picture_sequence: u64,
     pub feet: Position,
     pub visible: Vec<CellView>,
     /// Palette-resolved sampled cell art; never used for navigation or collision.
@@ -277,6 +279,7 @@ pub fn view(state: &ClientState, palette: &Palette) -> View {
         shown: state.reply_context(),
         context: state.context().clone(),
         branch: state.branch().clone(),
+        picture_sequence: state.observation_sequence(),
         feet: o.position,
         visible: o.visible_cells.clone(),
         memory,

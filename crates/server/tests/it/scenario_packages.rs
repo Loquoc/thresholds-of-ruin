@@ -630,3 +630,229 @@ fn a_script_hook_on_an_unknown_anchor_is_rejected() {
         "{error}"
     );
 }
+
+fn teleport_level_package(allow_destination: bool) -> tempfile::TempDir {
+    use tor_server::scenario_levels::LevelLabels;
+
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/magic-items");
+    let package = scenario_package::load(&fixture, 5, None, false)
+        .unwrap()
+        .package
+        .unwrap();
+    let mut manifest = package.manifest.clone();
+    manifest.scripting = None;
+    manifest.archetypes.insert(
+        "escape".into(),
+        toml::from_str(
+            r#"
+            class = "scroll"
+            name = "scroll of escape"
+            identity = "item.scroll.fixture-escape"
+            readable = { effects = [{ kind = "teleport_random" }], discovery = "self_effect" }
+        "#,
+        )
+        .unwrap(),
+    );
+    manifest.levels = Some(LevelLabels {
+        names: [
+            ("allowed".into(), "The Mine".into()),
+            ("other".into(), "The Mine".into()),
+        ]
+        .into(),
+        regions: [
+            ("1".into(), "allowed".into()),
+            ("2".into(), "allowed".into()),
+            ("3".into(), "other".into()),
+        ]
+        .into(),
+        procedural: Default::default(),
+    });
+    let mut source = package.region_defs().unwrap().remove(0);
+    source.size = [1, 1, 1];
+    source.anchors = [("start".into(), [0, 0, 0])].into();
+    let marker = source.items.remove(0);
+    let mut scroll = source.items.remove(0);
+    scroll.archetype = Some("escape".into());
+    scroll.at = [0, 0, 0];
+    scroll.carried_by = Some(1);
+    scroll.quantity = 1;
+    source.items = vec![scroll];
+    let destination = |region, item_id| {
+        let mut room = source.clone();
+        room.id = region;
+        room.anchors.clear();
+        let mut marker = marker.clone();
+        marker.id = item_id;
+        marker.at = [0, 0, 0];
+        marker.quantity = 1;
+        room.items = vec![marker];
+        room
+    };
+    let decoy = destination(3, 301);
+    let allowed = allow_destination.then(|| destination(2, 201));
+    let mut regions = vec![source, decoy];
+    if let Some(room) = allowed {
+        regions.insert(1, room);
+    } else {
+        manifest.levels.as_mut().unwrap().regions.remove("2");
+    }
+    let temp = tempfile::tempdir().unwrap();
+    scenario_package::write_package(temp.path(), &manifest, &regions, &package.rules_source)
+        .unwrap();
+    scenario_package::validate(temp.path()).unwrap();
+    temp
+}
+
+fn read_level_teleport(
+    allow_destination: bool,
+    streaming: bool,
+) -> (Engine, tor_protocol::Observation) {
+    let temp = teleport_level_package(allow_destination);
+    let scenario = teleport_level_scenario(temp.path(), streaming);
+    let mut engine = Engine::memory(scenario).unwrap();
+    if streaming {
+        assert_eq!(
+            engine.region_counts().unwrap().unbuilt,
+            if allow_destination { 2 } else { 1 },
+            "the landing rooms must not be resident before the spell"
+        );
+    }
+    let after = pay_teleport(&mut engine);
+    (engine, after)
+}
+
+fn teleport_level_scenario(path: &Path, streaming: bool) -> tor_server::Scenario {
+    let mut scenario = scenario_package::load(path, 5, None, false).unwrap();
+    scenario.streaming = streaming.then_some(tor_server::Streaming {
+        active_radius: 0,
+        load_radius: 0,
+    });
+    scenario
+}
+
+fn pay_teleport(engine: &mut Engine) -> tor_protocol::Observation {
+    use tor_server::journal::{Action, Command};
+
+    let actor = support::CHARACTER;
+    let before = engine.observation(actor).unwrap();
+    assert_eq!(before.level_name.as_deref(), Some("The Mine"));
+    assert!(before.ground_items.is_empty());
+    assert_eq!(before.inventory.len(), 1);
+    let expected_boundary = engine.causal_boundary(actor).unwrap();
+    support::submit(
+        engine,
+        actor,
+        Command::AdmitIntention {
+            expected_boundary,
+            action: Action::Read { item: 20 },
+        },
+    )
+    .unwrap();
+    engine.execute_next_intention().unwrap().unwrap();
+    for _ in 0..8 {
+        if engine.observation(actor).unwrap().inventory.is_empty() {
+            break;
+        }
+        support::act(engine, Action::Wait).unwrap();
+    }
+    let after = engine.observation(actor).unwrap();
+    assert!(after.inventory.is_empty(), "the scroll is spent");
+    after
+}
+
+fn assert_same_level_teleport(streaming: bool) {
+    let (engine, after) = read_level_teleport(true, streaming);
+    assert_level_landing(&engine, &after);
+    if streaming {
+        assert_eq!(
+            engine.region_counts().unwrap().unbuilt,
+            1,
+            "the other level stays unbuilt"
+        );
+    }
+}
+
+fn assert_level_landing(engine: &Engine, after: &tor_protocol::Observation) {
+    let target = engine
+        .target_scope(support::CHARACTER)
+        .item(tor_simulation::ItemId(201));
+    assert!(
+        after.ground_items.iter().any(|item| item.item.id == target),
+        "the only legal landing is in the other room with the same level ID"
+    );
+}
+
+#[test]
+fn teleport_scroll_can_land_in_another_authored_room_with_the_same_level_id() {
+    assert_same_level_teleport(false);
+}
+
+#[test]
+fn teleport_scroll_can_load_a_landing_room_with_the_same_level_id() {
+    assert_same_level_teleport(true);
+}
+
+#[test]
+fn teleport_scroll_cannot_land_on_a_different_level_with_the_same_name() {
+    let (_, after) = read_level_teleport(false, false);
+    assert!(
+        after.ground_items.is_empty(),
+        "the only other room has the wrong ID"
+    );
+}
+
+#[test]
+fn teleport_scroll_replays_source_free_and_still_uses_levels_after_rewind() {
+    use tor_server::{
+        journal::{Action, Command, WizardOperation},
+        SavePolicy, Scenario,
+    };
+
+    for checkpoint_interval in [0, 1] {
+        let temp = teleport_level_package(true);
+        let save_dir = tempfile::tempdir().unwrap();
+        let save = save_dir.path().join("teleport.db");
+        let policy = SavePolicy {
+            checkpoint_interval,
+            ..SavePolicy::default()
+        };
+        let actor = support::CHARACTER;
+        let mut engine = Engine::open_with_policy(
+            &save,
+            teleport_level_scenario(temp.path(), true),
+            policy.clone(),
+        )
+        .unwrap();
+        engine.enable_wizard().unwrap();
+        let before_read = support::act(&mut engine, Action::Wait).unwrap().entry.id;
+        let landed = pay_teleport(&mut engine);
+        assert_level_landing(&engine, &landed);
+        let expected = engine.state(actor).unwrap();
+        engine.flush().unwrap();
+        drop(engine);
+        temp.close().unwrap();
+
+        let mut restored = Engine::open_with_policy(&save, Scenario::two_room(0), policy).unwrap();
+        assert_eq!(restored.state(actor).unwrap(), expected);
+        assert_eq!(
+            restored.recovery_profile().checkpoint_sequence > 0,
+            checkpoint_interval != 0
+        );
+        restored.enable_wizard().unwrap();
+        let expected_boundary = restored.causal_boundary(actor).unwrap();
+        support::submit(
+            &mut restored,
+            actor,
+            Command::Wizard {
+                expected_boundary,
+                display_basis: None,
+                operation: WizardOperation::Rewind {
+                    target: Some(before_read),
+                },
+            },
+        )
+        .unwrap();
+        let landed = pay_teleport(&mut restored);
+        assert_level_landing(&restored, &landed);
+    }
+}

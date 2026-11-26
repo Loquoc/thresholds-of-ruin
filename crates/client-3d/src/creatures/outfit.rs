@@ -9,6 +9,8 @@
 use super::*;
 mod embroidery;
 mod equipment;
+mod slots;
+use slots::HoodMount;
 mod native;
 pub(in crate::creatures) mod outerwear;
 mod presets;
@@ -757,6 +759,8 @@ impl Garter {
 pub(crate) struct Trimmings {
     pub heraldry: Option<Heraldry>,
     pub shoulders: Option<Fringe>,
+    /// Fringe and peaks fastened to the outfit's removable arm plate.
+    pub plate_shoulder_mount: bool,
     pub boot_tops: Option<Fringe>,
     pub neck: Option<Neck>,
     /// Bands round the upper arms.
@@ -777,6 +781,7 @@ impl Trimmings {
     pub const NONE: Trimmings = Trimmings {
         heraldry: None,
         shoulders: None,
+        plate_shoulder_mount: false,
         boot_tops: None,
         neck: None,
         armlets: None,
@@ -859,8 +864,8 @@ pub(crate) struct NeckDrape {
     pub tail: bool,
     /// Cut the cowl's lower edge to meet the bodice opening at the shoulders.
     pub meet_neckline: bool,
-    /// Hood bases are replaced with the hood when an independent helm is worn.
-    pub covered_by_helm: bool,
+    /// A hood's collar follows its garment; a separate scarf has no mount.
+    pub hood_mount: Option<HoodMount>,
 }
 
 /// Authored cloak appearance and cut, independent of its wearer's anatomy.
@@ -956,6 +961,8 @@ pub(crate) struct Outfit {
     pub veil: Option<Veil>,
     pub regalia: Option<Regalia>,
     pub head: Headwear,
+    /// Only hoods sewn to another garment have a mount.
+    pub head_mount: Option<HoodMount>,
     pub tunic: Vec3,
     /// The tunic's front: its opening, edging, lacing and support.
     pub bodice: Bodice,
@@ -1168,6 +1175,7 @@ impl Outfit {
             veil: None,
             regalia: None,
             head: Headwear::Bare,
+            head_mount: None,
             tunic: l.cloth,
             bodice: Bodice::PLAIN,
             collar_edge: l.cloth * 0.8,

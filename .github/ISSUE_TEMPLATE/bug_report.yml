@@ -1,0 +1,95 @@
+name: Bug report
+description: Something behaves wrongly, crashes or disagrees with the documentation.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Check [current capabilities and limitations](https://github.com/Loquoc/thresholds-of-ruin/blob/main/docs/status.md) first: unfinished balance and planned work are known gaps, not bugs.
+
+        Never paste your `TOR_SERVER_TOKEN` or spectator credentials.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Commands typed or keys pressed, from starting the server onward.
+      placeholder: |
+        1. cargo run -p tor-server -- --seed 42 --save saves/game.db
+        2. cargo run -p tor-client-ascii
+        3. Walk east twice and pick up the lantern
+        4. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where does it happen?
+      multiple: true
+      options:
+        - Server or simulation
+        - Text client
+        - ASCII client
+        - 3D prototype
+        - Spectator
+        - Save and resume
+        - Scenario package or content
+        - Build, tests or tooling
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: scenario
+    attributes:
+      label: Scenario
+      options:
+        - Default five-chamber dungeon
+        - Rogue-only (scenarios/rogue)
+        - Rogue exploration (scenarios/rogue-exploration)
+        - Custom or modified package
+        - Not applicable
+  - type: input
+    id: seed
+    attributes:
+      label: Seed and server options
+      description: The `--seed` and other server flags, if relevant.
+      placeholder: "--scenario scenarios/rogue-exploration --character 1 --seed 42"
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: Output of `git rev-parse --short HEAD`.
+    validations:
+      required: true
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Sometimes
+        - Once so far
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, error output or screenshots
+      description: >
+        Paste relevant server or client output, or attach a screenshot you intend to share publicly.
+        Remove credentials and personal information, including paths, before posting.

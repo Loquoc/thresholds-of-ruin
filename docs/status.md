@@ -15,14 +15,18 @@ manual dispatch. The first manual advisory scan passed. The
 Exhaustive hosted qualification remains explicit, release-driven or required by
 change risk. See the
 [CI reduction review](plans/hosted-ci-reduction.md) for implemented controls,
-the completed 53-class ownership review, locally implemented selected proof
-reuse and the Linux debug 3D smoke check. Domain-specific selection remains
-future work. No hosted
-qualification or measured hosted saving is claimed.
+the completed 53-class ownership review and the Linux debug 3D smoke check.
+Hosted main runs have reused both selected and full exact-tree PR proof while
+running fresh integration and requiring both platform gates. See the
+[observed CI cost sample](development/ci-cost-baseline.md#november-25-hosted-reuse-sample)
+for measured run time, not projected savings. Narrower domain-specific test
+selection remains future work.
 
-**Current formats:** protocol **77**, save format **74**, scenario format **38**,
+**Current formats:** protocol **77**, save format **75**, scenario format **38**,
 ruleset **`interactions-v73`**, scenario validator **`tor-scenario-52`**.
-Unsupported identities are rejected rather than migrated. Save format 74 records verified host rollbacks so replay retires the admitted action.
+Unsupported identities are rejected rather than migrated. Save format 75 pins
+random teleport scroll replay on authored levels and retains the verified host
+rollback records from the prior archive.
 Identification results remain available in the turn and History. Protocol 77
 delivers the rollback reason in the owner's failed-action update. Rules-identity
 changes invalidate all saves pinned to the previous identity,
@@ -30,7 +34,7 @@ not only saves containing affected AI. Wire and physical save formats need not
 change with a deterministic rules correction. The current rules change admits hostile first-body devices with identified type and
 known positive charges. It does not change granted-ray behavior or establish
 natural NPC acquisition of identified devices. It adds no serialized state
-and retains the existing archive format. See [AI](reference/ai.md). Current private
+and did not itself change the archive format. See [AI](reference/ai.md). Current private
 creature records include explicit Health-roll policy, stable HD/purchase ownership,
 body snapshots and pending-return state; authored content can register body forms.
 

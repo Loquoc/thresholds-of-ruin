@@ -803,6 +803,96 @@ fn flying_bodies_carry_the_last_wing_stroke_into_the_fall() {
 }
 
 #[test]
+fn a_long_frame_inside_one_timed_step_keeps_walking() {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    let sample = |frames: &[u64], teleport: bool| {
+        let model = CreatureModel::Emu;
+        let (mut app, root) = animate_look(Look::of(model, 9), 2, |_| Vec3::ZERO);
+        app.init_resource::<crate::Game>()
+            .add_systems(Update, crate::camera::follow_actors.before(animate));
+        let world = app.world_mut();
+        world.spawn(Camera3d::default());
+        let label = world.spawn_empty().id();
+        let ring = world.spawn_empty().id();
+        let mut walk = crate::playback::Walk::default();
+        walk.push(crate::playback::Path {
+            from: Vec3::ZERO,
+            to: Vec3::Z,
+            start: 0.0,
+            end: 0.325,
+            span: (1, 0),
+            skips: 0,
+            own_frame: None,
+        });
+        world.entity_mut(root).insert(crate::ActorBody {
+            appearance_seed: None,
+            appearance_key: String::new(),
+            model,
+            wearing: Default::default(),
+            hostile: false,
+            goal: Vec3::Z,
+            walk,
+            own: false,
+            label,
+            ring,
+            name: String::new(),
+            height: 1.0,
+        });
+        let mut clock_ms = 0;
+        let mut advance = |app: &mut App, ms| {
+            clock_ms += ms;
+            app.world_mut().resource_mut::<crate::Game>().playback.now =
+                Duration::from_millis(clock_ms).as_secs_f64();
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                ms,
+            )));
+            app.update();
+        };
+        for _ in 0..3 {
+            advance(&mut app, 20);
+        }
+        let world = app.world();
+        let before = world.get::<Anim>(root).unwrap();
+        assert!(
+            before.contacts.rig.is_some(),
+            "the emu must start with ground support"
+        );
+        let first = before.walk;
+        if teleport {
+            let world = app.world_mut();
+            let destination = Vec3::Z * 3.0;
+            let mut body = world.get_mut::<crate::ActorBody>(root).unwrap();
+            body.goal = destination;
+            body.walk = Default::default();
+            world.get_mut::<Transform>(root).unwrap().translation = destination;
+        }
+        for &ms in frames {
+            advance(&mut app, ms);
+        }
+        let world = app.world();
+        let anim = world.get::<Anim>(root).unwrap();
+        let at = world.get::<Transform>(root).unwrap().translation;
+        let walking = world.get::<crate::ActorBody>(root).unwrap().walk.walking();
+        (at, anim.walk - first, anim.contacts.rig.is_some(), walking)
+    };
+
+    let (steady_at, steady_phase, steady_contact, steady_walking) = sample(&[20; 9], false);
+    let (hitch_at, hitch_phase, hitch_contact, hitch_walking) = sample(&[180], false);
+    let (_, teleport_phase, teleport_contact, teleport_walking) = sample(&[180], true);
+    assert!(steady_at.distance(hitch_at) < 1e-6);
+    assert!((hitch_at.z - 0.24 / 0.325).abs() < 1e-6);
+    assert!(steady_walking && hitch_walking);
+    assert!(steady_contact && steady_phase > 0.0);
+    assert!(!teleport_walking && !teleport_contact && teleport_phase == 0.0);
+    assert!(
+        hitch_contact && hitch_phase > 0.0,
+        "timed motion at {hitch_at:?} lost support or gait phase: contact={hitch_contact}, phase={hitch_phase}"
+    );
+}
+
+#[test]
 fn fliers_stay_on_the_wing_without_ground_contacts() {
     for model in [CreatureModel::Bat, CreatureModel::Kestrel] {
         let (app, root) = animate_along(model, 90, |f| Vec3::Z * f as f32 * 0.03);

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Current capabilities and limitations
+    url: https://github.com/Loquoc/thresholds-of-ruin/blob/main/docs/status.md
+    about: What is implemented, known gaps and planned next work.
+  - name: Play guides
+    url: https://github.com/Loquoc/thresholds-of-ruin/tree/main/docs/play
+    about: Controls and gameplay for the Text and ASCII clients.

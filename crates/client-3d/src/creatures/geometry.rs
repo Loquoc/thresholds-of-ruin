@@ -29,6 +29,11 @@ pub(in crate::creatures) use arm::*;
 mod surface;
 use surface::closed_surface_step;
 mod armor_parts;
+
+pub(super) fn body_armor_has_shoulder_caps(item: super::outfit::BodyItem) -> bool {
+    item.articulated_limbs() || armor_parts::shoulder_finish(item).is_some()
+}
+
 mod beast_parts;
 mod bishop_sleeve;
 mod boot_parts;

@@ -1118,6 +1118,10 @@ impl Package {
             Some(tor_simulation::ActorId(self.selected)),
         )
         .map_err(|error| fail(format!("Scenario capabilities: {error:?}")))?;
+        game.bind_authored_teleport_levels(
+            self.authored_teleport_levels()
+                .map_err(|error| fail(format!("Authored teleport levels: {error:?}")))?,
+        );
         if let Some(plan) = self.population_plan(index)? {
             game.configure_population(plan)
                 .map_err(|error| fail(format!("Floor activation: {error:?}")))?;

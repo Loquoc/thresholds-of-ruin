@@ -86,6 +86,7 @@ pub(super) fn compose(wardrobe: Wardrobe, wearer: &Look) -> Outfit {
         Wardrobe::ElvenRanger => {
             outfit.arms = Arms::Sleeves(IVORY);
             outfit.head = Headwear::HoodDown(GREEN);
+            outfit.head_mount = Some(HoodMount::Cape);
             outfit.cloak = Some(Cloak::new(GREEN, IVORY * 0.6));
             outfit.baldric = Some(Baldric {
                 color: LEATHER,
@@ -115,6 +116,7 @@ pub(super) fn compose(wardrobe: Wardrobe, wearer: &Look) -> Outfit {
             outfit.tunic = INK;
             outfit.arms = Arms::Sleeves(IVORY);
             outfit.head = Headwear::HoodDown(RED);
+            outfit.head_mount = Some(HoodMount::Cape);
             outfit.cloak = Some(Cloak::new(RED, INK));
             outfit.trimmings.garter = Some(Garter::low_relief(LEATHER));
             outfit.baldric = Some(Baldric {
@@ -180,6 +182,7 @@ pub(super) fn compose(wardrobe: Wardrobe, wearer: &Look) -> Outfit {
                     length: 0.16,
                 });
                 outfit.trimmings.peaks = Some(STEEL);
+                outfit.trimmings.plate_shoulder_mount = true;
             }
         }
         Wardrobe::Barbarian => {

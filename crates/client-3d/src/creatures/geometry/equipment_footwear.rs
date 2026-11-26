@@ -166,8 +166,12 @@ pub(super) fn fit_shin(
     shin: LimbShape,
     trousered: bool,
     build: f32,
+    top_limit: Option<f32>,
 ) -> FittedShin {
     let mut shape = fit_shape(appearance, shape, build);
+    if let Some(limit) = top_limit {
+        shape.top = shape.top.min(limit);
+    }
     let radii = calf_support_grid(shape, shin, trousered, build);
     let required: [f32; ROWS] = std::array::from_fn(|row| {
         radii[row]
@@ -1016,7 +1020,7 @@ mod tests {
                             let native = BootShape::fitted(body.build, -0.24);
                             if candidate {
                                 let fit =
-                                    fit_shin(appearance, native, body.shin, trousered, body.build);
+                                    fit_shin(appearance, native, body.shin, trousered, body.build, None);
                                 std::hint::black_box(fit.envelope());
                                 for _side in [-1.0, 1.0] {
                                     std::hint::black_box(&fit.riding);
@@ -1063,7 +1067,7 @@ mod tests {
                                 appearance, native, body.shin, trousered, body.build,
                             );
                             let fit =
-                                fit_shin(appearance, native, body.shin, trousered, body.build);
+                                fit_shin(appearance, native, body.shin, trousered, body.build, None);
                             assert_eq!(envelope_values(fit.envelope()), envelope_values(expected));
                             assert_eq!(
                                 fit.riding.is_some(),
@@ -1095,6 +1099,7 @@ mod tests {
                 body.shin,
                 true,
                 body.build,
+                None,
             );
             let before = fit.riding.clone();
             let envelope = envelope_values(fit.envelope());
@@ -1145,6 +1150,7 @@ mod tests {
                         body.shin,
                         trousered,
                         body.build,
+                        None,
                     );
                     let shape = fit.envelope();
                     let mut parts = Parts::default();
@@ -1343,6 +1349,7 @@ mod tests {
                     body.shin,
                     false,
                     build,
+                    None,
                 )
                 .envelope(),
                 fit_shin(
@@ -1351,6 +1358,7 @@ mod tests {
                     body.shin,
                     true,
                     build,
+                    None,
                 )
                 .envelope(),
             ]
@@ -1795,6 +1803,7 @@ mod tests {
                         body.shin,
                         trousered,
                         body.build,
+                        None,
                     );
                     let mut parts = Parts::default();
                     emit_fitted_shaft(&mut parts, &fit, 1.0, Vec3::ONE, Vec3::ONE);
@@ -1861,6 +1870,7 @@ mod tests {
                     body.shin,
                     true,
                     body.build,
+                    None,
                 );
                 let shape = fit.envelope();
                 let mut parts = Parts::default();
@@ -1934,6 +1944,7 @@ mod tests {
                             body.shin,
                             trousered,
                             body.build,
+                            None,
                         );
                         let shape = fit.envelope();
                         let mut shaft = Parts::default();
@@ -2100,6 +2111,7 @@ mod buckle_seating_tests {
                             body.shin,
                             trousers,
                             body.build,
+                            None,
                         );
                         for side in [-1.0, 1.0] {
                             check(fitted.envelope(), body.build, side, 1);

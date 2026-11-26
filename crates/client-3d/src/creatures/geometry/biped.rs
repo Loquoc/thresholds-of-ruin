@@ -1,5 +1,8 @@
 use super::*;
 
+const PLATE_KNEE_COP_RADII: Vec3 = Vec3::new(0.07, 0.07, 0.06);
+const PLATE_KNEE_WING_RADII: Vec3 = Vec3::new(0.015, 0.05, 0.04);
+
 /// Everything a biped's parts are cut from: the wearer, what it wears and
 /// the colour of each layer, resolved once before any part is built.
 pub(super) struct Figure {
@@ -13,6 +16,7 @@ pub(super) struct Figure {
     pub(super) waist: f32,
     pub(super) arm_len: f32,
     pub(super) outfit: Outfit,
+    tassets: Option<Skirt>,
     pub(super) heraldry: Heraldry,
     /// Dressed in its kind's own outfit.
     pub(super) fitted_robe: bool,
@@ -165,6 +169,10 @@ impl Figure {
                 body.shin,
                 matches!(outfit.legs, Legs::Trousers(_)),
                 b,
+                // The shaft and cap share a shin frame. Leave room for piping.
+                composition.footwear_below_knee.then_some(
+                    -PLATE_KNEE_COP_RADII.y.max(PLATE_KNEE_WING_RADII.y) - 0.006,
+                ),
             )
         });
         let boot_shape = fitted_shin
@@ -280,6 +288,7 @@ impl Figure {
             waist,
             arm_len,
             outfit,
+            tassets: composition.tassets,
             heraldry,
             fitted_robe,
             boots,
@@ -1405,14 +1414,16 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
         // raised gowns. A waist ring and thigh clearance miss the belly.
         surface.fit_pelvis(body)
     };
+    let armor_panel = figure.tassets.filter(|_| !blocky && !furry);
+    let outfit_base = u8::from(armor_panel.is_some());
     let mut skirt_stack = Vec::new();
     if let Some(skirt) = outfit.skirt.filter(|_| !blocky && !furry) {
-        skirt_stack.push((0u8, skirt, skirt_surface(skirt, 0)));
+        skirt_stack.push((outfit_base, skirt, skirt_surface(skirt, 0)));
         for (slot, layer) in skirt.layers.into_iter().enumerate() {
             if let Some(layer) = layer {
                 let index = slot as u8 + 1;
                 let under = layer.resolve(skirt);
-                skirt_stack.push((index, under, skirt_surface(under, index)));
+                skirt_stack.push((outfit_base + index, under, skirt_surface(under, index)));
             }
         }
     }
@@ -1428,6 +1439,9 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
         for (_, _, lining) in skirt_stack.iter_mut().skip(1) {
             lining.fit_bare_thigh_sides(body);
         }
+    }
+    if let Some(panel) = armor_panel {
+        skirt_stack.insert(0, (0, panel, skirt_surface(panel, 0)));
     }
     // Resolve the stack from the innermost garment outward. Each outer
     // layer clears every lower layer, including through another layer's slit.
@@ -1465,6 +1479,9 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             .is_some();
     if belted_tassets {
         for (layer, _, surface) in &mut skirt_stack {
+            if armor_panel.is_some() && *layer != 0 {
+                continue; // Keep the original cloth's authored waist.
+            }
             let edge = (0..=64)
                 .map(|k| {
                     let angle = k as f32 * TAU / 64.0;
@@ -1623,7 +1640,7 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             };
             skirt_cloth(b, surface, skirt);
         };
-        let leg_relief = if index == 0
+        let leg_relief = if index == outfit_base
             && kit.rig.style == Style::Wraith
             && matches!(
                 outfit.details.hip,
@@ -1656,7 +1673,7 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
                 Drape::Skirt(skirt.length),
                 &name,
                 skirt_scale,
-                belted_tassets,
+                belted_tassets && (index == 0 || armor_panel.is_none()),
                 skirt.swing_ease,
                 build,
             )
@@ -1712,7 +1729,7 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             surface = surface.fit_over(
                 under,
                 Affine3A::from_scale_rotation_translation(skirt_scale, Quat::IDENTITY, -offset),
-                outfit.skirt.is_some_and(|skirt| skirt.trim.is_some()),
+                armor_panel.or(outfit.skirt).is_some_and(|skirt| skirt.trim.is_some()),
             );
         }
         if fit_details {
@@ -2041,14 +2058,14 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 // A knee cop with a wing.
                 p.metal.blob(
                     Vec3::new(0.0, 0.0, 0.03),
-                    Vec3::new(0.07, 0.07, 0.06),
+                    PLATE_KNEE_COP_RADII,
                     2,
                     0.0,
                     STEEL * 1.05,
                 );
                 p.metal.blob(
                     Vec3::new(side * 0.05, 0.0, 0.02),
-                    Vec3::new(0.015, 0.05, 0.04),
+                    PLATE_KNEE_WING_RADII,
                     2,
                     0.0,
                     STEEL,
