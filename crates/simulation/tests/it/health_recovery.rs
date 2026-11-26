@@ -626,7 +626,8 @@ fn ordinary_portal_crossing_earns_only_its_action_ticks_and_never_heals_at_the_s
             game.tick()
         );
     }
-    assert_eq!(game.tick(), 440);
+    // Each SPD 0 crossing costs ceil(10 * 1.25) ticks.
+    assert_eq!(game.tick(), 400 + 4 * 13);
 }
 
 #[test]
