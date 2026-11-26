@@ -141,19 +141,30 @@ def choose_retreat_step(turn: Turn, damage_estimate: Callable[[Creature], int] |
             return RetreatStep(onward, improves_immediately=False)
     candidates = [direction for direction, rank in improving.items() if rank == best]
     if damage_estimate is not None and contact_score < 0 and len(candidates) > 1:
-        # Compare measured damage only when every remaining contact has an estimate.
-        costs = {}
-        for direction in candidates:
-            hits = [damage_estimate(foe) for foe in contacts_at(direction.offset)]
-            if all(hits):
-                costs[direction] = sum(hits)
-        if len(costs) == len(candidates):
-            lowest = min(costs.values())
-            candidates = [direction for direction in candidates if costs[direction] == lowest]
+        candidates = _lowest_damage_steps(candidates, contacts_at, damage_estimate)
     direction = candidates[0]
     if len(candidates) > 1:
         direction = best_onward_escape(turn, candidates, safety) or direction
     return RetreatStep(direction, improves_immediately=True)
+
+
+def _lowest_damage_steps(
+    candidates: list[Direction],
+    contacts_at: Callable[[tuple[int, int, int]], tuple[Creature, ...]],
+    damage_estimate: Callable[[Creature], int],
+) -> list[Direction]:
+    """Break a movement tie only when every remaining foe has a damage estimate."""
+    costs = {}
+    for direction in candidates:
+        total = 0
+        for foe in contacts_at(direction.offset):
+            damage = damage_estimate(foe)
+            if damage == 0:
+                return candidates
+            total += damage
+        costs[direction] = total
+    lowest = min(costs.values())
+    return [direction for direction in candidates if costs[direction] == lowest]
 
 
 def best_onward_escape(

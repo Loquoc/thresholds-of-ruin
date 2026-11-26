@@ -3601,6 +3601,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                              if turn.in_contact(foe, from_offset=action.direction.offset)]
                 self.assertEqual(remaining, [weaker])
 
+    def test_one_unknown_damage_estimate_keeps_the_terrain_based_retreat_choice(self):
+        from rogue_retreat import choose_retreat_step
+
+        room = [tile(x, y) for x in (-1, 0, 1) for y in (0, 1)]
+        foes = [{"id": name, "name": name, "position": tile(x, 1)["position"]}
+                for name, x in (("west", -1), ("east", 1))]
+        turn = player_turn(room, actors=foes, hostiles=["west", "east"])
+        preferred = choose_retreat_step(turn)
+        remaining, = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=preferred.direction.offset)]
+        self.assertEqual(choose_retreat_step(turn, lambda foe: 8 if foe == remaining else 0), preferred)
+
     def test_retreat_reuses_contact_checks_when_comparing_damage(self):
         room = [tile(x, y) for x in (-1, 0, 1) for y in (0, 1)]
         foes = [{"id": name, "name": name, "position": tile(x, 1)["position"]}
