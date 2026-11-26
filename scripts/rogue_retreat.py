@@ -4,6 +4,7 @@ from collections.abc import Callable, Set
 from functools import cache
 from typing import NamedTuple
 
+from rogue_combat import OpponentHistory
 from tor_client_bot import Action, Cell, Creature, Direction, FloorMap, Move, OpenDoor, Turn
 
 
@@ -275,6 +276,32 @@ def _preferred_visible_stairs(turn: Turn, memory: FloorMap, exits: set[str],
         if not views_by_exit:
             break
     return exits_by_rank[min(exits_by_rank)] if exits_by_rank else []
+
+
+def assess_adjacent_retreat_stairs(turn: Turn, exits: set[str],
+                                opponents: OpponentHistory) -> tuple[Move | None, set[str]]:
+    """Rank immediate exits and identify unsafe squares for longer routes this turn."""
+    contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
+    rejected = set()
+    candidates = []
+    for direction in turn.walkable_directions:
+        cell = turn.cell_at(direction.offset)
+        if cell is None or cell.key not in exits:
+            continue
+        if cell.trap:
+            rejected.add(cell.key)
+            continue
+        exposure = opponents.melee_exposure(turn, cell.offset)
+        guards = len(exposure.foes)
+        if guards and (not turn.health or guards > contacts or exposure.threatens(turn.health, rounds=2)):
+            rejected.add(cell.key)
+            continue
+        clearance = min((turn.distance_to(foe, from_offset=cell.offset) for foe in turn.hostiles), default=0)
+        candidates.append(((exposure.damage, guards, -clearance), direction))
+    if not candidates:
+        return None, rejected
+    _, direction = min(candidates, key=lambda candidate: candidate[0])
+    return Move(direction), rejected
 
 
 def stair_retreat_step(turn: Turn, memory: FloorMap, exits: set[str],

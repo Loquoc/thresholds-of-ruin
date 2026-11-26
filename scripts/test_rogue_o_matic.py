@@ -2536,6 +2536,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.opponents.damage_by_target["foe"] = 2
                 self.assertEqual(choose(player, turn), (Move(escape), "retreat_to_stairs"))
 
+    def test_adjacent_stair_assessment_reports_the_trapped_exit_alongside_the_safe_move(self):
+        from rogue_combat import OpponentHistory
+        from rogue_retreat import assess_adjacent_retreat_stairs
+
+        pit = {"id": "pit", "family": "pit", "reachable": True}
+        cells = [cell("here"), cell("clear", -1, down=True), {**cell("trapped", 1, down=True), "trap": pit}]
+        turn = player_turn(cells)
+        step, rejected = assess_adjacent_retreat_stairs(turn, {"clear", "trapped"}, OpponentHistory())
+        self.assertEqual(step, Move(Direction.WEST))
+        self.assertEqual(rejected, {"trapped"})
+
     def test_unguarded_adjacent_retreat_stairs_favor_more_distance_from_pursuit(self):
         cells = [cell(str(x), x, down=abs(x) == 1) for x in range(-3, 4)]
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)

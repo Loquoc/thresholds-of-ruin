@@ -47,7 +47,7 @@ from rogue_loot import (
 from rogue_training import purchase_training
 from rogue_trials import PotionTrials, ScrollTrials, WandTrials
 from rogue_retreat import (
-    stair_retreat_step,
+    assess_adjacent_retreat_stairs, stair_retreat_step,
     choose_retreat_step, converging_pursuers, evade_unseen_attacker,
     recovery_stair_step, route_around_danger, route_to_recovery_shelter, take_corridor,
 )
@@ -645,7 +645,7 @@ class Adventurer:
                 if returning:
                     return Move(Direction.UP), MemoryReason.RETREAT_UPSTAIRS
                 return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
-            step, rejected = self.assess_adjacent_retreat_stairs(turn, onward)
+            step, rejected = assess_adjacent_retreat_stairs(turn, onward, self.opponents)
             if step:
                 return step, MemoryReason.RETREAT_TO_STAIRS
         if returning:
@@ -693,32 +693,8 @@ class Adventurer:
         return step, MemoryReason.RETREAT_TO_STAIRS
 
     def step_onto_retreat_stair(self, turn: Turn, exits: set[str]) -> Move | None:
-        step, _ = self.assess_adjacent_retreat_stairs(turn, exits)
+        step, _ = assess_adjacent_retreat_stairs(turn, exits, self.opponents)
         return step
-
-    def assess_adjacent_retreat_stairs(self, turn: Turn, exits: set[str]) -> tuple[Move | None, set[str]]:
-        """Rank immediate exits and identify unsafe squares for longer routes this turn."""
-        contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
-        rejected = set()
-        candidates = []
-        for direction in turn.walkable_directions:
-            cell = turn.cell_at(direction.offset)
-            if cell is None or cell.key not in exits:
-                continue
-            if cell.trap:
-                rejected.add(cell.key)
-                continue
-            exposure = self.opponents.melee_exposure(turn, cell.offset)
-            guards = len(exposure.foes)
-            if guards and (not turn.health or guards > contacts or exposure.threatens(turn.health, rounds=2)):
-                rejected.add(cell.key)
-                continue
-            clearance = min((turn.distance_to(foe, from_offset=cell.offset) for foe in turn.hostiles), default=0)
-            candidates.append(((exposure.damage, guards, -clearance), direction))
-        if not candidates:
-            return None, rejected
-        _, direction = min(candidates, key=lambda candidate: candidate[0])
-        return Move(direction), rejected
 
     def evade(self, turn: Turn) -> tuple[Move, str] | None:
         step = choose_retreat_step(turn, self.opponents.damage_estimate)
