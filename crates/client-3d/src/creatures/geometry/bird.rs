@@ -300,7 +300,7 @@ pub(super) fn bird(kit: &mut Kit, lift: Entity, look: &Look) {
             0.0045,
             &|_, _| l.cloth,
         );
-        p.matte.prism(
+        p.chitin.prism(
             Vec3::new(0.0, 0.02, 0.07),
             Vec3::new(0.0, 0.0, 0.17),
             0.028,
@@ -309,7 +309,7 @@ pub(super) fn bird(kit: &mut Kit, lift: Entity, look: &Look) {
             DARK * 2.5,
             0.0,
         );
-        p.matte.prism(
+        p.chitin.prism(
             Vec3::new(0.0, 0.005, 0.07),
             Vec3::new(0.0, -0.005, 0.15),
             0.018,

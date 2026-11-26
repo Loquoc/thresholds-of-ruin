@@ -43,7 +43,7 @@ fn pharaoh_collar_emitted_triangles_clear_actual_body() {
                         let mut minimum = f32::INFINITY;
                         let mut maximum = f32::NEG_INFINITY;
                         let mut count = 0;
-                        for mesh in [&parts.metal, &parts.satin, &parts.matte] {
+                        for mesh in parts.all_builders() {
                             for tri in mesh.surface_triangles() {
                                 for p in [
                                     tri[0],
@@ -208,16 +208,16 @@ fn collar_mounts_ignore_prior_accessories_and_preserve_them() {
     };
     let mut isolated = Parts::default();
     neck_collar(&mut isolated, neck, body, &support, &look);
-    assert!(!isolated.metal.is_empty() && !isolated.satin.is_empty());
+    assert!(!isolated.gold.is_empty() && !isolated.glass.is_empty());
     let mut dressed = Parts::default();
-    for b in [&mut dressed.metal, &mut dressed.satin] {
+    for b in [&mut dressed.gold, &mut dressed.glass] {
         b.blob(Vec3::new(0.0, 0.56, 0.1), Vec3::splat(0.1), 1, 0.0, Vec3::Y);
     }
-    let prior = [&dressed.metal, &dressed.satin].map(|b| b.surface_triangles().collect::<Vec<_>>());
+    let prior = [&dressed.gold, &dressed.glass].map(|b| b.surface_triangles().collect::<Vec<_>>());
     neck_collar(&mut dressed, neck, body, &support, &look);
-    for (i, (expected, actual)) in [&isolated.metal, &isolated.satin]
+    for (i, (expected, actual)) in [&isolated.gold, &isolated.glass]
         .into_iter()
-        .zip([&dressed.metal, &dressed.satin])
+        .zip([&dressed.gold, &dressed.glass])
         .enumerate()
     {
         let actual: Vec<_> = actual.surface_triangles().collect();

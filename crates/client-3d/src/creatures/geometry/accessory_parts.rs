@@ -156,7 +156,7 @@ pub(super) fn armlet(p: &mut Parts, color: Vec3, build: f32, arm_len: f32) {
     let ring = profile.resolve_layers(p, color, None);
     if let Some(ring) = ring {
         for triangle in ring.surface_triangles() {
-            p.metal.tri(triangle, color);
+            p.gold.tri(triangle, color);
         }
     }
 }
@@ -182,7 +182,7 @@ pub(super) fn resolve_bracelet(
 
 pub(super) fn emit_bracelet(p: &mut Parts, ring: Builder, color: Vec3) {
     for triangle in ring.surface_triangles() {
-        p.metal.tri(triangle, color);
+        p.gold.tri(triangle, color);
     }
 }
 
@@ -477,16 +477,16 @@ pub(super) fn earrings(
                     continue;
                 };
                 let at = mount.surface + mount.outward * 0.002;
-                p.metal
+                p.gold
                     .prism(at, at - Vec3::Y * 0.035, 0.002, 0.002, 5, metal, 0.0);
-                p.metal.blob(
+                p.gold.blob(
                     at - Vec3::Y * 0.045,
                     Vec3::new(0.010, 0.017, 0.006),
                     1,
                     0.0,
                     metal,
                 );
-                p.satin.blob(
+                p.glass.blob(
                     at + Vec3::new(0.0, -0.045, 0.005),
                     Vec3::new(0.007, 0.012, 0.005),
                     1,
@@ -500,7 +500,7 @@ pub(super) fn earrings(
                 let Some(mount) = anatomy.attachment(form, side) else {
                     continue;
                 };
-                p.metal.blob(
+                p.gold.blob(
                     mount.surface + mount.outward * 0.002 - Vec3::Y * 0.014,
                     Vec3::new(0.006, 0.014, 0.004),
                     0,
@@ -514,7 +514,7 @@ pub(super) fn earrings(
                 let Some(mount) = anatomy.attachment(form, side) else {
                     continue;
                 };
-                p.metal.torus(
+                p.gold.torus(
                     mount.surface + mount.outward * 0.003 - Vec3::Y * 0.012,
                     Vec3::X,
                     0.012,
@@ -1249,15 +1249,15 @@ mod armlet_attachment_tests {
                 for side in [-1.0, 1.0] {
                     for style in 0..4 {
                         let mut p = layer_fixture(body, side, style);
-                        let prior_metal = p.metal.surface_triangles().count();
+                        let prior_gold = p.gold.surface_triangles().count();
                         let mut support = Builder::default();
-                        for b in [&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost, &p.glow] {
+                        for b in p.all_builders() {
                             for tri in b.surface_triangles() {
                                 support.tri(tri, BONE);
                             }
                         }
                         armlet(&mut p, GILT, body.build, body.arm_length);
-                        let ring: Vec<_> = p.metal.surface_triangles().skip(prior_metal).collect();
+                        let ring: Vec<_> = p.gold.surface_triangles().skip(prior_gold).collect();
                         assert_eq!(ring.len(), 384, "complete supported ring");
                         assert_closed_consistently_wound(&ring);
                         for tri in ring {
@@ -1306,12 +1306,12 @@ mod armlet_attachment_tests {
                 48,
                 &|_, _, _| BONE,
             );
-            let before: Vec<Vec<_>> = [&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost, &p.glow]
+            let before: Vec<Vec<_>> = [&p.matte, &p.gold, &p.satin, &p.sheer, &p.ghost, &p.glow]
                 .into_iter()
                 .map(|b| b.surface_triangles().collect())
                 .collect();
             armlet(&mut p, GILT, 1.0, 1.0);
-            let after: Vec<Vec<_>> = [&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost, &p.glow]
+            let after: Vec<Vec<_>> = [&p.matte, &p.gold, &p.satin, &p.sheer, &p.ghost, &p.glow]
                 .into_iter()
                 .map(|b| b.surface_triangles().collect())
                 .collect();
@@ -1387,7 +1387,7 @@ mod armlet_attachment_tests {
                         let mut minimum = f32::INFINITY;
                         let mut maximum = f32::NEG_INFINITY;
                         let mut count = 0;
-                        for triangle in p.metal.surface_triangles() {
+                        for triangle in p.gold.surface_triangles() {
                             for point in [
                                 triangle[0],
                                 triangle[1],

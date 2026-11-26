@@ -437,11 +437,11 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
             Transform::from_rotation(Quat::from_rotation_x(FRAC_PI_2)),
             "spear",
             |p| {
-                p.matte
+                p.wood
                     .prism(Vec3::Y * -0.7, Vec3::Y * 0.9, 0.02, 0.02, 6, WOOD, 0.0);
                 p.satin
                     .prism(Vec3::Y * 0.78, Vec3::Y * 0.9, 0.024, 0.024, 6, LEATHER, 0.0);
-                p.metal
+                p.steel
                     .prism(Vec3::Y * 0.9, Vec3::Y * 1.14, 0.045, 0.0, 4, STEEL, 0.0);
                 p.matte.prism(
                     Vec3::Y * 0.86,
@@ -849,7 +849,7 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
             );
         });
         kit.joint(hoof, lower, ankle_at, &format!("hoof{tag}"), |p| {
-            equine_parts::hoof(&mut p.matte, DARK * 2.4);
+            equine_parts::hoof(&mut p.chitin, DARK * 2.4);
         });
     }
 }

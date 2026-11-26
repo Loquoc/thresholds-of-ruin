@@ -324,6 +324,7 @@ pub fn run(diagnostics: Diagnostics) {
     }))
     .add_plugins(crate::review_clock::ReviewClockPlugin)
     .add_plugins(MaterialPlugin::<CaveMaterial>::default())
+    .add_plugins(crate::surface::ModelMaterialPlugin)
     .insert_resource(ClearColor(FOG))
     .insert_resource(AmbientLight {
         color: Color::srgb(0.5, 0.6, 0.85),

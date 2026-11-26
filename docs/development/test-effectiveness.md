@@ -1613,3 +1613,13 @@ and raised hood: each added hair-pigmented faces to the female Troll. The
 negative oracle checks the covered head, since the uncovered Troll rightly
 has its own crest. Positive witnesses retain that uncovered crest and require
 Human braid and Human/Wraith lock geometry in the appropriate regions.
+
+### Extended model materials in darkness
+
+A native fixed-camera probe ran the live model-shading system on a steel
+helmet across a dark-to-lit transition. Before the fix, a curved interior
+patch still had a visible highlight in darkness. The custom forward shader
+now skips both lighting and surface detail for unlit materials, then uses
+the normal fog and post-processing. The dark patch's mean-channel brightness varied by 26.45
+8-bit levels before the fix and 0.27 after (standard deviation). The lit
+comparison stayed unchanged. The ordinary bright-only shader smoke did not expose the defect.

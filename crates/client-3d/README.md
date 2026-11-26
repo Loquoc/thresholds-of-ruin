@@ -162,7 +162,7 @@ and stops it on exit. Other options:
   in `review-scripts/rogue-armor.json`. These paired adult costumes
   select wearer-fitted necklines, independent skirt layers, embroidery and
   shared fur, leaf or feather trim. Female cuts emphasize fitted waists,
-  exposed cleavage and split skirts; male openings are authored separately.
+  exposed intermammary sulcus and split skirts; male openings are authored separately.
   For a focused review, use `--lineups --family Warrior --outfit elven-ranger
   --capture DIR --capture-warmup 3`; repeat with `--turn 90` or `--turn 180`
   for side and rear views, and `--jump --capture-every 0.5` for motion.

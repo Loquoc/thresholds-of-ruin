@@ -207,6 +207,7 @@ fn run(path: &Path, output: &Path, offscreen: bool) -> Result<(), crate::Error> 
         app.add_plugins(plugins);
     }
     app.add_plugins(bevy::pbr::MaterialPlugin::<crate::cave::CaveMaterial>::default());
+    app.add_plugins(crate::surface::ModelMaterialPlugin);
     bevy::asset::load_internal_asset!(app, crate::cave::SHADER, "cave.wgsl", Shader::from_wgsl);
     app.insert_resource(ClearColor(Color::srgb(0.08, 0.09, 0.12)))
         .insert_resource(AmbientLight {

@@ -26,7 +26,13 @@ pub(crate) fn append(p: &mut Parts, kind: Kind) {
         Kind::PlateMail => STEEL,
         _ => IRON * 0.8,
     };
-    let body = if leathern { &mut p.matte } else { &mut p.metal };
+    let body = if leathern {
+        &mut p.satin
+    } else if kind == Kind::PlateMail {
+        &mut p.steel
+    } else {
+        &mut p.metal
+    };
     body.extrude(
         &OUTLINE,
         Vec3::new(0.0, 0.025, 0.0),
@@ -47,7 +53,7 @@ pub(crate) fn append(p: &mut Parts, kind: Kind) {
     match kind {
         Kind::RingMail => {
             for at in grid(6, 5, 0.065, 0.062) {
-                p.metal.torus(
+                p.steel.torus(
                     Vec3::new(at.x, top, at.y),
                     Vec3::Y,
                     0.024,
@@ -67,7 +73,7 @@ pub(crate) fn append(p: &mut Parts, kind: Kind) {
         }
         Kind::ScaleMail => {
             for at in grid(9, 6, 0.054, 0.045) {
-                p.metal.extrude(
+                p.steel.extrude(
                     &[
                         Vec2::new(-0.024, 0.02),
                         Vec2::new(0.024, 0.02),
@@ -86,7 +92,7 @@ pub(crate) fn append(p: &mut Parts, kind: Kind) {
         Kind::SplintMail => {
             for k in 0..6 {
                 let x = -0.125 + k as f32 * 0.05;
-                p.metal.cuboid(
+                p.steel.cuboid(
                     Vec3::new(x, top + 0.003, -0.03),
                     Vec3::new(0.018, 0.004, 0.17),
                     Quat::IDENTITY,
@@ -96,7 +102,7 @@ pub(crate) fn append(p: &mut Parts, kind: Kind) {
         }
         Kind::BandedMail => {
             for k in 0..7 {
-                p.metal.cuboid(
+                p.steel.cuboid(
                     Vec3::new(0.0, top + 0.003 + 0.002 * k as f32, 0.15 - k as f32 * 0.058),
                     Vec3::new(0.17, 0.004, 0.032),
                     Quat::IDENTITY,
@@ -152,7 +158,7 @@ pub(crate) fn append(p: &mut Parts, kind: Kind) {
     // never the character's equipped costume or an implied extra item.
     for sign in [-1.0, 1.0] {
         let cuff = Vec3::new(sign * 0.292, 0.07, -0.145);
-        let material = if leathern { &mut p.matte } else { &mut p.metal };
+        let material = if leathern { &mut p.satin } else { &mut p.metal };
         material.torus(cuff, Vec3::X, 0.041, 0.008, 10, 4, base * 1.1);
         p.matte.prism(
             cuff - Vec3::X * 0.002,
@@ -208,7 +214,7 @@ pub(crate) fn append(p: &mut Parts, kind: Kind) {
             0.0,
         );
     }
-    for builder in [&mut p.matte, &mut p.metal] {
+    for builder in p.all_builders_mut() {
         fold(builder);
     }
 }
@@ -315,11 +321,9 @@ mod tests {
             let mut p = Parts::default();
             append(&mut p, kind);
             let points: Vec<_> = p
-                .matte
-                .positions
-                .iter()
-                .chain(&p.metal.positions)
-                .copied()
+                .all_builders()
+                .into_iter()
+                .flat_map(|b| b.positions.iter().copied())
                 .collect();
             assert!(points.iter().any(|v| v[1] > 0.12), "{kind:?}: flat armor");
             assert!(
@@ -336,7 +340,7 @@ mod tests {
                 "{kind:?}: lost material construction"
             );
             signatures.push(points);
-            for builder in [&p.matte, &p.metal] {
+            for builder in p.all_builders() {
                 assert_eq!(builder.positions.len(), builder.normals.len());
                 assert!(builder
                     .normals

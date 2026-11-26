@@ -1672,7 +1672,7 @@ fn sylvan_duelist_is_additive_and_its_panels_cover_apices_but_leave_sides_open()
                 );
                 assert!(
                     !bodice_covers(body, outfit.bodice, true, Vec3::new(0.0, apex.y, apex.z)),
-                    "open cleavage"
+                    "open intermammary sulcus"
                 );
                 assert!(
                     !bodice_covers(
