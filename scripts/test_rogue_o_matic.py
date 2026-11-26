@@ -2258,7 +2258,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             (True, 7, [], True), (True, 8, [], False), (False, 7, [], False), (True, 7, [foe], False),
         ):
             with self.subTest(bow=has_bow, count=count, enemies=bool(enemies)):
-                pack = [{**arrows, "id": "packed", "quantity": count}]
+                pack = [{**arrows, "id": "quiver", "quantity": count - 1},
+                        {**arrows, "id": "loose", "quantity": 1}]
                 if has_bow:
                     pack.append(bow)
                 turn = player_turn([here, stash], ground=ground, inventory=pack, actors=enemies,

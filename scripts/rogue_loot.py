@@ -91,13 +91,20 @@ class CarriedLoot:
             return not item.known_cursed and item.identity in self._wanted_rings
         return self.by_category[item.category] < DETOUR_STOCK.get(item.category, 0)
 
+    def healing_reserve_gain(self, item: Item) -> int:
+        """Number of missing reserve doses this stack can supply."""
+        if item.identity not in HEALING_POTIONS:
+            return 0
+        missing = HEALING_RESERVE_PER_KIND - self.by_identity[item.identity]
+        return max(0, min(item.quantity, missing))
 
-def healing_reserve_gain(item: Item, carried: Counter[str | None]) -> int:
-    """Number of missing reserve doses this stack can supply."""
-    if item.identity not in HEALING_POTIONS:
-        return 0
-    missing = HEALING_RESERVE_PER_KIND - carried[item.identity]
-    return max(0, min(item.quantity, missing))
+    def needs_weapon_detour(self, item: Item, *, returning: bool, seek_arrows: bool) -> bool:
+        identity = item.identity
+        count = self.by_identity[identity]
+        if returning:
+            return seek_arrows and identity == "item.weapon.arrow" and count < 8
+        return ((identity == "item.weapon.dart" and count < 12)
+                or (identity == "item.weapon.spear" and count == 0))
 
 
 def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, objective: str,
@@ -125,7 +132,7 @@ def preferred_pickup(turn: Turn, ground_items: tuple[GroundItem, ...], *, object
     if len(useful) == 1:
         return useful[0]
     carried = CarriedLoot(turn)
-    return max(useful, key=lambda item: (healing_reserve_gain(item, carried.by_identity),
+    return max(useful, key=lambda item: (carried.healing_reserve_gain(item),
                                          carried.wants_first_melee_weapon(item)))
 
 
@@ -141,14 +148,6 @@ class LootGoals:
     def wanted(self) -> set[str]:
         """All destinations worth a long detour when a clear route exists."""
         return self.essential | self.weapons
-
-
-def needs_weapon_detour(identity: str | None, carried: Counter[str | None], *,
-                       returning: bool, needs_return_arrows: bool) -> bool:
-    if returning:
-        return identity == "item.weapon.arrow" and needs_return_arrows
-    return ((identity == "item.weapon.dart" and carried[identity] < 12)
-            or (identity == "item.weapon.spear" and carried[identity] == 0))
 
 
 def remembered_item_destinations(turn: Turn, memory: FloorMap, matches: Callable[[RememberedItem], bool]) -> set[str]:
@@ -172,15 +171,13 @@ def loot_goals(turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: b
     if not distant_items:
         return goals
     carried = CarriedLoot(turn)
-    needs_return_arrows = seek_arrows and returning and carried.by_identity["item.weapon.arrow"] < 8
     for ground in distant_items:
         item = ground.item
         key = ground.cell.key
         if (item.category == "food" or (not returning and item.identity == objective)
-                or healing_reserve_gain(item, carried.by_identity) > 0):
+                or carried.healing_reserve_gain(item) > 0):
             goals.essential.add(key)
-        elif key not in guarded and needs_weapon_detour(item.identity, carried.by_identity, returning=returning,
-                                                        needs_return_arrows=needs_return_arrows):
+        elif key not in guarded and carried.needs_weapon_detour(item, returning=returning, seek_arrows=seek_arrows):
             goals.weapons.add(key)
         if returning or turn.hostiles or key in guarded or item.identity in HEALING_POTIONS:
             continue
