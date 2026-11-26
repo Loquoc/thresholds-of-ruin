@@ -206,13 +206,17 @@ class FloorTravelTimes:
     entered_at: int | None = None
 
     def record_descent(self, floor: int, memory: FloorMap, attempt: StairAttempt, arrival_tick: int) -> None:
-        if self.entered_at is not None:
+        if self.entered_at is not None and arrival_tick > self.entered_at:
             self.descent.setdefault(floor, arrival_tick - self.entered_at)
+
+        ticks_per_step = arrival_tick - attempt.tick
+        if ticks_per_step <= 0:
+            # Arrival confirms the crossing even when the clock provides no pace estimate.
+            return
         upstairs = memory.stairs(Direction.UP)
         if upstairs:
             steps = memory.distance(attempt.origin, upstairs)
             if steps is not None:
-                ticks_per_step = arrival_tick - attempt.tick
                 self.ascent[floor] = (steps + 1) * ticks_per_step
 
     def return_ticks(self, *, through_floor: int | None = None) -> int:

@@ -1497,6 +1497,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(player.travel_times.descent, {1: 100})
         self.assertEqual(player.travel_times.ascent, {})
 
+    def test_same_tick_stair_arrival_preserves_travel_estimates(self):
+        stairs = [cell("down", down=True), cell("up", 1, up=True)]
+        for entered_at, descent in ((100, {}), (25, {2: 75})):
+            with self.subTest(entered_at=entered_at):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+                player.observe(player_turn(stairs, tick=entered_at))
+                start = player_turn(stairs, tick=100)
+                player.observe(start)
+                player.travel_times.ascent[2] = 200
+                player.admitted(start, Move(Direction.DOWN))
+                player.observe(player_turn([cell("landing", up=True)], tick=100))
+                self.assertEqual(player.depth, 3)
+                self.assertEqual(player.travel_times.ascent, {2: 200})
+                self.assertEqual(player.travel_times.descent, descent)
+
     def test_estimates_return_travel_on_a_route_with_a_remembered_diagonal(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         tiles = [cell("corner"), cell("west", -1), cell("north"), cell("up", -1, up=True)]
