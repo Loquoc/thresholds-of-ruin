@@ -178,8 +178,8 @@ class Turn:
         failures = self._picture.get("intention_failures", {})
         return tuple(Activity.from_row(row, failures.get(row["intention"])) for row in self._picture.get("finished_intentions", ()))
 
-    def outcome_of(self, result: Result) -> ActivityPhase | None:
-        """Latest observed phase for this receipt, or None outside the retained history."""
+    def activity_for(self, result: Result) -> Activity | None:
+        """Latest observed activity for this receipt, or None outside the retained history."""
         original = result.activity
         if original is None:
             return None
@@ -190,8 +190,13 @@ class Turn:
                     and activity.branch == original.branch
                     and activity.intention == original.intention
                 ):
-                    return activity.phase
+                    return activity
         return None
+
+    def outcome_of(self, result: Result) -> ActivityPhase | None:
+        """Latest observed phase for this receipt, or None outside the retained history."""
+        activity = self.activity_for(result)
+        return activity.phase if activity else None
 
     @property
     def terminal(self) -> bool:
@@ -644,6 +649,12 @@ class Turn:
         stats = self._view.get("combat", {}).get("own_stats", {})
         return stats.get("nutrition", {}).get("reserve")
 
+    @property
+    def starvation_threshold(self) -> int | None:
+        """Reserve at which this actor starves, if disclosed for its food clock."""
+        food = self._view.get("combat", {}).get("own_stats", {}).get("nutrition", {})
+        return food.get("starve_at") if food.get("kind") == "required" else None
+
     @cached_property
     def recovery(self) -> Recovery | None:
         stats = self._view.get("combat", {}).get("own_stats", {})
@@ -777,13 +788,14 @@ class Turn:
         )
         return sorted(visible, key=lambda cell: sum(n * n for n in cell))
 
-    def ranged_attacks(self, *, max_distance: int | None = None) -> Iterator[Shot]:
+    def ranged_attacks(self, *, max_distance: int | None = None, hostile_only: bool = False) -> Iterator[Shot]:
         """Aim at disclosed occupied cells, including visible creatures above or below.
 
         Each candidate uses the chosen delivery's exact item and socket. The server
         traces the projectile and resolves collisions. Distance is a policy limit.
         """
-        targets = [(offset, creature) for creature in self.creatures for offset in self._aim_offsets(creature, max_distance)]
+        creatures = self.hostiles if hostile_only else self.creatures
+        targets = [(offset, creature) for creature in creatures for offset in self._aim_offsets(creature, max_distance)]
         if not targets:
             return
         for option in self.projectiles():

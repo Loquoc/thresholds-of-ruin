@@ -1,0 +1,185 @@
+"""Run the Rogue player session and report decisions and outcomes."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import asdict
+
+from rogue_equipment_history import EquipmentHistory
+from rogue_player import Adventurer
+from tor_client_bot import Decision, Direction, Outcome, Result, Session, TrainingRefused, Turn, describe_action
+
+
+def trace_result(result: Result) -> dict:
+    receipt = {"intention": result.intention}
+    if result.activity:
+        receipt.update(type="admitted", **asdict(result.activity))
+    record = {"status": result.status.value, "receipt": receipt,
+              "code": result.code, "message": result.reason}
+    if result.request_id:
+        record["request_id"] = result.request_id
+    return record
+
+
+def terminal_combat_events(turn: Turn, updates: list[dict]) -> list[dict]:
+    """Keep earlier journal batches when the final picture repeats only their tail."""
+    snapshot = turn.recent_combat.records()
+    if not snapshot or updates[-len(snapshot):] == snapshot:
+        return updates
+    return snapshot
+
+
+def terminal_outcome(turn: Turn, events: list[dict]) -> tuple[str, dict]:
+    """Classify the terminal picture and retain the evidence used by cohort reports."""
+    detail = {
+        "last_combat_events": terminal_combat_events(turn, events),
+        "events_since_previous_action": events,
+        "self_target": turn.self_target,
+    }
+    if turn.victorious:
+        return "victory", detail
+    if turn.dead:
+        threshold = turn.starvation_threshold
+        if threshold is not None:
+            detail["last_nutrition"] = {"kind": "required", "reserve": turn.food_reserve, "starve_at": threshold}
+        return "death", detail
+    return "terminal", detail
+
+
+def trace_position(turn: Turn, player: Adventurer) -> dict:
+    memory = player.maps.get(player.depth)
+    return {
+        "floor": player.depth,
+        "cell": turn.cell.key if turn.cell else None,
+        "known_cells": len(memory.cells) if memory is not None else None,
+        "nutrition_reserve": turn.food_reserve,
+    }
+
+
+def trace_navigation(player: Adventurer) -> dict:
+    """Describe the floor where the player exhausted its disclosed routes."""
+    memory = player.maps[player.depth]
+    return {
+        "floor": player.depth,
+        "visited_cells": len(memory.visited),
+        "known_up_stairs": len(memory.stairs(Direction.UP)),
+        "known_down_stairs": len(memory.stairs(Direction.DOWN)),
+        "searches_admitted": sum(player.search_history.admissions[key] for key in memory.cells),
+    }
+
+
+def trace_previous_intention(turn: Turn, previous: Result | None) -> dict:
+    activity = turn.activity_for(previous) if previous else None
+    detail = {"previous_intention_id": previous.intention if previous else None,
+              "previous_intention_phase": activity.phase if activity else None}
+    if activity and activity.failure:
+        detail["previous_intention_failure"] = activity.failure
+        if activity.failed_action:
+            detail["previous_failed_action"] = activity.failed_action
+    return detail
+
+
+def trace_decision(decision: Decision, player: Adventurer, *, record_decisions: bool) -> dict:
+    """Describe what was visible when the player chose the current action."""
+    turn = decision.turn
+    return {
+        **({"recording": turn.recording()} if record_decisions else {}),
+        **trace_position(turn, player),
+        "tick": turn.tick,
+        "reachable_pickups": [
+            {"item": ground.item.target, "category": ground.item.category,
+             "identity": ground.item.identity, "quantity": ground.item.quantity,
+             "cell": ground.cell.key if ground.cell else None}
+            for ground in turn.ground_items if ground.reachable
+        ],
+        **({"stalled": True} if decision.stalled else {}),
+        **trace_previous_intention(turn, decision.previous),
+        "health_recovery": asdict(turn.recovery) if turn.recovery else None,
+        "events_since_previous_action": decision.combat.records(),
+    }
+
+
+def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], None],
+         *, record_decisions: bool = False) -> dict:
+    """Observe the outcome after the last budgeted submission, including victory."""
+    count = 0
+    deepest = player.depth
+    acquired = False
+    detail: dict[str, object] = {}
+    equipment = EquipmentHistory()
+    for decision in game.decisions(include_stalls=True):
+        turn, combat = decision.turn, decision.combat
+        equipment.observe(turn)
+        if player.training_checked_at is None:
+            player.training_checked_at = turn.hit_dice
+        previous = decision.previous
+        acquired |= player.carrying_objective(turn)
+        if turn.terminal:
+            player.observe_stair(turn)
+            deepest = max(deepest, player.depth)
+            reason, detail = terminal_outcome(turn, combat.records())
+            break
+        player.observe(turn, combat)
+        deepest = max(deepest, player.depth)
+        if count >= budget:
+            reason = "action_budget"
+            break
+        purchase = None
+        action = None
+        if player.ready_to_train(turn, stalled=decision.stalled):
+            try:
+                purchase = player.train(turn, game.training)
+            except TrainingRefused as error:
+                purchase = {"type": f"training_{error.operation}"}, error.result
+        if purchase:
+            command, result = purchase
+            reason = "earned_training"
+        else:
+            action, reason = player.stalled(turn, previous) if decision.stalled else player.choose(turn)
+            if action is None:
+                if decision.stalled:
+                    detail.update(health=asdict(turn.health) if turn.health else None,
+                                  conditions=[asdict(condition) for condition in turn.conditions])
+                elif reason == "no_disclosed_route":
+                    detail["navigation"] = trace_navigation(player)
+                break
+            result = turn.submit(action)
+            command = describe_action(action)
+        count += 1
+        emit({
+            **trace_decision(decision, player, record_decisions=record_decisions),
+            "reason": reason,
+            "action": command,
+            "result": trace_result(result),
+            "amulet_acquired": acquired,
+        })
+        if result.status is Outcome.CONFIRMED:
+            if action is not None:
+                player.admitted(turn, action, result, reason=reason)
+                equipment.admitted(action)
+        elif not result.stale:
+            previous = result
+            reason = result.reason or result.status.value
+            break
+    else:
+        raise RuntimeError("The decision stream ended before a terminal picture")
+    if not turn.terminal:
+        detail.update(trace_position(turn, player))
+    ascent_by_floor = player.travel_times.ascent.copy()
+    detail.update(
+        **equipment.report(),
+        estimated_ascent_ticks_by_floor=ascent_by_floor,
+        estimated_ascent_ticks=sum(ascent_by_floor.values()),
+    )
+    if record_decisions:
+        detail["recording"] = turn.recording()
+    if previous:
+        detail.update(trace_previous_intention(turn, previous))
+    return {
+        "terminal": reason,
+        "actions": count,
+        "max_depth": deepest,
+        "amulet_acquired": acquired,
+        "tick": turn.tick,
+        **detail,
+    }

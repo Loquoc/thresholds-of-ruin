@@ -153,6 +153,13 @@ paused, rejected or concurrent work. Increasing a timeout or waiting until an
 unrelated later frame can hide the race the test should detect. The [testing guide](testing.md) describes supported drivers and lifecycle
 boundaries.
 
+For Rogue cohort reports, exercise intermediate phases before reporting a Search
+outcome. The admission-floor fixture originally went straight to resolution or
+failure. Adding a started and a queued observation made both counts fall to
+zero. The parser now keeps each admission floor until a terminal phase arrives.
+The fixture checks trace accounting across floors. It does not measure how
+often this sequence occurs in campaigns.
+
 ## Procedural models: independent geometry and visible quality
 
 ### Test emitted surfaces, not only recipe parameters

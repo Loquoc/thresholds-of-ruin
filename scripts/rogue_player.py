@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import asdict, dataclass, field
-from statistics import median_low
-from typing import Callable
+from collections.abc import Iterable, Set
+from dataclasses import dataclass, field
+from enum import StrEnum
 
 from tor_client_bot import (
-    AbilityOutcome,
     Action,
     ActivityChoice,
     ActivityPhase,
@@ -20,45 +18,126 @@ from tor_client_bot import (
     Creature,
     Escape,
     FloorMap,
-    Injury,
+    GroundItem,
+    Identify,
     Item,
     ItemUse,
     Move,
-    Outcome,
     Pickup,
     RestorableLosses,
     Result,
-    Session,
     StairAttempt,
     Shot,
     Turn,
     Training,
-    TrainingKind,
-    TrainingRefused,
     UseAbility,
     UseItem,
     Wait,
     Zap,
-    describe_action,
 )
 
-
+from rogue_combat import choose_healing_potion as choose_healing_potion
+from rogue_combat import (
+    below_half_health, choose_melee_attack, choose_projectile, ranked_melee_targets, includes_self_damage, recovery_deficit,
+    MeleeExposure, OpponentHistory, PolymorphHistory, witnessed_unseen_attack,
+)
+from rogue_loot import (
+    LootGoals, guarded_supply_cells, loot_goals, preferred_pickup, remembered_item_destinations, route_to_loot,
+)
+from rogue_training import purchase_training
+from rogue_trials import PotionTrials, ScrollTrials, WandTrials
+from rogue_retreat import (
+    assess_adjacent_retreat_stairs, stair_retreat_step,
+    choose_retreat_step, converging_pursuers, evade_unseen_attacker,
+    recovery_stair_step, route_around_danger, route_to_recovery_shelter, take_corridor,
+)
+from rogue_search import ORDINARY_WALL_SEARCHES, SearchHistory
+from rogue_food import (
+    MEAL_HUNGER, URGENT_HUNGER, FoodScoutHistory, MealHistory, choose_meal, edible_items, estimate_carried_food,
+    FloorTravelTimes,
+)
 from rogue_gear import (
-    IDENTIFY_CATEGORIES, EquipmentHistory, choose_armor, choose_ring, improve_worn_gear,
-    needs_identification, ready_weapon, ring_upgrades,
+    can_wield_shortbow, choose_armor, choose_growth_or_identification, choose_ring, improve_worn_gear,
+    identification_target, offered_item_use, ready_weapon, ready_weapon_for_range, reveal_unseen_attacker,
 )
 
 
-DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
-LOOT_CLASSES = {"amulet", "armor", "coin", "food", "potion", "ring", "scroll", "tool", "wand", "weapon"}
-DEAD_END_SEARCHES = 6
+RECENT_DANGER_TICKS = 1200
 ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
 ELEMENTAL_RAY_RANGE = 6
+
+
+class MemoryReason(StrEnum):
+    """Trace reasons that also govern memory updates on admission."""
+
+    CANCEL_STALLED_SCROLL = "cancel_stalled_scroll"
+    CANCEL_STALLED_STAIR = "cancel_stalled_stair"
+    WAIT_AFTER_CANCEL = "wait_after_cancel"
+    TEST_UNKNOWN_DEVICE = "test_unknown_device"
+    LIGHT_ROOM = "light_room"
+    SLOW_APPROACH = "slow_approach"
+    POLYMORPH_THREAT = "polymorph_threat"
+    SCOUT_FOR_FOOD = "scout_for_food"
+    SEEK_STAIRS = "seek_stairs"
+    EXPLORE = "explore"
+    TAKE_CORRIDOR = "take_corridor"
+    RETREAT_TO_STAIRS = "retreat_to_stairs"
+    RETREAT = "retreat"
+    BREAK_CONTACT = "break_contact"
+    TEST_UNKNOWN_MAGIC = "test_unknown_magic"
+    STUDY_SCROLL_AT_EXIT = "study_scroll_at_exit"
+    RETREAT_UPSTAIRS = "retreat_upstairs"
+    RETREAT_DOWNSTAIRS = "retreat_downstairs"
+
+
 CONTROL_DEVICES = (
-    ("item.wand.wand-slow", "slow_approach"),
-    ("item.wand.wand-polymorph", "polymorph_threat"),
+    ("item.wand.wand-slow", MemoryReason.SLOW_APPROACH),
+    ("item.wand.wand-polymorph", MemoryReason.POLYMORPH_THREAT),
     ("item.wand.wand-magic-missile", "magic_missile"),
 )
+
+
+@dataclass(frozen=True)
+class PendingStair:
+    attempt: StairAttempt
+    pursuers: tuple[str, ...]
+
+    @property
+    def departure(self) -> tuple[str, Direction]:
+        """The origin and direction share one cancellation allowance across retries."""
+        return self.attempt.origin, self.attempt.direction
+
+
+@dataclass
+class StairCrossings:
+    pending: PendingStair | None = None
+    cancelled_departures: set[tuple[str, Direction]] = field(default_factory=set)
+    deferred_departure: tuple[str, Direction] | None = None
+
+    def can_cancel(self, previous: Result) -> bool:
+        pending = self.pending
+        return (pending is not None and pending.attempt.receipt == previous
+                and pending.departure not in self.cancelled_departures)
+
+    def record_cancellation(self) -> None:
+        if self.pending is not None:
+            self.cancelled_departures.add(self.pending.departure)
+            self.deferred_departure = self.pending.departure
+
+    def observe(self, turn: Turn) -> PendingStair | None:
+        """Return a witnessed arrival once. Keep uncertain or still-busy crossings pending."""
+        pending = self.pending
+        if pending is None:
+            return None
+        arrived = turn.stair_arrival(pending.attempt)
+        if arrived is False:
+            self.pending = None
+        elif arrived and (turn.can_act or turn.terminal):
+            self.pending = None
+            self.cancelled_departures.clear()
+            self.deferred_departure = None
+            return pending
+        return None
 
 
 @dataclass
@@ -70,48 +149,42 @@ class Adventurer:
     last_exploration_origin: str | None = None
     corridor_stand: tuple[str, int] | None = None
     last_shot_tick: int | None = None
-    searches: Counter[str] = field(default_factory=Counter)
-    completed_end_searches: Counter[str] = field(default_factory=Counter)
-    pending_end_search: tuple[str, Result] | None = None
-    wall_searches: Counter[str] = field(default_factory=Counter)
-    ascent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
-    descent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
-    entered_floor_at: int | None = None
-    food_value: dict[str, int] = field(default_factory=dict)
-    pending_meal: tuple[str, int, int] | None = None
-    # A floor gets one bounded detour. A confirmed increase in supplies ends it early.
-    food_scouts: dict[int, tuple[int, int]] = field(default_factory=dict)
-    pending_stair: StairAttempt | None = None
-    stair_pursuers: tuple[str, ...] = ()
+    search_history: SearchHistory = field(default_factory=SearchHistory)
+    travel_times: FloorTravelTimes = field(default_factory=FloorTravelTimes)
+    meals: MealHistory = field(default_factory=MealHistory)
+    food_scouts: FoodScoutHistory = field(default_factory=FoodScoutHistory)
+    crossings: StairCrossings = field(default_factory=StairCrossings)
     last_guarded_landing: tuple[str, str] | None = None
     unsafe_stairs: dict[tuple[str, Direction], int] = field(default_factory=dict)
-    cancelled_stair_origin: str | None = None
-    wait_after_cancel: bool = False
 
     last_unseen_attack: tuple[str, int] | None = None
     previous_health: int | None = None
-    observed_loss: Counter[str] = field(default_factory=Counter)
-    observed_loss_by_name: Counter[str] = field(default_factory=Counter)
-    tried_unknown_scroll: bool = False
-    sampled_potions: set[str] = field(default_factory=set)
-    pending_scroll_trial: tuple[Result, str] | None = None
-    stalled_scrolls: set[tuple[int, str]] = field(default_factory=set)
-    sampled_scrolls: set[str] = field(default_factory=set)
-    sampled_wands: set[str] = field(default_factory=set)
-    guarded_supplies: set[str] = field(default_factory=set)
-    tried_unmeasured_devices: set[str] = field(default_factory=set)
+    opponents: OpponentHistory = field(default_factory=OpponentHistory)
+    potion_trials: PotionTrials = field(default_factory=PotionTrials)
+    scroll_trials: ScrollTrials = field(default_factory=ScrollTrials)
+    wand_trials: WandTrials = field(default_factory=WandTrials)
+    supplies_guarded_until: dict[str, int] = field(default_factory=dict)
     attempted_slow: set[str] = field(default_factory=set)
-    attempted_polymorph: set[str] = field(default_factory=set)
-    resisted_polymorph: set[str] = field(default_factory=set)
+    polymorph: PolymorphHistory = field(default_factory=PolymorphHistory)
     attempted_room_light: set[int] = field(default_factory=set)
     previous_losses: RestorableLosses | None = None
-    draining_creatures: set[str] = field(default_factory=set)
     danger_until: dict[str, int] = field(default_factory=dict)
     recovering_from_pursuit: bool = False
     recovery_landing: str | None = None
     last_retreat_origin: str | None = None
     training_checked_at: int | None = None
     growth_locked: bool = False
+
+    @property
+    def pending_stair(self) -> PendingStair | None:
+        return self.crossings.pending
+
+    def ready_to_train(self, turn: Turn, *, stalled: bool) -> bool:
+        if self.growth_locked or turn.hit_dice is None or turn.hit_dice == self.training_checked_at:
+            return False
+        if stalled or not turn.can_act or turn.can_resume or turn.needs_identification:
+            return False
+        return not turn.falling and not turn.hostiles and self.pending_stair is None
 
     def train(self, turn: Turn, training: Training) -> tuple[dict, Result] | None:
         """Try one safe purchase, then let the next observation show the new build."""
@@ -120,569 +193,534 @@ class Adventurer:
             self.growth_locked = build.locked
             self.training_checked_at = turn.hit_dice
             return None
-        skill = "spellcasting" if "spellcasting" in build.starting_skills else "heavy_weaponry"
-        priorities = [(TrainingKind.TALENT, "rattling_blow"), (TrainingKind.TALENT, "dislocating_strike"),
-                      (TrainingKind.SKILL, skill)]
-        pools = training.pools()
-        for kind, identity in priorities:
-            eligible = [p for p in pools if p.available and kind in p.allowed]
-            if not eligible:
-                continue
-            option = next((o for o in training.options(kind) if o.identity == identity and not o.forms), None)
-            if option is None:
-                continue
-            for pool in eligible:
-                try:
-                    preview = training.preview(pool, option)
-                except TrainingRefused as error:
-                    if error.result.status is Outcome.REJECTED and not error.result.stale:
-                        continue
-                    raise
-                if not preview.would_die:
-                    return {"type": "purchase", "kind": kind.value, "id": identity}, training.confirm(preview)
+        if purchase := purchase_training(training, build.starting_skills):
+            return purchase
         self.training_checked_at = turn.hit_dice
         return None
 
+    def holding_corridor(self, cell: Cell, tick: int) -> bool:
+        if self.corridor_stand is None:
+            return False
+        entrance, deadline = self.corridor_stand
+        return cell.key == entrance and tick < deadline
+
     def observe(self, turn: Turn, combat: CombatReport | None = None) -> None:
         here = turn.cell
-        if self.pending_end_search:
-            origin, receipt = self.pending_end_search
-            phase = turn.outcome_of(receipt)
-            if phase is ActivityPhase.RESOLVED:
-                self.completed_end_searches[origin] += 1
-            if phase in (ActivityPhase.RESOLVED, ActivityPhase.FAILED, ActivityPhase.CANCELLED):
-                self.pending_end_search = None
-        for ground in turn.ground_items:
-            if (ground.cell and (ground.item.category in DETOUR_STOCK or ground.item.category in {"armor", "ring"}) and
-                    any(turn.distance_to(foe, from_offset=ground.offset) <= 1 for foe in turn.hostiles)):
-                self.guarded_supplies.add(ground.cell.key)
-        if self.entered_floor_at is None:
-            self.entered_floor_at = turn.tick
-        if self.pending_meal and turn.can_act:
-            identity, count, reserve = self.pending_meal
-            remaining = sum(item.quantity for item in turn.inventory if item.identity == identity)
-            if remaining < count and turn.nutrition:
-                gain = turn.nutrition.reserve - reserve
-                if gain > 0:
-                    self.food_value[identity] = min(gain, self.food_value.get(identity, gain))
-            self.pending_meal = None
+        if here and turn.can_act and not self.holding_corridor(here, turn.tick):
+            self.corridor_stand = None
+        self.search_history.observe(turn)
+        self.potion_trials.observe(turn)
+        self.scroll_trials.observe(turn)
+        self.expire_danger_warnings(turn.tick)
+        self.supplies_guarded_until.update(dict.fromkeys(guarded_supply_cells(turn), turn.tick + RECENT_DANGER_TICKS))
+        if self.travel_times.entered_at is None:
+            self.travel_times.entered_at = turn.tick
+        self.meals.observe(turn)
+        self.observe_combat(turn, turn.recent_combat if combat is None else combat)
+        self.observe_stair(turn)
+        if self.pending_stair:
+            return
+        self.food_scouts.observe(self.depth, turn)
+        if self.depth not in self.maps:
+            self.maps[self.depth] = FloorMap()
+        self.maps[self.depth].observe(turn)
+        if here and here.lit:
+            self.attempted_room_light.discard(self.depth)
+
+    def expire_danger_warnings(self, tick: int) -> None:
+        for warnings in (self.danger_until, self.supplies_guarded_until, self.unsafe_stairs):
+            if warnings:
+                expired = [key for key, deadline in warnings.items() if deadline <= tick]
+                for key in expired:
+                    del warnings[key]
+
+    def observe_combat(self, turn: Turn, report: CombatReport) -> None:
+        here = turn.cell
         health = turn.health
-        if health and health.current * 5 >= health.maximum * 4:
+        if health and recovery_deficit(health) == 0:
             self.recovering_from_pursuit = False
             self.recovery_landing = None
         loss = self.previous_health - health.current if health and self.previous_health is not None else 0
         self.previous_health = health.current if health else None
-        report = turn.recent_combat if combat is None else combat
-        for effect in report.outgoing:
-            target = effect.target
-            if (target is not None and target in self.attempted_polymorph and target not in self.resisted_polymorph
-                    and effect.ability == "rogue.wand_polymorph" and effect.outcome is AbilityOutcome.UNAFFECTED):
-                self.attempted_polymorph.remove(target)
-                self.resisted_polymorph.add(target)
-        incoming = report.incoming
         losses = turn.restorable_losses
-        lasting_injury = losses and self.previous_losses and losses.increased_since(self.previous_losses)
+        previous = self.previous_losses
         self.previous_losses = losses
-        if loss > 0 or lasting_injury:
-            # Net HP loss is an estimate. Multiple possible sources make attribution ambiguous.
-            sources = {event.caster for event in incoming if event.outcome is AbilityOutcome.APPLIED}
-            if len(sources) == 1 and (source := next(iter(sources))) is not None:
-                if loss > 0:
-                    self.observed_loss[source] = max(loss, self.observed_loss[source])
-                for foe in turn.hostiles:
-                    if foe.target == source:
-                        if loss > 0:
-                            self.observed_loss_by_name[foe.name] = max(loss, self.observed_loss_by_name[foe.name])
-                        if lasting_injury:
-                            self.draining_creatures.add(foe.name)
-        if self.danger_until:
-            self.danger_until = {
-                key: expiry for key, expiry in self.danger_until.items() if expiry > turn.tick
-            }
-        if here and (turn.hostiles or (loss > 0 and incoming)):
-            self.danger_until[here.key] = turn.tick + 1200
+        lasting_injury = losses is not None and previous is not None and losses.increased_since(previous)
+        outgoing = report.outgoing
+        self.polymorph.observe(outgoing)
+        attributable_loss = 0 if includes_self_damage(outgoing, turn.self_target) else loss
+        incoming = report.incoming
+        self.opponents.record_injury(turn.hostiles, incoming, attributable_loss, lasting_injury=lasting_injury)
+        injury_from_incoming = attributable_loss > 0 or lasting_injury
+        if here:
+            unseen_attack = witnessed_unseen_attack(incoming, turn.hostiles, injured=injury_from_incoming)
+            if unseen_attack:
+                self.last_unseen_attack = here.key, turn.tick
+            if turn.hostiles or unseen_attack or (injury_from_incoming and incoming):
+                self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:
-            self.tried_unknown_scroll = False
+            self.scroll_trials.tried_in_encounter = False
             self.last_retreat_origin = None
-        if here and any(
-            event.unseen
-            and (
-                event.outcome is AbilityOutcome.MISS
-                or (event.outcome is AbilityOutcome.APPLIED and loss > 0)
+
+    def observe_stair(self, turn: Turn) -> None:
+        if arrival := self.crossings.observe(turn):
+            self.record_stair_arrival(turn, arrival)
+
+    def record_stair_arrival(self, turn: Turn, pending: PendingStair) -> None:
+        attempt = pending.attempt
+        landing = attempt.landing or turn.cell.key
+        if self.last_unseen_attack and turn.cell and self.last_unseen_attack[0] != turn.cell.key:
+            self.last_unseen_attack = None
+        if pending.pursuers:
+            if attempt.direction is Direction.UP and len(pending.pursuers) == 1:
+                self.last_guarded_landing = attempt.origin, pending.pursuers[0]
+            reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
+            self.unsafe_stairs[landing, reverse] = self.danger_until.get(
+                attempt.origin, turn.tick)
+        self.food_scouts.finish(self.depth)
+        if attempt.direction is Direction.DOWN:
+            self.travel_times.record_descent(self.depth, self.maps[self.depth], attempt, turn.tick)
+            self.depth += 1
+        else:
+            self.depth -= 1
+            health = turn.health
+            self.recovering_from_pursuit = bool(
+                health
+                and recovery_deficit(health) > 0
+                and not self.carrying_objective(turn)
             )
-            for event in incoming
-        ):
-            self.last_unseen_attack = here.key, turn.tick
-        if self.pending_stair:
-            attempt = self.pending_stair
-            if here is None or not turn.can_act:
-                return
-            arrived = turn.stair_arrival(attempt)
-            if arrived is None:
-                return
-            if arrived:
-                if self.stair_pursuers:
-                    if attempt.direction is Direction.UP and len(self.stair_pursuers) == 1:
-                        self.last_guarded_landing = attempt.origin, self.stair_pursuers[0]
-                    reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
-                    self.unsafe_stairs[attempt.landing or here.key, reverse] = self.danger_until.get(
-                        attempt.origin, turn.tick)
-                self.cancelled_stair_origin = None
-                if attempt.direction is Direction.DOWN:
-                    previous = self.maps[self.depth]
-                    upstairs = previous.stairs(Direction.UP)
-                    distance = previous.distance(attempt.origin, upstairs)
-                    if distance is not None:
-                        self.ascent_ticks_by_floor[self.depth] = (distance + 1) * (turn.tick - attempt.tick)
-                    # Forecast unfamiliar floors from the first outbound visit.
-                    self.descent_ticks_by_floor.setdefault(self.depth, turn.tick - self.entered_floor_at)
-                    self.depth += 1
-                else:
-                    self.depth -= 1
-                    self.recovering_from_pursuit = bool(
-                        health
-                        and health.current * 5 < health.maximum * 4
-                        and not self.carrying_objective(turn)
-                    )
-                self.recovery_landing = (
-                    (attempt.landing or here.key) if attempt.direction is Direction.UP and self.recovering_from_pursuit else None
-                )
-                self.entered_floor_at = turn.tick
-            self.pending_stair = None
-            self.stair_pursuers = ()
-        self.maps.setdefault(self.depth, FloorMap()).observe(turn)
-        if here and here.lit:
-            self.attempted_room_light.discard(self.depth)
+        self.recovery_landing = (
+            landing if attempt.direction is Direction.UP and self.recovering_from_pursuit else None
+        )
+        self.travel_times.entered_at = turn.tick
 
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
-        if reason == "cancel_stalled_scroll" and self.pending_scroll_trial:
-            self.stalled_scrolls.add((self.depth, self.pending_scroll_trial[1]))
-        self.pending_scroll_trial = None
-        if reason == "cancel_stalled_stair" and self.pending_stair:
-            self.cancelled_stair_origin = self.pending_stair.origin
-            self.wait_after_cancel = True
-        elif reason == "wait_after_cancel":
-            self.wait_after_cancel = False
-        if isinstance(action, Zap) and action.device.charges is None:
-            self.tried_unmeasured_devices.add(action.device.item.target)
-        if isinstance(action, Zap) and reason == "test_unknown_device":
-            self.sampled_wands.add(action.device.item.appearance or action.device.item.name)
-        if isinstance(action, Zap) and reason == "light_room":
+        """Record the policy decision and the admitted action, which can both change memory."""
+        match reason:
+            case MemoryReason.SCOUT_FOR_FOOD:
+                self.food_scouts.start_if_new(self.depth, turn)
+            case MemoryReason.SEEK_STAIRS:
+                self.food_scouts.finish(self.depth)
+            case MemoryReason.CANCEL_STALLED_SCROLL:
+                self.scroll_trials.interrupted(turn)
+            case MemoryReason.CANCEL_STALLED_STAIR:
+                self.crossings.record_cancellation()
+
+        if not isinstance(action, (ActivityChoice, Identify)):
+            self.crossings.deferred_departure = None
+
+        match action:
+            case Pickup() if action.item.category == "food":
+                self.food_scouts.before_food_pickup(self.depth, turn)
+            case Zap():
+                self.remember_zap(turn, action, reason)
+            case Move():
+                self.remember_move(turn, action, receipt, reason)
+            case UseItem():
+                self.remember_item_use(turn, action, receipt, reason)
+            case UseAbility() if action.ability.identity == "rogue.search" and turn.cell:
+                self.search_history.admit(turn, turn.cell, receipt, self.maps.get(self.depth))
+            case Shot():
+                self.last_shot_tick = turn.tick
+
+    def remember_item_use(self, turn: Turn, action: UseItem, receipt: Result | None, reason: str | None) -> None:
+        item = action.item
+        if action.use is ItemUse.DRINK and item.identity is None:
+            self.potion_trials.admitted(turn, item, receipt)
+        elif action.use is ItemUse.READ and item.identity is None:
+            trial = reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}
+            self.scroll_trials.admitted(turn, self.depth, item, receipt if trial else None)
+        elif action.use is ItemUse.EAT:
+            self.meals.admitted(turn, item, receipt)
+
+    def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
+        if turn.cell is None:
+            return
+        self.last_exploration_origin = turn.cell.key if reason == MemoryReason.EXPLORE else None
+        self.corridor_stand = None
+        if reason == MemoryReason.TAKE_CORRIDOR and (entrance := turn.cell_at(action.direction.offset)):
+            # Allow pursuers to reach the choke even when the doorway breaks sight.
+            self.corridor_stand = entrance.key, turn.tick + 600
+        self.last_retreat_origin = turn.cell.key if reason == MemoryReason.RETREAT_TO_STAIRS else None
+        if (reason in {MemoryReason.RETREAT, MemoryReason.BREAK_CONTACT}
+                and below_half_health(turn.health)):
+            self.recovering_from_pursuit = True
+        if action.direction in (Direction.UP, Direction.DOWN):
+            pursuers = ()
+            if reason in {MemoryReason.RETREAT_UPSTAIRS, MemoryReason.RETREAT_DOWNSTAIRS}:
+                pursuers = tuple(foe.target for foe in turn.hostiles)
+            self.crossings.pending = PendingStair(turn.stair_attempt(action, receipt), pursuers)
+
+    def remember_zap(self, turn: Turn, action: Zap, reason: str | None) -> None:
+        self.wand_trials.admitted(action.device, experiment=reason == MemoryReason.TEST_UNKNOWN_DEVICE)
+        if reason == MemoryReason.LIGHT_ROOM:
             self.attempted_room_light.add(self.depth)
-        if reason in {"slow_approach", "polymorph_threat"} and isinstance(action, Zap) and isinstance(action.target, Cell):
-            attempted = self.attempted_slow if reason == "slow_approach" else self.attempted_polymorph
-            attempted.update(foe.target for foe in turn.hostiles if action.target in turn.cells_of(foe))
-        if isinstance(action, Move) and turn.cell:
-            if reason == "seek_stairs" and self.depth in self.food_scouts:
-                deadline, stock = self.food_scouts[self.depth]
-                if turn.tick < deadline:
-                    self.food_scouts[self.depth] = turn.tick, stock
-            self.last_exploration_origin = turn.cell.key if reason == "explore" else None
-            self.corridor_stand = None
-            if reason == "take_corridor" and (entrance := turn.cell_at(action.direction.offset)):
-                # Allow pursuers to reach the choke even when the doorway breaks sight.
-                self.corridor_stand = entrance.key, turn.tick + 600
-            self.last_retreat_origin = turn.cell.key if reason == "retreat_to_stairs" else None
-            if reason in {"retreat", "break_contact"} and turn.health and turn.health.current * 2 < turn.health.maximum:
-                self.recovering_from_pursuit = True
-        if isinstance(action, UseItem) and action.use is ItemUse.DRINK and action.item.identity is None:
-            self.sampled_potions.add(action.item.appearance or action.item.name)
-        if turn.cell and isinstance(action, UseAbility) and action.ability.identity == "rogue.search":
-            self.searches[turn.cell.key] += 1
-            if receipt and self.maps[self.depth].is_dead_end(turn.cell.key):
-                self.pending_end_search = turn.cell.key, receipt
-            # Search covers visible walls. Credit the near and middle distance bands
-            # on this floor, leaving distant or unseen walls for a closer look.
-            self.wall_searches.update({
-                cell.key for cell in turn.visible_cells
-                if cell.wall and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 3
-            })
-        if isinstance(action, UseItem) and action.use is ItemUse.READ and action.item.identity is None:
-            if receipt and reason in {"test_unknown_magic", "study_scroll_at_exit"}:
-                self.pending_scroll_trial = receipt, action.item.target
-            self.tried_unknown_scroll = True
-            self.sampled_scrolls.add(action.item.appearance or action.item.name)
-        if (
-            isinstance(action, UseItem)
-            and action.use is ItemUse.EAT
-            and action.item.identity
-            and turn.nutrition
-        ):
-            count = sum(i.quantity for i in turn.inventory if i.identity == action.item.identity)
-            self.pending_meal = action.item.identity, count, turn.nutrition.reserve
-        if isinstance(action, Shot):
-            self.last_shot_tick = turn.tick
-        if turn.cell and isinstance(action, Move) and action.direction in (Direction.UP, Direction.DOWN):
-            self.pending_stair = turn.stair_attempt(action, receipt)
-            self.stair_pursuers = (tuple(foe.target for foe in turn.hostiles)
-                                   if reason in {"retreat_upstairs", "retreat_downstairs"} else ())
+        elif isinstance(action.target, Cell):
+            targets = (foe.target for foe in turn.hostiles if action.target in turn.cells_of(foe))
+            if reason == MemoryReason.SLOW_APPROACH:
+                self.attempted_slow.update(targets)
+            elif reason == MemoryReason.POLYMORPH_THREAT:
+                self.polymorph.admitted(targets)
 
     def carrying_objective(self, turn: Turn) -> bool:
         return any(item.identity == self.objective for item in turn.inventory)
+
+    def objective_stair_direction(self, *, returning: bool) -> Direction | None:
+        """Ascend with the objective, or descend until the retrieval floor is reached."""
+        if returning:
+            return Direction.UP
+        if self.depth < self.retrieval_depth:
+            return Direction.DOWN
+        return None
 
     @staticmethod
     def trapped(turn: Turn) -> bool:
         return turn.has_condition("rogue.bear_trap")
 
-    def damage_estimate(self, foe: Creature) -> int:
-        return max(self.observed_loss[foe.target], self.observed_loss_by_name[foe.name])
+    def restrained(self, turn: Turn) -> bool:
+        """A bear trap or a creature's hold prevents an ordinary retreat step."""
+        return self.trapped(turn) or bool(turn.holds)
 
-    def nearby_drainer(self, foe: Creature) -> bool:
-        # Allow one closing step before a creature can strike in contact.
-        return foe.distance <= 2 and foe.name in self.draining_creatures
+    def can_use_stairs(self, turn: Turn) -> bool:
+        return not (self.restrained(turn) or turn.has_condition("rogue.levitation"))
 
-    def can_spend_charge(self, device: Device) -> bool:
-        if device.charges is None:
-            return device.item.target not in self.tried_unmeasured_devices
-        return device.charges > 0
+    @staticmethod
+    def respond_to_bear_trap(turn: Turn) -> tuple[Action, str]:
+        """Choose how to spend a turn while pinned by an active bear trap."""
+        if not turn.holds:
+            for condition in turn.conditions:
+                if condition.identity == "rogue.bear_trap" and condition.active and condition.remaining_ticks is None:
+                    # Any direction attempts escape in place, even on an isolated tile.
+                    return Move(Direction.NORTH), "escape_bear_trap"
+        return Wait(), "wait_for_restraint"
+
+    def survival_consumable(self, turn: Turn, exposure: MeleeExposure) -> tuple[UseItem, str] | None:
+        """Heal first, then consider teleportation under lethal pressure or food under urgent hunger."""
+        health = turn.health
+        if potion := exposure.healing_potion(turn):
+            return UseItem(potion, ItemUse.DRINK), "heal"
+
+        if exposure.threatens(health, rounds=1):
+            if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):
+                return teleport, "escape_pursuit"
+        elif turn.hostiles and turn.hunger in URGENT_HUNGER:
+            if meal := choose_meal(turn, self.meals.gains):
+                return UseItem(meal, ItemUse.EAT), "eat"
+        return None
 
     def combat(self, turn: Turn) -> tuple[Action, str] | None:
+        exposure = self.opponents.melee_exposure(turn)
+        if decision := self.survival_consumable(turn, exposure):
+            return decision
+
+        if turn.hostiles:
+            if decision := self.fight_visible_hostiles(turn, exposure):
+                return decision
+        elif decision := self.respond_to_unseen_attack(turn):
+            return decision
+
+        if turn.holds:
+            return Escape(turn.holds[0]), "escape_hold"
+        return None
+
+    def fight_visible_hostiles(self, turn: Turn, exposure: MeleeExposure) -> tuple[Action, str] | None:
         health = turn.health
-        injured = health is not None and health.current * 2 < health.maximum
-        adjacent = [foe for foe in turn.hostiles if turn.in_contact(foe)]
+        adjacent = exposure.foes
         surrounded = len(adjacent) >= 2
-        exposure = sum(self.damage_estimate(foe) for foe in adjacent)
-        lethal = health is not None and exposure >= health.current
-        two_hit_threat = health is not None and exposure * 2 >= health.current
-        if injured or lethal or (surrounded and health and health.current * 4 < health.maximum * 3):
-            for item in turn.inventory:
-                if ItemUse.DRINK in item.uses and item.identity in {
-                    "item.potion.healing",
-                    "item.potion.extra-healing",
-                }:
-                    return UseItem(item, ItemUse.DRINK), "heal"
-
-        if turn.hostiles and not lethal and turn.hunger in {"weak", "empty"}:
-            for item in turn.inventory:
-                if ItemUse.EAT in item.uses:
-                    return UseItem(item, ItemUse.EAT), "eat"
-
-        if lethal:
-            for item in turn.inventory:
-                if item.identity == "item.scroll.teleportation" and ItemUse.READ in item.uses:
-                    return UseItem(item, ItemUse.READ), "escape_pursuit"
-
+        injured = below_half_health(health)
+        two_hit_threat = exposure.threatens(health, rounds=2)
         if adjacent and (two_hit_threat or injured or surrounded):
-            foe = max(adjacent, key=self.damage_estimate)
-            for device in turn.devices:
-                if device.item.identity != "item.wand.wand-teleport-away" or not self.can_spend_charge(device):
-                    continue
-                if zap := turn.aim_device(device, foe):
-                    return zap, "displace_threat"
+            if zap := self.aim_combat_wand(turn, adjacent, {"item.wand.wand-teleport-away"}):
+                return zap, "displace_threat"
 
         if adjacent and health and (decision := self.counter_threat(turn, health.current, in_melee=True)):
             return decision
-        # Leaving by this stair already failed to shake this opponent.
-        if (len(turn.hostiles) == 1 and adjacent and turn.cell and turn.cell.stairs_up
-                and self.last_guarded_landing == (turn.cell.key, adjacent[0].target)
-                and not self.carrying_objective(turn) and health and health.current * 4 >= health.maximum * 3):
-            guard = adjacent[0]
-            if guard.name in self.draining_creatures and 0 < self.damage_estimate(guard) * 4 < health.current:
-                attack = turn.attack(guard, technique="rattling_blow") or turn.attack(guard)
-                if attack:
-                    return ready_weapon(turn, bow=False) or (attack, "melee")
-        close_pursuit = bool(adjacent) and sum(turn.distance_to(foe) <= 2 for foe in turn.hostiles) >= 2
-        if escape := self.retreat_to_stairs(turn, pressed=injured or close_pursuit or two_hit_threat):
+        if decision := self.fight_stair_guard(turn, adjacent):
+            return decision
+        if decision := self.respond_to_pursuit(turn, in_contact=bool(adjacent), injured=injured,
+                                              two_hit_threat=two_hit_threat):
+            return decision
+
+        needs_distance = (injured or self.recovering_from_pursuit or surrounded or two_hit_threat
+                          or any(self.opponents.nearby_drainer(turn, foe) for foe in turn.hostiles))
+        if needs_distance and not self.restrained(turn):
+            if decision := self.evade(turn):
+                return decision
+
+        make_space = surrounded or two_hit_threat
+        if decision := self.ranged_combat(turn, adjacent, make_space=make_space):
+            return decision
+
+        if exposure.threatens(health, rounds=1) and not self.scroll_trials.tried_in_encounter:
+            if trial := self.scroll_trial(turn):
+                return trial
+
+        if not (self.has_arrows(turn) and can_wield_shortbow(turn)):
+            if decision := ready_weapon(turn, bow=False):
+                return decision
+
+        if attack := self.melee_attack(turn, make_space=make_space):
+            return attack, "melee"
+
+        return None
+
+    def respond_to_pursuit(self, turn: Turn, *, in_contact: bool, injured: bool,
+                           two_hit_threat: bool) -> tuple[Action, str] | None:
+        health = turn.health
+        distances = [(foe, turn.distance_to(foe)) for foe in turn.hostiles]
+        close_pursuit = in_contact and sum(distance <= 2 for _, distance in distances) >= 2
+        pressed = injured or close_pursuit or two_hit_threat or (not in_contact and converging_pursuers(turn, distances))
+        if escape := self.retreat_to_stairs(turn, pressed=pressed):
             return escape
-        approaching_group = not adjacent and sum(turn.distance_to(foe) <= 3 for foe in turn.hostiles) >= 2
-        if approaching_group:
-            if step := self.take_corridor(turn):
-                return step, "take_corridor"
-        if turn.hostiles and not adjacent and health and (decision := self.counter_threat(turn, health.current)):
+        pursuers = [(foe, distance) for foe, distance in distances if distance <= 3]
+        approaching_group = not in_contact and len(pursuers) >= 2
+        if approaching_group and not self.restrained(turn):
+            if step := take_corridor(turn, pursuers):
+                return step, MemoryReason.TAKE_CORRIDOR
+        if turn.hostiles and not in_contact and health and (decision := self.counter_threat(turn, health.current)):
             return decision
 
         if (approaching_group and health and not injured and not turn.has_condition("rogue.hasted")
                 and not turn.has_condition("rogue.haste_exhaustion")):
-            for item in turn.inventory:
-                if item.identity == "item.potion.haste" and ItemUse.DRINK in item.uses:
-                    return UseItem(item, ItemUse.DRINK), "combat_haste"
+            if haste := offered_item_use(turn, "item.potion.haste", ItemUse.DRINK):
+                return haste, "combat_haste"
+        return None
 
-        if (
-            turn.hostiles
-            and (
-                injured
-                or self.recovering_from_pursuit
-                or surrounded
-                or two_hit_threat
-                or any(self.nearby_drainer(foe) for foe in turn.hostiles)
-            )
-            and not self.trapped(turn)
-            and not turn.holds
-        ):
-            if decision := self.evade(turn):
-                return decision
+    def fight_stair_guard(self, turn: Turn, adjacent: list[Creature]) -> tuple[Action, str] | None:
+        """Fight a lone drainer when using this stair already failed to shake it."""
+        if len(turn.hostiles) != 1 or not adjacent or turn.cell is None or not turn.cell.stairs_up:
+            return None
+        if not self.can_use_stairs(turn):
+            return None
+        guard = adjacent[0]
+        if self.last_guarded_landing != (turn.cell.key, guard.target) or not self.opponents.is_drainer(guard):
+            return None
+        health = turn.health
+        if health is None or health.current * 4 < health.maximum * 3 or self.carrying_objective(turn):
+            return None
+        damage_over_four_hits = 4 * self.opponents.damage_estimate(guard)
+        if not 0 < damage_over_four_hits < health.current:
+            return None
+        attack = choose_melee_attack(turn, (guard,), make_space=False)
+        if attack is None:
+            return None
+        return ready_weapon(turn, bow=False) or (attack, "melee")
 
-        if turn.hostiles:
-            for device in turn.devices:
-                if device.item.identity not in ELEMENTAL_WANDS or not self.can_spend_charge(device):
-                    continue
-                for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
-                    if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
-                        return zap, "elemental_ray"
+    def ranged_combat(self, turn: Turn, adjacent: list[Creature], *, make_space: bool = False) -> tuple[Action, str] | None:
+        if not turn.hostiles:
+            return None
+        if zap := self.aim_combat_wand(turn, turn.hostiles, ELEMENTAL_WANDS, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+            return zap, "elemental_ray"
+        if trial := self.try_unknown_wand(turn):
+            return trial, MemoryReason.TEST_UNKNOWN_DEVICE
 
-        if turn.hostiles and (trial := self.try_unknown_wand(turn)):
-            return trial, "test_unknown_device"
+        if self.has_arrows(turn):
+            nearest = min(turn.distance_to(foe) for foe in turn.hostiles)
+            if weapon := ready_weapon_for_range(turn, nearest):
+                return weapon
 
-        if turn.hostiles and self.has_arrows(turn):
-            nearest = min(foe.distance for foe in turn.hostiles)
-            if nearest >= 5 or nearest <= 2:
-                if weapon := ready_weapon(turn, bow=nearest >= 5):
-                    return weapon
+        if self.last_shot_tick is not None and turn.tick <= self.last_shot_tick:
+            return None
+        shot = choose_projectile(turn.ranged_attacks(max_distance=8, hostile_only=True))
+        if shot is None:
+            return None
+        if shot.launcher is not None:
+            return shot, "launch_projectile"
+        if choose_melee_attack(turn, adjacent, make_space=make_space) is not None:
+            return None
+        return shot, "throw_projectile"
 
-        if turn.hostiles and turn.tick != self.last_shot_tick:
-            can_strike = any(turn.attack(foe) is not None for foe in adjacent)
-            for shot in turn.ranged_attacks(max_distance=8):
-                if shot.target.hostile and (
-                    shot.launcher or (not can_strike and not shot.equipped_throw and shot.target.distance <= 4)
-                ):
-                    return shot, "launch_projectile" if shot.launcher else "throw_projectile"
+    def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
+        returning = self.carrying_objective(turn)
+        can_ascend = returning or self.depth > 1
+        can_descend = self.objective_stair_direction(returning=returning) is Direction.DOWN
 
-        if lethal and not self.tried_unknown_scroll:
-            for item in turn.inventory:
-                if self.can_try_scroll(item):
-                    return UseItem(item, ItemUse.READ), "test_unknown_magic"
+        stairs_accessible = self.can_use_stairs(turn)
 
-        if turn.hostiles and not self.has_arrows(turn):
-            if decision := ready_weapon(turn, bow=False):
-                return decision
-
-        injury_priority: dict[Injury | None, int] = {
-            Injury.NEAR_DEATH: 0,
-            Injury.BADLY_WOUNDED: 1,
-            Injury.WOUNDED: 2,
-        }
-        def attack_order(foe: Creature):
-            opens_exit = any(
-                (cell.stairs_up and self.depth > 1) or
-                (cell.stairs_down and self.depth < self.retrieval_depth and not self.carrying_objective(turn))
+        def blocks_usable_exit(foe: Creature) -> bool:
+            return stairs_accessible and any(
+                (cell.stairs_up and can_ascend and self.stair_is_safe(cell.key, Direction.UP, turn.tick))
+                or (cell.stairs_down and can_descend and self.stair_is_safe(cell.key, Direction.DOWN, turn.tick))
                 for cell in turn.cells_of(foe)
             )
-            return injury_priority.get(foe.injury, 3), not opens_exit, foe.distance
 
-        for foe in sorted(turn.hostiles, key=attack_order):
-            if (surrounded or two_hit_threat) and foe.injury is not Injury.NEAR_DEATH:
-                push = turn.attack(foe, technique="dislocating_strike")
-                if push and self.has_push_space(turn, foe):
-                    return push, "melee"
-            if attack := turn.attack(foe, technique="rattling_blow"):
-                return attack, "melee"
-            if attack := turn.attack(foe):
-                return attack, "melee"
+        targets = ranked_melee_targets(turn, self.opponents, blocks_usable_exit)
+        return choose_melee_attack(turn, targets, make_space=make_space)
 
-        if self.last_unseen_attack and not turn.hostiles:
-            origin, tick = self.last_unseen_attack
-            if tick <= turn.tick < tick + 400:
-                sight_ring = "item.ring.ring-see-invisible"
-                wearing_sight = any(slot.occupant and slot.occupant.identity == sight_ring for slot in turn.equipment)
-                if (not wearing_sight and not turn.has_condition("rogue.see_invisible")
-                        and not turn.has_condition("rogue.blindness")):
-                    for choice in turn.equip_choices():
-                        if (choice.item.identity == sight_ring and not choice.item.known_cursed
-                                and choice.slot.occupant is None):
-                            return choice, "reveal_attacker"
-                    for item in turn.inventory:
-                        if ItemUse.DRINK in item.uses and item.identity == "item.potion.see-invisible":
-                            return UseItem(item, ItemUse.DRINK), "reveal_attacker"
-                if not turn.holds and not self.trapped(turn):
-                    for direction in turn.walkable_directions:
-                        offset = direction.offset
-                        if any(cell.offset == offset and cell.key != origin for cell in turn.visible_cells):
-                            return Move(direction), "evade_unseen_attack"
+    def respond_to_unseen_attack(self, turn: Turn) -> tuple[Action, str] | None:
+        if turn.hostiles or self.last_unseen_attack is None:
+            return None
+        origin, attack_tick = self.last_unseen_attack
+        if not attack_tick <= turn.tick < attack_tick + 400:
+            return None
 
-        if turn.holds:
-            return Escape(turn.holds[0]), "escape_hold"
+        if action := reveal_unseen_attacker(turn):
+            return action, "reveal_attacker"
 
+        if self.restrained(turn):
+            return None
+        if step := evade_unseen_attacker(turn, origin, self.maps.get(self.depth)):
+            return step, "evade_unseen_attack"
         return None
 
-    @staticmethod
-    def take_corridor(turn: Turn) -> Move | None:
-        """Enter a narrow passage with a clear retreat and the pursuers on the far side."""
-        for direction in turn.walkable_directions:
-            dx, dy, _ = direction.offset
-            if dx and dy:
-                continue
-            if not all(turn.distance_to(foe, from_offset=direction.offset) > foe.distance
-                       for foe in turn.hostiles if foe.distance <= 3):
-                continue
-            entrance = turn.cell_at(direction.offset)
-            if entrance is None or entrance.trap or direction not in turn.walkable_from(entrance):
-                continue
-            flanks = [turn.cell_at((dx + sign * dy, dy + sign * dx, 0)) for sign in (-1, 1)]
-            if not all(c is not None and c.wall for c in flanks):
-                continue
-            previous_flanks = [turn.cell_at((sign * dy, sign * dx, 0)) for sign in (-1, 1)]
-            if not all(c is not None and c.wall for c in previous_flanks):
-                return Move(direction)
+    def aim_combat_wand(self, turn: Turn, foes: Iterable[Creature], identities: set[str],
+                        *, reflected_ray_range: int | None = None) -> Zap | None:
+        # These wands share a ray range, so the first usable offer can test every target.
+        device = next((wand for wand in turn.devices
+                       if wand.item.identity in identities and wand.activation is not DeviceActivation.SELF_TARGET
+                       and self.wand_trials.can_spend_charge(wand)), None)
+        if device is None:
+            return None
+        for foe in sorted(foes, key=self.opponents.damage_estimate, reverse=True):
+            if zap := turn.aim_device(device, foe, clear_horizontal_ray=True, reflected_ray_range=reflected_ray_range):
+                return zap
         return None
-
-    @staticmethod
-    def has_push_space(turn: Turn, foe: Creature) -> bool:
-        """Look for a clear landing directly behind a single column of body cells."""
-        dx, dy, _ = foe.cells[0]
-        if abs(dx) + abs(dy) != 1 or any((x, y) != (dx, dy) for x, y, _ in foe.cells):
-            return False
-        occupied = {offset for creature in turn.creatures for offset in creature.cells}
-        for x, y, z in foe.cells:
-            destination = (x + dx, y + dy, z)
-            cell = turn.cell_at(destination)
-            if cell is None or cell.wall or (cell.door and not cell.door.open) or destination in occupied:
-                return False
-        return True
 
     def try_unknown_wand(self, turn: Turn) -> Zap | None:
         health = turn.health
-        if not health or health.current * 5 < health.maximum * 4 or self.carrying_objective(turn):
+        if not health or recovery_deficit(health) > 0 or self.carrying_objective(turn):
             return None
-        if any(turn.distance_to(foe) < 3 for foe in turn.hostiles):
+        # All eligible trial wands use the same directional aim and reflection range.
+        device = next((wand for wand in turn.devices if self.wand_trials.can_experiment(wand)), None)
+        if device is None:
             return None
-        for device in turn.devices:
-            item = device.item
-            if (item.category != "wand" or item.identity is not None or device.activation is not DeviceActivation.DIRECTION
-                    or not self.can_spend_charge(device) or (item.appearance or item.name) in self.sampled_wands):
-                continue
-            for foe in turn.hostiles:
-                if turn.distance_to(foe) <= 4:
-                    if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
-                        return zap
+        targets = []
+        for foe in turn.hostiles:
+            distance = turn.distance_to(foe)
+            if distance < 3:
+                return None
+            if distance <= 4:
+                targets.append(foe)
+        for foe in targets:
+            if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+                return zap
         return None
 
     def counter_threat(self, turn: Turn, health: int, *, in_melee: bool = False) -> tuple[Zap, str] | None:
-        devices = [(device, reason) for identity, reason in CONTROL_DEVICES
-                   if not in_melee or reason == "polymorph_threat"
-                   for device in turn.devices
-                   if device.item.identity == identity and self.can_spend_charge(device)]
+        devices = self.control_devices(turn, in_melee=in_melee)
         if not devices:
             return None
-        for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
-            damage = self.damage_estimate(foe)
-            if (foe.distance > 3 or
-                    (2 * damage < health and foe.name not in self.draining_creatures)):
-                continue
+        for foe, damage in self.control_targets(turn, health):
             for device, reason in devices:
-                if reason == "slow_approach" and foe.target in self.attempted_slow:
+                if reason == MemoryReason.SLOW_APPROACH and foe.target in self.attempted_slow:
                     continue
-                if reason == "polymorph_threat":
-                    if foe.target in self.attempted_polymorph or foe.injury is not Injury.HEALTHY or damage < health:
-                        continue
-                    if foe.target in self.resisted_polymorph and (device.charges is None or any(
-                        other.target != foe.target and turn.in_contact(other) for other in turn.hostiles
-                    )):
-                        continue
+                if (reason == MemoryReason.POLYMORPH_THREAT
+                        and not self.polymorph.permits_cast(turn, foe, device, lethal=damage >= health)):
+                    continue
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
                     return zap, reason
         return None
 
+    def control_devices(self, turn: Turn, *, in_melee: bool) -> list[tuple[Device, str]]:
+        """List usable control wands in policy order, preserving inventory order within each kind."""
+        devices = []
+        for identity, reason in CONTROL_DEVICES:
+            if in_melee and reason != MemoryReason.POLYMORPH_THREAT:
+                continue
+            for device in turn.devices:
+                if device.item.identity == identity and self.wand_trials.can_spend_charge(device):
+                    devices.append((device, reason))
+        return devices
+
+    def control_targets(self, turn: Turn, health: int) -> list[tuple[Creature, int]]:
+        """Rank nearby drainers and potential two-hit threats by observed damage."""
+        targets = []
+        for foe in turn.hostiles:
+            if turn.distance_to(foe) <= 3:
+                damage = self.opponents.damage_estimate(foe)
+                if 2 * damage >= health or self.opponents.is_drainer(foe):
+                    targets.append((foe, damage))
+        return sorted(targets, key=lambda target: target[1], reverse=True)
+
+    def stair_is_safe(self, key: str, direction: Direction, tick: int) -> bool:
+        return (self.unsafe_stairs.get((key, direction), 0) <= tick
+                and not (direction is Direction.DOWN and key == self.recovery_landing))
+
     def safe_stairs(self, turn: Turn, direction: Direction) -> set[str]:
         return {key for key in self.maps[self.depth].stairs(direction)
-                if self.unsafe_stairs.get((key, direction), 0) <= turn.tick
-                and not (direction is Direction.DOWN and key == self.recovery_landing)}
+                if self.stair_is_safe(key, direction, turn.tick)}
 
     def retreat_to_stairs(self, turn: Turn, *, pressed: bool = False) -> tuple[Action, str] | None:
-        if not turn.hostiles or self.trapped(turn) or turn.holds:
-            return None
-        if turn.has_condition("rogue.levitation"):
+        if not turn.hostiles or not self.can_use_stairs(turn):
             return None
         returning = self.carrying_objective(turn)
-        can_descend = self.depth < self.retrieval_depth and not returning
-        downstairs = self.safe_stairs(turn, Direction.DOWN) if can_descend else set()
-        onward = self.safe_stairs(turn, Direction.UP) if returning else downstairs
+        direction = self.objective_stair_direction(returning=returning)
+        onward = self.safe_stairs(turn, direction) if direction is not None else set()
+        rejected = set()
         if onward and (returning or pressed or self.recovering_from_pursuit):
             if turn.cell and turn.cell.key in onward:
                 if returning:
-                    return Move(Direction.UP), "retreat_upstairs"
-                return Move(Direction.DOWN), "retreat_downstairs"
-            contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
-            for direction in turn.walkable_directions:
-                cell = turn.cell_at(direction.offset)
-                if cell is None or cell.key not in onward or cell.trap:
-                    continue
-                threats = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=cell.offset)]
-                exposure = sum(self.damage_estimate(foe) for foe in threats)
-                if not threats or (turn.health and len(threats) <= contacts and 2 * exposure < turn.health.current):
-                    return Move(direction), "retreat_to_stairs"
+                    return Move(Direction.UP), MemoryReason.RETREAT_UPSTAIRS
+                return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
+            step, rejected = assess_adjacent_retreat_stairs(turn, onward, self.opponents)
+            if step:
+                return step, MemoryReason.RETREAT_TO_STAIRS
+        if returning:
+            if not onward:
+                return None
+            return self.route_to_retreat_stairs(turn, onward, avoid=rejected)
         if self.depth <= 1:
             return None
         dangerous = any(
             foe.name.casefold() in {"griffin", "dragon", "jabberwock", "wraith"}
-            or self.nearby_drainer(foe)
+            or self.opponents.nearby_drainer(turn, foe)
             for foe in turn.hostiles
         )
         if not (dangerous or self.recovering_from_pursuit):
             return None
-        avoid = {self.last_retreat_origin} if self.last_retreat_origin is not None else set()
         exits = self.safe_stairs(turn, Direction.UP)
         if turn.cell and turn.cell.key in exits:
-            return Move(Direction.UP), "retreat_upstairs"
-        if dangerous and downstairs:
-            if turn.cell and turn.cell.key in downstairs:
-                return Move(Direction.DOWN), "retreat_downstairs"
-            exits.update(downstairs)
-        for foe in turn.hostiles:
-            avoid.update(cell.key for cell in turn.cells_of(foe))
-        memory = self.maps[self.depth]
-        exits.difference_update(avoid)
-        nearby = [cell.offset for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
-        step = None
-        if nearby:
-            destination = min(nearby, key=lambda at: sum(map(abs, at)))
-            distance = sum(map(abs, destination))
-            approaches = []
-            for direction in turn.walkable_directions:
-                offset = direction.offset
-                candidate = turn.cell_at(offset)
-                if candidate is None or candidate.key in avoid:
-                    continue
-                remaining = sum(abs(a - b) for a, b in zip(offset, destination))
-                if remaining < distance:
-                    clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
-                    approaches.append((clearance, -remaining, direction))
-            if approaches:
-                step = Move(max(approaches)[2])
-        if step is None:
-            step = memory.toward(turn, exits, avoid=avoid)
+            return Move(Direction.UP), MemoryReason.RETREAT_UPSTAIRS
+        if dangerous and onward:
+            if turn.cell and turn.cell.key in onward:
+                return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
+            exits.update(onward)
+        return self.route_to_retreat_stairs(turn, exits, avoid=rejected)
+
+    def route_to_retreat_stairs(self, turn: Turn, exits: set[str], *,
+                              avoid: Set[str] = frozenset()) -> tuple[Action, str] | None:
+        """Choose a stair approach while accounting for pursuit and immediate melee risk."""
+        step = stair_retreat_step(turn, self.maps[self.depth], exits, self.last_retreat_origin, avoid=avoid)
         if step is None:
             return None
         # Opening a door spends the turn in the current cell.
         destination = step.direction.offset if isinstance(step, Move) else (0, 0, 0)
-        exposure = sum(self.damage_estimate(foe) for foe in turn.hostiles
-                       if turn.in_contact(foe, from_offset=destination))
-        if turn.health and 2 * exposure >= turn.health.current:
+        if self.opponents.melee_exposure(turn, destination).threatens(turn.health, rounds=2):
             escape = self.evade(turn)
-            if escape and not any(turn.in_contact(foe, from_offset=escape[0].direction.offset)
-                                  for foe in turn.hostiles):
-                return escape
-        return step, "retreat_to_stairs"
+            if escape:
+                offset = escape[0].direction.offset
+                remaining = self.opponents.melee_exposure(turn, offset)
+                if not remaining.foes:
+                    return escape
+                # Accept continued contact only when its cost is known and survivable.
+                if (not remaining.threatens(turn.health, rounds=2) and not turn.cell_at(offset).trap
+                        and all(self.opponents.damage_estimate(foe) > 0 and not self.opponents.is_drainer(foe)
+                                for foe in remaining.foes)):
+                    return escape
+        return step, MemoryReason.RETREAT_TO_STAIRS
 
-    @staticmethod
-    def evade(turn: Turn) -> tuple[Move, str] | None:
-        def safety(offset):
-            contacts = sum(turn.in_contact(foe, from_offset=offset) for foe in turn.hostiles)
-            clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
-            return -contacts, clearance
+    def step_onto_retreat_stair(self, turn: Turn, exits: set[str]) -> Move | None:
+        step, _ = assess_adjacent_retreat_stairs(turn, exits, self.opponents)
+        return step
 
-        current = safety((0, 0, 0))
-        choices = [(safety(d.offset), d) for d in turn.walkable_directions]
-        if not choices:
+    def evade(self, turn: Turn) -> tuple[Move, str] | None:
+        step = choose_retreat_step(turn, self.opponents.damage_estimate)
+        if step is None:
             return None
-        best, direction = max(choices, key=lambda choice: choice[0])
-        if best > current:
-            return Move(direction), "retreat"
-        routes = []
-        for first_step, direction in choices:
-            if first_step < current:
-                continue
-            cell = turn.cell_at(direction.offset)
-            if cell is None:
-                continue
-            for second in turn.walkable_from(cell):
-                offset = tuple(a + b for a, b in zip(direction.offset, second.offset))
-                after = safety(offset)
-                if after > current:
-                    routes.append((after, direction))
-        if routes:
-            return Move(max(routes, key=lambda route: route[0])[1]), "break_contact"
-        return None
+        reason = MemoryReason.RETREAT if step.improves_immediately else MemoryReason.BREAK_CONTACT
+        return Move(step.direction), reason
+
+    def can_afford_wait(self, turn: Turn, memory: FloorMap, direction: Direction, ticks: int) -> bool:
+        """Leave enough food for the wait and the estimated travel through remembered stairs."""
+        nutrition = turn.nutrition
+        if nutrition is None:
+            return True
+        if not memory.stairs(direction):
+            return ticks < nutrition.ticks_until_empty
+        travel = self.travel_times.return_ticks(through_floor=self.depth if direction is Direction.UP else None)
+        packed = estimate_carried_food(edible_items(turn), self.meals.gains)
+        return ticks < packed.spare_ticks_after_travel(nutrition, travel)
 
     def recovery_action(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.cell is None:
@@ -690,223 +728,300 @@ class Adventurer:
         health, clock = turn.health, turn.recovery
         if health is None or clock is None or clock.stopped:
             return None
-        missing = (health.maximum * 4 + 4) // 5 - health.current
-        if missing <= 0:
+        missing = recovery_deficit(health)
+        if missing == 0:
             return None
 
         memory = self.maps[self.depth]
         returning = self.carrying_objective(turn)
-        direction = Direction.UP if returning else Direction.DOWN
-        stairs = self.safe_stairs(turn, direction)
-        reserve = turn.nutrition
-        rest_budget = reserve.ticks_until_empty if reserve else None
-        # A guarded exit still counts toward the return budget.
-        if rest_budget is not None and (stairs or memory.stairs(direction)):
-            rest_budget -= sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
-                               if not returning or floor <= self.depth)
+        direction = self.objective_stair_direction(returning=returning)
+        # On the retrieval floor, rest still needs to leave food for the return trip.
+        budget_direction = direction or Direction.UP
 
-        def can_afford_recovery(points: int) -> bool:
+        def rest_if_affordable(points: int) -> tuple[Wait, str] | None:
             ticks = clock.ticks_to_regain(points)
-            return ticks is not None and (rest_budget is None or ticks < rest_budget)
+            if ticks is not None and self.can_afford_wait(turn, memory, budget_direction, ticks):
+                return Wait(), "recover"
+            return None
 
-        if not self.trapped(turn):
-            if turn.cell.key in self.danger_until:
-                if action := memory.toward(turn, memory.visited - self.danger_until.keys()):
-                    return action, "reposition_to_recover"
-            # Recover along the food route while scouting away from the stairs.
-            food_route = None
-            if not returning and self.depth in self.food_scouts:
-                food_route = self.provision(turn, memory, returning)
-            action = food_route[0] if food_route else memory.toward(turn, stairs)
-            if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
-                if (cell.key in memory.visited or cell.key in stairs) and cell.key not in self.danger_until:
-                    return food_route or (action, "recover_en_route")
-                if (cell.key in self.danger_until and turn.cell.key not in self.danger_until
-                        and can_afford_recovery(1)):
-                    # Stay in shelter while a single point of recovery is still affordable.
-                    return Wait(), "recover"
-        if can_afford_recovery(missing):
-            return Wait(), "recover"
-        return None
+        if self.trapped(turn):
+            response = self.respond_to_bear_trap(turn)
+            if isinstance(response[0], Move):
+                return response
+            return rest_if_affordable(missing)
+
+        danger = self.danger_until.keys()
+        if turn.cell.key in danger:
+            if action := route_to_recovery_shelter(turn, memory, danger):
+                return action, "reposition_to_recover"
+        # Recover along the food route while scouting away from the stairs.
+        food_route = None
+        if not returning and self.depth in self.food_scouts.by_floor:
+            food_route = self.provision(turn, memory, returning)
+        if food_route:
+            action, reason = food_route
+        else:
+            stairs = self.safe_stairs(turn, direction) if direction is not None else set()
+            action = recovery_stair_step(turn, memory, stairs, danger)
+            reason = "recover_en_route"
+        if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
+            if cell.key not in danger:
+                return action, reason
+            if turn.cell.key not in danger:
+                # Stay in shelter while a single point of recovery is still affordable.
+                return rest_if_affordable(1)
+        return rest_if_affordable(missing)
 
     def prepare(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.restorable_losses and turn.restorable_losses.strength:
-            for item in turn.inventory:
-                if item.identity == "item.potion.restore-strength" and ItemUse.DRINK in item.uses:
-                    return UseItem(item, ItemUse.DRINK), "restore_strength"
+            if restore := offered_item_use(turn, "item.potion.restore-strength", ItemUse.DRINK):
+                return restore, "restore_strength"
         if upgrade := choose_armor(turn) or choose_ring(turn):
             return upgrade
         if action := self.recovery_action(turn):
             return action
-        for item in turn.inventory:
-            if ItemUse.DRINK in item.uses and item.identity in {
-                "item.potion.gain-strength",
-                "item.potion.raise-level",
-            }:
-                return UseItem(item, ItemUse.DRINK), "permanent_growth"
-            if ItemUse.READ in item.uses and item.identity in IDENTIFY_CATEGORIES:
-                categories = IDENTIFY_CATEGORIES[item.identity]
-                if any(other.category in categories and needs_identification(other) for other in turn.inventory):
-                    return UseItem(item, ItemUse.READ), "identify_gear"
+        if consumable := choose_growth_or_identification(turn):
+            return consumable
         if improvement := improve_worn_gear(turn):
             return improvement
-        health = turn.health
-        can_experiment = bool(health and health.current * 5 >= health.maximum * 4 and not self.carrying_objective(turn))
-        if can_experiment:
-            for item in turn.inventory:
-                if (item.identity is None and ItemUse.DRINK in item.uses
-                        and (item.appearance or item.name) not in self.sampled_potions):
-                    return UseItem(item, ItemUse.DRINK), "test_unknown_potion"
         if weapon := ready_weapon(turn, bow=False):
             return weapon
-        # An unread scroll might open a paid identification choice or move the player.
-        # Try it while healthy, with something to identify and a usable exit.
-        if (can_experiment and 3 <= self.depth < self.retrieval_depth and turn.cell and turn.cell.stairs_down
-                and self.unsafe_stairs.get((turn.cell.key, Direction.DOWN), 0) <= turn.tick
-                and turn.cell.key not in self.danger_until and not turn.holds and not self.trapped(turn)
-                and not turn.has_condition("rogue.levitation")
-                and any(i.identity is None and i.category in {"wand", "ring", "potion"} for i in turn.inventory)):
-            for item in turn.inventory:
-                if (self.can_try_scroll(item)
-                        and (item.appearance or item.name) not in self.sampled_scrolls):
-                    return UseItem(item, ItemUse.READ), "study_scroll_at_exit"
+
+        health = turn.health
+        if health is None or recovery_deficit(health) or self.carrying_objective(turn):
+            return None
+        if potion := self.potion_trials.choose(turn):
+            return UseItem(potion, ItemUse.DRINK), "test_unknown_potion"
+        return self.study_scroll_at_exit(turn)
+
+    def study_scroll_at_exit(self, turn: Turn) -> tuple[UseItem, MemoryReason] | None:
+        """Try an unidentified scroll with a usable escape stair and something to identify."""
+        here = turn.cell
+        if not 3 <= self.depth < self.retrieval_depth or here is None or not here.stairs_down:
+            return None
+        if here.key in self.danger_until or not self.stair_is_safe(here.key, Direction.DOWN, turn.tick):
+            return None
+        if not self.can_use_stairs(turn):
+            return None
+        if any(item.identity is None and item.category in {"wand", "ring", "potion"} for item in turn.inventory):
+            return self.scroll_trial(turn, at_exit=True)
         return None
 
     @staticmethod
     def has_arrows(turn: Turn) -> bool:
         return any(item.identity == "item.weapon.arrow" for item in turn.inventory)
 
+    @staticmethod
+    def ready_search(turn: Turn) -> UseAbility | None:
+        return next((UseAbility(ability) for ability in turn.abilities
+                     if ability.identity == "rogue.search" and ability.ready), None)
+
     def search_dead_end(self, turn: Turn, memory: FloorMap) -> UseAbility | None:
         here = turn.cell
-        if (here is None or here.stairs_up or here.stairs_down or turn.hostiles
-                or self.completed_end_searches[here.key] >= DEAD_END_SEARCHES
-                or not memory.is_dead_end(here.key)):
+        if here is None or turn.hostiles or not self.search_history.remaining_dead_end_searches(here, memory):
             return None
-        ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
-        return UseAbility(ability) if ability else None
+        return self.ready_search(turn)
+
+    def step_toward_objective(self, turn: Turn, memory: FloorMap) -> Action | None:
+        """Avoid combat sites and prefer routes that also bypass recently guarded supplies."""
+        goals = remembered_item_destinations(turn, memory, lambda item: item.identity == self.objective)
+        if not goals:
+            return None
+        danger = self.danger_until.keys()
+        guarded = self.supplies_guarded_until.keys()
+        if not guarded:
+            return memory.toward(turn, goals, avoid=danger)
+        exclusions = (danger | guarded, danger)
+        # A remembered guard is a softer warning than a disclosed trap.
+        for avoid in exclusions:
+            if step := memory.toward_avoiding_traps(turn, goals, avoid=avoid):
+                return step
+        if memory.known_traps:
+            for avoid in exclusions:
+                if step := memory.toward(turn, goals, avoid=avoid, prefer_safe=False):
+                    return step
+        return None
+
+    def follow_stairs(self, turn: Turn, memory: FloorMap, *, returning: bool) -> tuple[Action, str] | None:
+        """Descend toward the retrieval floor or follow upstairs with the objective."""
+        direction = self.objective_stair_direction(returning=returning)
+        if turn.cell is None or direction is None:
+            return None
+        stairs = self.safe_stairs(turn, direction)
+        if not stairs:
+            # A temporary warning on the only exit can expire while we wait on this side.
+            if returning and turn.cell.stairs_up and not turn.hostiles and turn.cell.key not in self.danger_until:
+                wait_ticks = self.unsafe_stairs.get((turn.cell.key, Direction.UP), 0) - turn.tick
+                if wait_ticks > 0 and self.can_afford_wait(turn, memory, direction, wait_ticks):
+                    return Wait(), "wait_for_safe_ascent"
+            return None
+        if turn.cell.key in stairs:
+            if turn.has_condition("rogue.levitation"):
+                return Wait(), "wait_for_ground_contact"
+            return Move(direction), "ascend" if returning else "descend"
+        danger = self.danger_until.keys()
+        if returning and not turn.hostiles and danger and memory.known_traps:
+            if step := route_around_danger(turn, memory, stairs, danger, avoid_traps=True):
+                return step, MemoryReason.SEEK_STAIRS
+        if step := route_around_danger(turn, memory, stairs, danger):
+            return step, MemoryReason.SEEK_STAIRS
+        if returning and not turn.hostiles:
+            return self.search_return_connection(turn, memory, stairs)
+        return None
 
     def search_return_connection(self, turn: Turn, memory: FloorMap, upstairs: set[str]) -> tuple[Action, str] | None:
         """Search where one opening could reconnect the route to a remembered staircase."""
-        ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
-        if turn.cell is None or ability is None:
+        search = self.ready_search(turn)
+        if turn.cell is None or search is None:
             return None
-        sites: set[str] = set()
-        for stair in upstairs:
-            passages = {c.key for c, _ in memory.reachable(stair)}
-            if turn.cell.key in passages:
-                continue
-            for key in passages:
-                for wall in memory.adjacent(key):
-                    if wall.wall:
-                        sites.update(c.key for c in memory.adjacent(wall.key)
-                                     if not c.wall and c.key not in passages and self.searches[c.key] < 3)
+        sites = self.search_history.return_connection_sites(memory, turn.cell.key, upstairs)
+        return self.search_at_sites(turn, memory, sites, search)
+
+    def search_at_sites(self, turn: Turn, memory: FloorMap, sites: set[str],
+                        search: UseAbility) -> tuple[Action, str] | None:
+        """Search here if eligible, otherwise approach an eligible site."""
         if turn.cell.key in sites:
-            return UseAbility(ability), "search"
-        if step := memory.toward(turn, sites):
+            return search, "search"
+        if step := route_around_danger(turn, memory, sites, self.danger_until.keys()):
             return step, "search"
         return None
 
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,
-               allow_unseen: bool = True, wall_limit: int = 3) -> tuple[Action, str] | None:
+               allow_unseen: bool = True, wall_limit: int = ORDINARY_WALL_SEARCHES) -> tuple[Action, str] | None:
         if returning and (action := self.search_dead_end(turn, memory)):
             return action, "search"
-        ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
-        if ability is None or turn.cell is None:
+        search = self.ready_search(turn)
+        if search is None or turn.cell is None:
             return None
-        sites = []
-        for site, distance in memory.reachable(turn.cell.key):
-            attempts = self.searches[site.key]
-            neighbors = memory.adjacent(site.key)
-            walls = [c for c in neighbors if c.wall]
-            dead_end = memory.is_dead_end(site.key) and not (site.stairs_down or site.stairs_up)
-            if dead_end:
-                remaining = DEAD_END_SEARCHES - self.completed_end_searches[site.key]
-                if remaining <= 0 or turn.hostiles:
-                    continue
-                untested = walls
-                value = remaining * len(walls)
-            else:
-                if attempts >= wall_limit + 1:
-                    continue
-                untested = [c for c in walls if attempts < wall_limit and self.wall_searches[c.key] < wall_limit]
-                value = sum(wall_limit - self.wall_searches[c.key] for c in untested)
-            if not untested and (not allow_unseen or len(neighbors) == 4):
-                continue
-            near_exit = returning and any(
-                n.stairs_up for wall in untested for n in memory.adjacent(wall.key)
-            )
-            # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
-            rank = near_exit, bool(untested), value - distance * 2, -distance
-            sites.append((rank, site.key))
-        # Equal ranks keep the map traversal order. Cell keys identify places within the game.
-        for _, key in sorted(sites, key=lambda site: site[0], reverse=True):
-            if key == turn.cell.key:
-                return UseAbility(ability), "search"
-            if step := memory.toward(turn, {key}):
-                return step, "search"
+        ranked = self.search_history.ranked_search_sites(turn, memory, returning=returning,
+                                                        allow_unseen=allow_unseen, wall_limit=wall_limit)
+        for sites in ranked:
+            if decision := self.search_at_sites(turn, memory, sites, search):
+                return decision
         return None
+
+    def estimated_journey_ticks(self, returning: bool) -> int:
+        """Budget the shallower return legs and the round trips still ahead."""
+        return self.travel_times.journey_ticks(self.depth, self.retrieval_depth, returning=returning)
+
+    def respond_to_hunger(self, turn: Turn, memory: FloorMap, ground_items: tuple[GroundItem, ...],
+                          *, can_forage: bool) -> tuple[Action, str] | None:
+        if turn.hunger not in MEAL_HUNGER:
+            return None
+        if meal := choose_meal(turn, self.meals.gains):
+            return UseItem(meal, ItemUse.EAT), "eat"
+        reachable_food = (ground.item for ground in ground_items if ground.reachable and ground.item.category == "food")
+        if meal := choose_meal(turn, self.meals.gains, candidates=reachable_food):
+            return Pickup(meal), "take"
+        if can_forage and (step := self.route_to_food(turn, memory)):
+            return step, "forage"
+        return None
+
+    def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
+        food_cells = remembered_item_destinations(turn, memory, lambda item: item.category == "food")
+        avoid = self.danger_until.keys() | self.supplies_guarded_until.keys()
+        return route_around_danger(turn, memory, food_cells, avoid)
 
     def provision(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[Action, str] | None:
         nutrition = turn.nutrition
-        if nutrition is None:
+        if nutrition is None or turn.has_condition("rogue.levitation"):
             return None
-        required = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items() if floor < self.depth)
-        if not returning and self.descent_ticks_by_floor:
-            recent = sorted(self.descent_ticks_by_floor)[-5:]
-            round_trip = median_low(
-                [
-                    self.descent_ticks_by_floor[floor] + self.ascent_ticks_by_floor.get(floor, 0)
-                    for floor in recent
-                ]
-            )
-            required += max(0, self.retrieval_depth - self.depth) * round_trip
+        required = self.estimated_journey_ticks(returning)
         if nutrition.ticks_until_empty >= required:
             return None
-        meals = [item for item in turn.inventory if ItemUse.EAT in item.uses]
-        provisions = 0
-        for item in meals:
-            if item.identity is None or item.identity not in self.food_value:
-                return None
-            provisions += self.food_value[item.identity] * item.quantity
-        if nutrition.ticks_until_empty + provisions * nutrition.ticks_per_unit >= required:
+        packed = estimate_carried_food(edible_items(turn), self.meals.gains)
+        if packed.has_unmeasured_meals:
             return None
-        food = {
-            key for key, items in memory.items.items() if any(item.category == "food" for item in items)
-        }
-        if step := memory.toward(turn, food):
+        if packed.spare_ticks_after_travel(nutrition, required) >= 0:
+            return None
+        if step := self.route_to_food(turn, memory):
             return step, "forage"
         if returning or self.depth >= self.retrieval_depth:
             return None
-        count = sum(item.quantity for item in meals)
-        if self.depth not in self.food_scouts:
-            if turn.cell is None or not turn.cell.stairs_down:
-                return None
-            self.food_scouts[self.depth] = turn.tick + nutrition.ticks_until_empty // 4, count
-        deadline, starting_count = self.food_scouts[self.depth]
-        if turn.tick < deadline and count <= starting_count:
-            if step := memory.toward(turn, memory.frontier):
-                return step, "scout_for_food"
+        if not self.food_scouts.can_explore(self.depth, turn):
+            return None
+        if step := route_around_danger(turn, memory, memory.frontier, self.danger_until.keys(), avoid_traps=True):
+            return step, MemoryReason.SCOUT_FOR_FOOD
         return None
 
-    def can_try_scroll(self, item: Item) -> bool:
-        return (item.identity is None and ItemUse.READ in item.uses
-                and (self.depth, item.target) not in self.stalled_scrolls)
+    def scroll_trial(self, turn: Turn, *, at_exit: bool = False) -> tuple[UseItem, MemoryReason] | None:
+        scroll = self.scroll_trials.choose(turn, self.depth, at_exit=at_exit)
+        if scroll is None:
+            return None
+        reason = MemoryReason.STUDY_SCROLL_AT_EXIT if at_exit else MemoryReason.TEST_UNKNOWN_MAGIC
+        return UseItem(scroll, ItemUse.READ), reason
+
+    def route_scroll(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[UseItem, str] | None:
+        """When cut off from remembered upstairs, prefer a known teleport to a trial."""
+        if returning and memory.stairs(Direction.UP):
+            if teleport := offered_item_use(turn, "item.scroll.teleportation", ItemUse.READ):
+                return teleport, "find_return_route"
+        return self.scroll_trial(turn)
 
     def stalled(self, turn: Turn, previous: Result | None) -> tuple[Action | None, str]:
         if (previous is None or not turn.can_cancel or len(turn.activities) != 1
                 or turn.outcome_of(previous) is not ActivityPhase.QUEUED):
             return None, "readiness_timeout"
-        if self.pending_scroll_trial and self.pending_scroll_trial[0] == previous:
-            return ActivityChoice.CANCEL, "cancel_stalled_scroll"
-        stair = self.pending_stair
-        if stair and stair.receipt == previous and stair.origin != self.cancelled_stair_origin:
-            return ActivityChoice.CANCEL, "cancel_stalled_stair"
+        if self.scroll_trials.pending and self.scroll_trials.pending.receipt == previous:
+            return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_SCROLL
+        if self.crossings.can_cancel(previous):
+            return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_STAIR
         return None, "readiness_timeout"
+
+    def choose_pickup(self, turn: Turn, ground_items: tuple[GroundItem, ...], *, returning: bool) -> Item | None:
+        return preferred_pickup(turn, ground_items, objective=self.objective, returning=returning)
+
+    def loot_goals(self, turn: Turn, ground_items: tuple[GroundItem, ...], returning: bool) -> LootGoals:
+        return loot_goals(turn, ground_items, returning=returning, objective=self.objective,
+                          guarded=self.supplies_guarded_until.keys())
+
+    def light_dark_room(self, turn: Turn) -> Zap | None:
+        if turn.cell is None or turn.cell.lit is not False or turn.hostiles:
+            return None
+        if self.depth in self.attempted_room_light or turn.has_condition("rogue.blindness"):
+            return None
+        for device in turn.devices:
+            if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
+                    and self.wand_trials.can_spend_charge(device)):
+                return Zap(device, None)
+        return None
+
+    def explore_frontier(self, turn: Turn, memory: FloorMap) -> Action | None:
+        avoid = self.danger_until.keys()
+        step = memory.toward_unexplored(turn, avoid=avoid)
+        if step is None and avoid:
+            # Cross a recent threat only when it blocks every remaining route.
+            return memory.toward_unexplored(turn)
+        if isinstance(step, Move) and self.last_exploration_origin is not None:
+            destination = turn.cell_at(step.direction.offset)
+            if destination and destination.key == self.last_exploration_origin:
+                # Only avoid doubling back when the whole detour is clear.
+                blocked = avoid | {destination.key}
+                detour = memory.toward_avoiding_traps(turn, memory.frontier, avoid=blocked, max_steps=3)
+                return detour or step
+        return step
+
+    def explore(self, turn: Turn, memory: FloorMap, *, returning: bool) -> tuple[Action | None, str]:
+        """Find a route when remembered stairs and supplies offer no next step."""
+        if light := self.light_dark_room(turn):
+            return light, MemoryReason.LIGHT_ROOM
+        if action := self.explore_frontier(turn, memory):
+            return action, MemoryReason.EXPLORE
+        scroll = self.route_scroll(turn, memory, returning)
+        if decision := self.search(turn, memory, returning, allow_unseen=scroll is None):
+            return decision
+        if scroll is not None:
+            return scroll
+        if (not returning and not turn.hostiles and memory.stairs(Direction.UP)
+                and not memory.stairs(Direction.DOWN)):
+            # A failed Search leaves concealed doors looking like ordinary walls.
+            if decision := self.search(turn, memory, returning, allow_unseen=False, wall_limit=6):
+                return decision
+        return None, "no_disclosed_route"
 
     def choose(self, turn: Turn) -> tuple[Action | None, str]:
         if turn.needs_identification and (prompt := turn.identification):
-            unknown = next((item for item in prompt.items if needs_identification(item)), None)
-            return prompt.select(unknown), "identify"
+            return prompt.select(identification_target(turn, prompt.items)), "identify"
         if turn.can_resume:
             return ActivityChoice.RESUME, "resume"
         if not turn.can_act or turn.cell is None:
@@ -915,284 +1030,59 @@ class Adventurer:
             return None, "uncertain_stair_landing"
         if turn.falling:
             return Wait(), "settle_fall"
-        if self.wait_after_cancel:
-            return Wait(), "wait_after_cancel"
+        return self.choose_ready_action(turn)
 
+    def choose_ready_action(self, turn: Turn) -> tuple[Action | None, str]:
+        """Choose a gameplay action once prompts, interruptions and falling are handled."""
         if decision := self.combat(turn):
-            return decision
+            action, _ = decision
+            if not (isinstance(action, Move) and self.crossings.deferred_departure == (turn.cell.key, action.direction)):
+                return decision
+        if self.crossings.deferred_departure is not None:
+            return Wait(), MemoryReason.WAIT_AFTER_CANCEL
 
-        if self.corridor_stand and turn.hunger not in {"weak", "empty"}:
-            entrance, until = self.corridor_stand
-            if turn.cell.key == entrance and turn.tick < until:
-                return Wait(), "hold_corridor"
+        trapped = self.trapped(turn)
+        if not trapped and self.holding_corridor(turn.cell, turn.tick) and turn.hunger not in URGENT_HUNGER:
+            return Wait(), "hold_corridor"
 
         memory = self.maps[self.depth]
         hovering = turn.has_condition("rogue.levitation")
         ground_items = () if hovering else turn.ground_items
-        if turn.hunger in {"hungry", "weak", "empty"}:
-            for item in turn.inventory:
-                if ItemUse.EAT in item.uses:
-                    return UseItem(item, ItemUse.EAT), "eat"
-            for ground in ground_items:
-                if ground.reachable and ground.item.category == "food":
-                    return Pickup(ground.item), "take"
-            food = {
-                key for key, items in memory.items.items() if any(item.category == "food" for item in items)
-            }
-            if not hovering and not self.trapped(turn) and (step := memory.toward(turn, food)):
-                return step, "forage"
+        if decision := self.respond_to_hunger(turn, memory, ground_items, can_forage=not hovering and not trapped):
+            return decision
 
         returning = self.carrying_objective(turn)
-        item_goals = set()
-        supplies = set()
-        nearby_loot = set()
-        carried: Counter[str | None] = Counter()
-        stock: Counter[str] = Counter()
-        for item in turn.inventory:
-            carried[item.identity] += item.quantity
-            stock[item.category] += item.quantity
-        spare_armor_to_identify = any(
-            choice.slot.kind == "body_armor" and choice.item.physical_reduction is None
-            for choice in turn.equip_choices()
-        )
-        safe_pickup = not turn.hostiles or bool(
-            turn.health and turn.health.current * 5 >= turn.health.maximum * 4
-            and all(turn.distance_to(foe) > 1 for foe in turn.hostiles)
-        )
-        for ground in sorted(ground_items, key=lambda row: row.item.identity != self.objective):
-            item = ground.item
-            useful = item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
-            if ground.reachable:
-                if item.identity == self.objective or (safe_pickup and useful):
-                    return Pickup(item), "take"
-                continue
-            wanted = item.identity == self.objective or item.category == "food"
-            if item.identity in {"item.potion.healing", "item.potion.extra-healing"}:
-                wanted = carried[item.identity] < 2
-            elif not returning and not turn.hostiles and ground.cell and ground.cell.key not in self.guarded_supplies:
-                if useful and not turn.cell.stairs_down:
-                    nearby_loot.add(ground.cell.key)
-                seek_armor = item.category == "armor" and not spare_armor_to_identify and (
-                    item.identity is None or not carried[item.identity]
-                )
-                seek_ring = (item.category == "ring" and item.identity is not None and not carried[item.identity]
-                             and not item.known_cursed and item.identity in ring_upgrades(turn))
-                if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
-                    supplies.add(ground.cell.key)
-            # Outbound arrows use the same recovery radius after leaving sight.
-            if returning and item.identity == "item.weapon.arrow" and carried["item.weapon.shortbow"]:
-                wanted = not turn.hostiles and carried[item.identity] < 8
-            if not returning:
-                wanted |= item.identity == "item.weapon.dart" and carried[item.identity] < 12
-                wanted |= item.identity == "item.weapon.spear" and not carried[item.identity]
-            if wanted and ground.cell:
-                item_goals.add(ground.cell.key)
-        if not returning and not hovering and not turn.hostiles and not self.trapped(turn):
-            objective_cells = {key for key, items in memory.items.items()
-                               if any(item.identity == self.objective for item in items)}
-            if objective_cells and (step := memory.toward(turn, objective_cells, avoid=self.danger_until.keys())):
+        if item := self.choose_pickup(turn, ground_items, returning=returning):
+            return Pickup(item), "take"
+        if not returning and not hovering and not turn.hostiles and not trapped:
+            if step := self.step_toward_objective(turn, memory):
                 return step, "seek_objective"
         if not turn.hostiles and (decision := self.prepare(turn)):
             return decision
-        if self.trapped(turn):
-            if not turn.holds and any(c.identity == "rogue.bear_trap" and c.active
-                                      and c.remaining_ticks is None for c in turn.conditions):
-                # While pinned, any Move is a paid attempt in place. Do not
-                # turn it into Wait just because there is no walkable tile.
-                return Move(Direction.NORTH), "escape_bear_trap"
-            return Wait(), "wait_for_restraint"
+        if trapped:
+            return self.respond_to_bear_trap(turn)
+        if self.search_history.pending_search is not None:
+            return Wait(), "await_search_result"
         if not returning and not any(g.item.identity == self.objective for g in ground_items):
             if search := self.search_dead_end(turn, memory):
                 return search, "search"
-        if action := memory.toward(turn, item_goals):
-            return action, "seek_item"
-        if not returning and not hovering and not turn.hostiles and carried["item.weapon.shortbow"]:
-            arrows = {key for key, items in memory.items.items()
-                      if any(item.identity == "item.weapon.arrow" for item in items)}
-            if arrows and (action := memory.toward(turn, arrows, avoid=self.danger_until.keys(), max_steps=6)):
-                return action, "recover_arrows"
-        if nearby_loot and (action := memory.toward(turn, nearby_loot, max_steps=2)):
-            return action, "seek_supplies"
-        if supplies and (action := memory.toward(turn, supplies, max_steps=3)):
-            return action, "seek_supplies"
-
-        if not hovering and not turn.hostiles and (decision := self.provision(turn, memory, returning)):
+        loot = self.loot_goals(turn, ground_items, returning)
+        if decision := route_to_loot(turn, memory, loot, self.danger_until.keys(),
+                                     guarded=self.supplies_guarded_until.keys()):
             return decision
 
-        direction = Direction.UP if returning else Direction.DOWN
-        if returning or self.depth < self.retrieval_depth:
-            stairs = self.safe_stairs(turn, direction)
-            if turn.cell.key in stairs:
-                if hovering:
-                    return Wait(), "wait_for_ground_contact"
-                return Move(direction), "ascend" if returning else "descend"
-            if action := memory.toward(turn, stairs):
-                return action, "seek_stairs"
-            if returning and stairs and not turn.hostiles:
-                if link := self.search_return_connection(turn, memory, stairs):
-                    return link
-
-        if (turn.cell.lit is False and not turn.hostiles and self.depth not in self.attempted_room_light
-                and not turn.has_condition("rogue.blindness")):
-            for device in turn.devices:
-                if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
-                        and device.charges != 0):
-                    return Zap(device, None), "light_room"
-        avoid = self.danger_until.keys()
-        if action := memory.toward_unexplored(turn, avoid=avoid):
-            if isinstance(action, Move) and (next_cell := turn.cell_at(action.direction.offset)):
-                if next_cell.key == self.last_exploration_origin:
-                    alternate = memory.toward(turn, memory.frontier, avoid=avoid | {next_cell.key}, max_steps=3)
-                    if alternate:
-                        return alternate, "explore"
-            return action, "explore"
-        if avoid:
-            # Accept the risk when every remaining route crosses a recent threat.
-            if action := memory.toward_unexplored(turn):
-                return action, "explore"
-        fallback = None
-        if returning and memory.stairs(Direction.UP):
-            for item in turn.inventory:
-                if item.identity == "item.scroll.teleportation" and ItemUse.READ in item.uses:
-                    fallback = UseItem(item, ItemUse.READ), "find_return_route"
-                    break
-        if fallback is None:
-            for item in turn.inventory:
-                if self.can_try_scroll(item):
-                    fallback = UseItem(item, ItemUse.READ), "test_unknown_magic"
-                    break
-        if decision := self.search(turn, memory, returning, allow_unseen=fallback is None) or fallback:
+        if not turn.hostiles and (decision := self.provision(turn, memory, returning)):
             return decision
-        if (not returning and not turn.hostiles and memory.stairs(Direction.UP)
-                and not memory.stairs(Direction.DOWN)):
-            # A failed Search leaves concealed doors looking like ordinary walls.
-            if decision := self.search(turn, memory, returning, allow_unseen=False, wall_limit=6):
-                return decision
-        return None, "no_disclosed_route"
+
+        if decision := self.follow_stairs(turn, memory, returning=returning):
+            return decision
+
+        return self.explore(turn, memory, returning=returning)
 
 
-def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], None],
-         *, record_decisions: bool = False) -> dict:
-    """Observe the outcome after the last budgeted submission, including victory."""
-    count = 0
-    deepest = 1
-    acquired = False
-    detail: dict[str, object] = {}
-    equipment = EquipmentHistory()
-    for decision in game.decisions(include_stalls=True):
-        turn, combat = decision.turn, decision.combat
-        equipment.observe(turn)
-        if player.training_checked_at is None:
-            player.training_checked_at = turn.hit_dice
-        previous = decision.previous
-        events = combat.records()
-        acquired |= player.carrying_objective(turn)
-        if turn.terminal:
-            reason = "terminal"
-            if turn.victorious:
-                reason = "victory"
-            elif turn.dead:
-                reason = "death"
-            detail.update(
-                last_combat_events=turn.recent_combat.records() or events,
-                events_since_previous_action=events,
-                self_target=turn.self_target,
-            )
-            break
-        player.observe(turn, combat)
-        deepest = max(deepest, player.depth)
-        if count >= budget:
-            reason = "action_budget"
-            break
-        purchase = None
-        action = None
-        if (not player.growth_locked and turn.hit_dice is not None and turn.hit_dice != player.training_checked_at
-                and not decision.stalled and turn.can_act and not turn.hostiles and not turn.identification
-                and not turn.can_resume and not player.pending_stair):
-            try:
-                purchase = player.train(turn, game.training)
-            except TrainingRefused as error:
-                purchase = {"type": "training_preview"}, error.result
-        if purchase:
-            command, result = purchase
-            reason = "earned_training"
-        else:
-            action, reason = player.stalled(turn, previous) if decision.stalled else player.choose(turn)
-            if action is None:
-                if decision.stalled:
-                    detail.update(health=asdict(turn.health) if turn.health else None,
-                                  nutrition_reserve=turn.food_reserve,
-                                  conditions=[asdict(condition) for condition in turn.conditions])
-                elif reason == "no_disclosed_route":
-                    memory = player.maps[player.depth]
-                    detail["navigation"] = {
-                        "floor": player.depth,
-                        "visited_cells": len(memory.visited),
-                        "known_down_stairs": len(memory.stairs(Direction.DOWN)),
-                        "searches_admitted": sum(player.searches[key] for key in memory.cells),
-                    }
-                break
-            result = turn.submit(action)
-            command = describe_action(action)
-        count += 1
-        receipt = {"intention": result.intention}
-        if result.activity:
-            receipt.update(type="admitted", **asdict(result.activity))
-        emit(
-            {
-                **({"recording": turn.recording()} if record_decisions else {}),
-                "floor": player.depth,
-                "tick": turn.tick,
-                "cell": turn.cell.key if turn.cell else None,
-                "known_cells": len(player.maps[player.depth].cells),
-                "reachable_pickups": [
-                    {"item": ground.item.target, "category": ground.item.category,
-                     "identity": ground.item.identity, "quantity": ground.item.quantity,
-                     "cell": ground.cell.key if ground.cell else None}
-                    for ground in turn.ground_items if ground.reachable
-                ],
-                **({"stalled": True} if decision.stalled else {}),
-                "reason": reason,
-                "action": command,
-                "result": {"status": result.status.value, "receipt": receipt,
-                           "code": result.code, "message": result.reason,
-                           **({"request_id": result.request_id} if result.request_id else {})},
-                "previous_intention_id": previous.intention if previous else None,
-                "previous_intention_phase": decision.previous_phase,
-                "health_recovery": asdict(turn.recovery) if turn.recovery else None,
-                "nutrition_reserve": turn.food_reserve,
-                "events_since_previous_action": events,
-                "amulet_acquired": acquired,
-            }
-        )
-        if result.status is Outcome.CONFIRMED:
-            if action is not None:
-                player.admitted(turn, action, result, reason=reason)
-                equipment.admitted(action)
-        elif not result.stale:
-            previous = result
-            reason = result.reason or result.status.value
-            break
-    else:
-        raise RuntimeError("The decision stream ended before a terminal picture")
-    detail.update(
-        equipment_opportunities=equipment.counts(),
-        last_inventory_tick=equipment.last_inventory_tick,
-        last_carried_devices=equipment.last_devices,
-        estimated_ascent_ticks_by_floor=player.ascent_ticks_by_floor,
-        estimated_ascent_ticks=sum(player.ascent_ticks_by_floor.values()),
-    )
-    if record_decisions:
-        detail["recording"] = turn.recording()
-    if previous:
-        detail.update(
-            previous_intention_id=previous.intention, previous_intention_phase=turn.outcome_of(previous)
-        )
-    return {
-        "terminal": reason,
-        "actions": count,
-        "max_depth": deepest,
-        "amulet_acquired": acquired,
-        "tick": turn.tick,
-        **detail,
-    }
+def __getattr__(name: str):
+    """Support callers that imported runner functions from the original policy module."""
+    if name in {"play", "trace_result"}:
+        import rogue_runner
+        return getattr(rogue_runner, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

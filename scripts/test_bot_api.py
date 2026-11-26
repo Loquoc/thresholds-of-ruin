@@ -51,6 +51,24 @@ class BotApiTests(unittest.TestCase):
                 view = {"motion": motion} if motion else {}
                 self.assertEqual(Turn({"state": {"observation": view}, "readiness": {}}).falling, expected)
 
+    def test_map_retains_unseen_traps_and_updates_reobserved_cells(self):
+        memory = FloorMap()
+        def observe(key, *, trapped):
+            cell = {"key": key, "position": {"x": 0, "y": 0, "z": 0}, "wall": False,
+                    "stairs_up": False, "stairs_down": False}
+            if trapped:
+                cell["trap"] = {"id": "pit", "family": None, "reachable": True}
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": [cell], "ground_items": [], "interactions": {},
+            }}}))
+
+        observe("passage", trapped=True)
+        observe("stairs", trapped=True)
+        earlier = memory.known_traps
+        observe("passage", trapped=False)
+        self.assertEqual(earlier, {"passage", "stairs"})
+        self.assertEqual(memory.known_traps, {"stairs"})
+
     def test_map_remembers_stairs_by_direction_until_the_cell_is_seen_again(self):
         def observe(*stairs):
             cells = [{"key": key, "position": {"x": i, "y": 0, "z": 0}, "wall": False,
@@ -69,6 +87,106 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(memory.stairs(Direction.DOWN), set())
         with self.assertRaises(ValueError):
             memory.stairs(Direction.EAST)
+
+    def test_remembered_diagonal_tracks_a_door_seen_without_the_rest_of_the_corner(self):
+        memory = FloorMap()
+        cells = [{"key": key, "position": {"x": x, "y": y, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False}
+                 for key, x, y in (("start", 0, 0), ("gate", 1, 0), ("hall", 0, 1), ("exit", 1, 1))]
+
+        def observe(visible):
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": visible, "ground_items": [], "interactions": {},
+            }}}))
+
+        observe([cells[0], cells[3]])
+        self.assertIsNone(memory.distance("start", {"exit"}))
+        observe(cells)
+        observe([cells[0], cells[1], cells[3]])
+        self.assertEqual(memory.distance("start", {"exit"}), 1)
+        for opened, steps in ((False, 2), (True, 1)):
+            with self.subTest(opened=opened):
+                observe([{**cells[1], "door": {"id": "door", "reachable": True, "open": opened}}])
+                self.assertEqual(memory.distance("start", {"exit"}), steps)
+                self.assertEqual(memory.distance("exit", {"start"}), steps)
+
+        observe([cells[0], {**cells[1], "key": "replacement-wall", "wall": True}, cells[3]])
+        self.assertEqual(memory.distance("start", {"exit"}), 2)
+        self.assertEqual(memory.distance("exit", {"start"}), 2)
+        observe(cells)
+        observe([cells[0], {**cells[3], "key": "different-exit"}])
+        self.assertIsNone(memory.distance("start", {"different-exit"}))
+        self.assertEqual(memory.distance("start", {"exit"}), 2)
+
+    def test_revealed_door_reconnects_both_remembered_sides_outside_the_current_view(self):
+        cells = [{"key": key, "position": {"x": x, "y": 0, "z": 0}, "wall": key == "door",
+                  "stairs_up": False, "stairs_down": False} for x, key in enumerate(("west", "door", "east"))]
+        memory = FloorMap()
+
+        def observe(visible):
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": visible, "ground_items": [], "interactions": {},
+            }}}))
+
+        observe(cells)
+        self.assertIsNone(memory.distance("west", {"east"}))
+        observe([{**cells[1], "wall": False, "door": {"id": "gate", "reachable": True, "open": False}}])
+        self.assertEqual(memory.distance("west", {"east"}), 2)
+        self.assertEqual(memory.distance("east", {"west"}), 2)
+        observe([cells[1]])
+        self.assertIsNone(memory.distance("east", {"west"}))
+
+    def test_reachable_can_leave_an_excluded_origin_but_cannot_cross_an_excluded_passage(self):
+        cells = [{"key": str(x), "position": {"x": x, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False} for x in range(4)]
+        memory = FloorMap()
+        memory.observe(Turn({"readiness": {}, "state": {"observation": {
+            "visible_cells": cells, "ground_items": [], "interactions": {},
+        }}}))
+        route = memory.reachable("0", avoid={"0", "2"})
+        self.assertEqual([(cell.key, steps) for cell, steps in route], [("0", 0), ("1", 1)])
+        self.assertEqual(memory.distance("0", {"3"}), 3)
+        self.assertIsNone(memory.distance("0", {"3"}, avoid={"2"}))
+        self.assertEqual(memory.distance("0", {"0", "3"}, avoid={"2"}), 0)
+
+    def test_two_views_of_a_pile_preserve_each_distinct_stack_once(self):
+        cells = [{"key": "pantry", "position": {"x": x, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False} for x in (0, 4)]
+        ground = [{"position": cell["position"], "reachable": cell is cells[0],
+                   "item": {"id": target, "name": "ration", "identified": False, "class": "food", "quantity": 2}}
+                  for cell in cells for target in ("first", "second")]
+        turn = Turn({"readiness": {}, "state": {"observation": {"visible_cells": cells, "ground_items": ground}}})
+        memory = FloorMap()
+        memory.observe(turn)
+        self.assertEqual([item.quantity for item in memory.items["pantry"]], [2, 2])
+        self.assertEqual(len(turn.ground_items), 4)
+
+    def test_pile_memory_updates_on_revisiting_its_square(self):
+        def view(key, quantity):
+            position = {"x": 0, "y": 0, "z": 0}
+            cell = {"key": key, "position": position, "wall": False, "stairs_up": False, "stairs_down": False}
+            item = {"id": "ration", "name": "ration", "identified": False, "class": "food", "quantity": quantity}
+            pile = [{"position": position, "reachable": True, "item": item}] if quantity else []
+            return Turn({"readiness": {}, "state": {"observation": {"visible_cells": [cell], "ground_items": pile}}})
+
+        memory = FloorMap()
+        memory.observe(view("pantry", 3))
+        memory.observe(view("hall", 0))
+        self.assertEqual(memory.items["pantry"][0].quantity, 3)
+        memory.observe(view("pantry", 1))
+        self.assertEqual(memory.items["pantry"][0].quantity, 1)
+        memory.observe(view("pantry", 0))
+        self.assertNotIn("pantry", memory.items)
+
+    def test_item_search_finds_matches_anywhere_in_a_remembered_pile(self):
+        from tor_client_bot.navigation import RememberedItem
+
+        ration = RememberedItem("ration", None, "food", 1)
+        arrow = RememberedItem("arrow", "item.weapon.arrow", "weapon", 3)
+        memory = FloorMap()
+        memory.items.update(mixed=(arrow, ration), pantry=(ration,), quiver=(arrow,))
+        self.assertEqual(memory.cells_with_item(lambda item: item.category == "food"), {"mixed", "pantry"})
+        self.assertEqual(memory.cells_with_item(lambda item: item.identity == arrow.identity), {"mixed", "quiver"})
 
     def test_recovery_estimate_accounts_for_elapsed_ticks_and_a_stopped_clock(self):
         from tor_client_bot import Recovery
@@ -207,6 +325,46 @@ class BotApiTests(unittest.TestCase):
         self.assertIsNone(aim(lane, (5, 0), steps=4))
         with self.assertRaises(ValueError):
             aim(lane, (2, 0), steps=0)
+
+    def test_training_balances_require_the_build_seen_in_the_overview(self):
+        from tor_client_bot import Session, TrainingRefused
+
+        def page(epoch, entries):
+            basis = {"actor": 1, "stream": "s", "branch": "b", "reset": "0", "build_epoch": str(epoch)}
+            return {"status": "confirmed", "page": {"basis": basis, "next": None, "entries": entries}}
+
+        overview = [{"value": {"locked": False, "points": {"unspent": "1"}, "starting_skills": []}}]
+        transport = Mock()
+        transport.advancement.side_effect = [page(4, overview), page(5, []), page(5, overview), page(5, [])]
+        training = Session(transport).training
+        training.overview()
+        with self.assertRaises(TrainingRefused) as refusal:
+            training.pools()
+        self.assertTrue(refusal.exception.result.stale)
+        self.assertEqual(refusal.exception.operation, "balances")
+        self.assertEqual(training.pools(), ())
+        self.assertEqual([call.args for call in transport.advancement.call_args_list],
+                         [("overview",), ("balances",), ("overview",), ("balances",)])
+
+    def test_training_preview_rejects_old_choices_after_a_new_overview(self):
+        from tor_client_bot import PointPool, Session, TrainingKind, TrainingOption, TrainingRefused
+
+        transport = Mock()
+        basis = {"actor": 1, "stream": "s", "branch": "b", "reset": "0", "build_epoch": "5"}
+        overview = {"locked": False, "points": {"unspent": "1"}, "starting_skills": []}
+        transport.advancement.return_value = {"status": "confirmed", "page": {
+            "basis": basis, "next": None, "entries": [{"value": overview}]}}
+        training = Session(transport).training
+        training.overview()
+        old = (1, "b", "s", 0, 4)
+        kind = TrainingKind.TALENT
+        pool = PointPool(2, "advancement", "Advancement", 1, (kind,), old)
+        talent = TrainingOption(kind, "strike", "Strike", (), old)
+        with self.assertRaises(TrainingRefused) as refusal:
+            training.preview(pool, talent)
+        self.assertTrue(refusal.exception.result.stale)
+        self.assertEqual(refusal.exception.operation, "preview")
+        transport.advancement.assert_called_once_with("overview")
 
     def test_rejected_training_preview_reopens_before_another_selection(self):
         from tor_client_bot import Session, TrainingKind, TrainingRefused
@@ -528,6 +686,12 @@ class BotApiTests(unittest.TestCase):
         self.assertIs(paused.outcome_of(result), ActivityPhase.PAUSED)
         final = observe(finished=[dict(row, phase="resolved", entry_id="later")])
         self.assertIs(Turn.replay(final.recording()).outcome_of(result), ActivityPhase.RESOLVED)
+        failed = Turn({"state": {"observation": {}}, "readiness": {},
+                       "finished_intentions": [dict(row, phase="failed")],
+                       "intention_failures": {"7": {"rolled_back": "read"}}})
+        activity = failed.activity_for(result)
+        self.assertEqual((activity.phase, activity.failure, activity.failed_action),
+                         (ActivityPhase.FAILED, "rolled_back", "read"))
         wire = Result.from_reply({"status": "confirmed", "receipt": {
             "type": "admitted", **row, "actor": "1"}})
         self.assertEqual(wire.activity.actor, 1)
@@ -685,6 +849,18 @@ class BotApiTests(unittest.TestCase):
         rows[0]["wall"] = True
         self.assertIsNone(Turn({"state": {"observation": view}, "readiness": {}}).step(Direction.WEST))
 
+    def test_route_starts_from_the_live_destination_when_the_origin_has_two_views(self):
+        cells = [{"key": key, "position": {"x": x, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False}
+                 for x, key in ((0, "home"), (1, "east"), (5, "home"), (6, "other"))]
+        turn = Turn({"state": {"observation": {"visible_cells": cells, "visible_actors": [],
+                                               "ground_items": [], "interactions": {}}}, "readiness": {}})
+        memory = FloorMap()
+        memory.observe(turn)
+        self.assertIsNone(memory.toward(turn, {"other"}, max_steps=1))
+        self.assertEqual(memory.toward(turn, {"east"}, max_steps=1), Move(Direction.EAST))
+        self.assertIsNone(memory.toward(turn, {"other"}, avoid={"east"}))
+
     def test_navigation_opens_reachable_door_and_never_cuts_unknown_corner(self):
         def tile(key, x, y, door=None):
             return {
@@ -782,6 +958,14 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(tuple(replay.ranged_attacks()), (shot, upper))
         self.assertEqual(tuple(replay.ranged_attacks(max_distance=1)), ())
         self.assertEqual(tuple(replay.ranged_attacks(max_distance=2)), (shot, upper))
+        import json
+        mixed = json.loads(turn.recording())
+        mixed["state"]["observation"]["visible_actors"].append(
+            {"id": "friend", "name": "bystander", "position": {"x": 1, "y": 0, "z": 0}}
+        )
+        mixed_turn = Turn(mixed)
+        self.assertEqual({s.target.target for s in mixed_turn.ranged_attacks()}, {"foe", "friend"})
+        self.assertEqual(tuple(mixed_turn.ranged_attacks(hostile_only=True)), (shot, upper))
         self.assertIs(shot.target, upper.target)
         self.assertEqual(upper.offset, (2, 0, 1))
         self.assertEqual(session.projectile_choices.call_count, 3)

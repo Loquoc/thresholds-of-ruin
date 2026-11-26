@@ -41,6 +41,53 @@ class CohortSummaryTests(unittest.TestCase):
                 result = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl", 26, "amulet", entry, False)
             self.assertEqual(result["terminal"], "action_budget")
 
+    def test_mismatched_client_exit_keeps_observed_progress_and_discards_terminal_claim(self):
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import Mock, patch
+        from rogue_o_matic_cohort import play_on_server
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = root / "client.py"
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            for terminal, code in (("victory", 1), ("death", 0), ("action_budget", 2)):
+                with self.subTest(terminal=terminal, code=code):
+                    rows = [{"floor": 4, "action": {"type": "wait"}}, {"terminal": terminal, "max_depth": 99}]
+                    client.write_text("".join(f"print({json.dumps(row)!r})\n" for row in rows)
+                                      + f"raise SystemExit({code})\n", encoding="utf-8")
+                    with patch("rogue_o_matic_cohort.verify_victory") as verify:
+                        report = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl",
+                                                26, "amulet", client, False)
+                    self.assertEqual((report["terminal"], report["exit_code"], report["max_depth"], report["actions"]),
+                                     ("client_error", code, 4, 1))
+                    verify.assert_not_called()
+
+    def test_accepted_client_exit_preserves_depth_and_acquisition_evidence(self):
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import Mock
+        from rogue_o_matic_cohort import play_on_server
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = root / "client.py"
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            cases = [(2, 4, True, False), (7, 7, False, True), (None, 4, False, "false")]
+            for claimed, expected, in_trace, in_summary in cases:
+                with self.subTest(claimed=claimed, in_trace=in_trace, in_summary=in_summary):
+                    rows = [{"floor": 4, "action": {"type": "wait"}, "amulet_acquired": in_trace},
+                            {"terminal": "action_budget", "max_depth": claimed, "amulet_acquired": in_summary}]
+                    client.write_text("".join(f"print({json.dumps(row)!r})\n" for row in rows)
+                                      + "raise SystemExit(1)\n", encoding="utf-8")
+                    report = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl",
+                                            26, "amulet", client, False)
+                    self.assertEqual(report["max_depth"], expected)
+                    self.assertIs(report["amulet_acquired"], in_trace or in_summary is True)
+                    self.assertEqual(set(report["floors"]), {"4"})
+
     def test_startup_failure_counts_each_scheduled_seed_in_the_cli_report(self):
         from pathlib import Path
         import subprocess
@@ -139,6 +186,73 @@ class CohortSummaryTests(unittest.TestCase):
                 self.assertEqual(hashes[name], hashlib.sha256(data).hexdigest())
             self.assertEqual(script.name, "rogue_o_matic.py")
 
+    def test_policy_snapshot_includes_local_imports_even_inside_functions(self):
+        import ast
+        from pathlib import Path
+        from rogue_o_matic_cohort import POLICY_FILES
+
+        scripts = Path(__file__).resolve().parent
+        for name in POLICY_FILES:
+            tree = ast.parse((scripts / name).read_bytes(), filename=name)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imports = [node.module]
+                else:
+                    continue
+                for module in imports:
+                    dependency = module.split(".")[0] + ".py"
+                    if (scripts / dependency).is_file():
+                        self.assertIn(dependency, POLICY_FILES, f"{name}:{node.lineno} imports {module}")
+
+    def test_snapshot_loads_policy_and_runner_without_workspace_scripts(self):
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        from rogue_o_matic_cohort import snapshot_policy
+
+        scripts = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            cli, _ = snapshot_policy(scripts, Path(directory))
+            probe = """import sys
+from importlib import import_module
+from typing import get_type_hints
+sys.path[:0] = sys.argv[2:]
+import_module(sys.argv[1])
+from rogue_player import Adventurer, play
+from rogue_runner import play as run_session
+assert play is run_session
+assert get_type_hints(play)["player"] is Adventurer
+"""
+            for first in ("rogue_player", "rogue_runner"):
+                with self.subTest(first=first):
+                    result = subprocess.run([sys.executable, "-I", "-c", probe, first, str(cli.parent),
+                                             str(scripts.parent / "crates/client-bot/python")],
+                                            cwd=directory, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_verified_victory_counts_the_objective_even_if_the_client_omits_acquisition(self):
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import Mock, patch
+        from rogue_o_matic_cohort import play_on_server
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = root / "client.py"
+            terminal = json.dumps({"terminal": "victory"})
+            client.write_text(f"print({terminal!r})", encoding="utf-8")
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            for verified in (True, False):
+                with self.subTest(verified=verified), patch("rogue_o_matic_cohort.verify_victory", return_value=verified):
+                    result = play_on_server(server, "token", 1, 1, 15, root / "turns.jsonl", 26, "amulet", client, False)
+                    self.assertIs(result["amulet_acquired"], verified)
+                    summary = summarize([result])
+                    self.assertEqual((summary["victories"], summary["amulets_acquired"]), (int(verified), int(verified)))
+
     def test_fresh_victory_verification_requires_the_configured_identity(self):
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -189,6 +303,22 @@ class CohortSummaryTests(unittest.TestCase):
                 summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
                 self.assertEqual(summary["results"], [result])
 
+    def test_equipment_totals_sum_each_reported_stage_across_runs(self):
+        rows = [
+            {"terminal": "death", "equipment_opportunities": {"weapon": {"carried": 2, "pickup_admitted": 1}}},
+            {"terminal": "victory", "equipment_opportunities": {"weapon": {"carried": 1, "equip_admitted": 1},
+                                                                "food": {"pickup_admitted": 3}}},
+            {"terminal": "action_budget", "equipment_opportunities": {}},
+            {"terminal": "wall_timeout"},
+        ]
+        report = summarize(rows)
+        self.assertEqual(report["runs_reporting_equipment"], 3)
+        self.assertEqual(report["equipment_opportunity_totals"], {
+            "weapon": {"carried": 3, "pickup_admitted": 1, "equip_admitted": 1},
+            "food": {"pickup_admitted": 3},
+        })
+        self.assertEqual(rows[0]["equipment_opportunities"]["weapon"]["carried"], 2)
+
     def test_counts_victory_and_distinguishes_disclosed_and_undisclosed_deaths(self):
         rows = [
             {"seed": 42, "terminal": "victory", "max_depth": 26, "amulet_acquired": True,
@@ -224,6 +354,69 @@ class CohortSummaryTests(unittest.TestCase):
         self.assertEqual(death_cause({"last_combat_events": events, "self_target": "player"}),
                          "rogue.venomous_bite")
 
+    def test_death_summary_can_use_the_final_journal_when_the_snapshot_is_missing(self):
+        attack = {"type": "ability", "caster": "snake", "target": "hero", "outcome": "applied",
+                  "ability": {"id": "rogue.venomous_bite"}}
+        death = {"type": "died", "actor": "hero", "cause": "injury"}
+        journal_only = {"terminal": "death", "self_target": "hero", "events_since_previous_action": [attack, death]}
+        snapshot = {**journal_only, "last_combat_events": [{**death, "cause": "starvation"}]}
+        self.assertEqual(summarize([journal_only, snapshot])["deaths_by_cause"],
+                         {"rogue.venomous_bite": 1, "starvation": 1})
+
+    def test_incomplete_combat_events_preserve_only_supported_death_causes(self):
+        death = {"type": "died", "actor": "hero", "cause": "injury"}
+        strike = {"type": "ability", "caster": "orc", "target": "hero", "outcome": "applied",
+                  "ability": {"id": "strike"}}
+        for history, expected in (([strike, {}, death], "injury"), ([strike, None, death], "injury"),
+                                  ([{**strike, "ability": "unknown"}, death], "unidentified_ability"),
+                                  ([death, {"type": "died"}], "undisclosed"), (None, "undisclosed")):
+            with self.subTest(history=history):
+                row = {"terminal": "death", "last_combat_events": history}
+                self.assertEqual(summarize([row])["deaths_by_cause"], {expected: 1})
+
+    def test_malformed_actor_ids_cannot_identify_the_player_in_death_reports(self):
+        for victim in (True, 1, {}, []):
+            death = {"type": "died", "actor": victim, "cause": "injury"}
+            for identity in ({}, {"self_target": victim}):
+                with self.subTest(victim=victim, identity=identity):
+                    row = {"terminal": "death", "last_combat_events": [death], **identity}
+                    self.assertEqual(summarize([row])["deaths_by_cause"], {"undisclosed": 1})
+
+    def test_multiple_deaths_without_a_player_target_leave_attack_attribution_unresolved(self):
+        from rogue_o_matic_cohort import death_cause
+
+        events = [
+            {"type": "died", "actor": "snake", "cause": "starvation"},
+            {"type": "ability", "caster": "orc", "target": "hero", "outcome": "applied",
+             "ability": {"id": "strike"}},
+            {"type": "died", "actor": "hero", "cause": "injury"},
+        ]
+        report = {"last_combat_events": events}
+        self.assertEqual(death_cause(report), "undisclosed")
+        self.assertEqual(death_cause(dict(report, self_target="snake")), "starvation")
+        self.assertEqual(death_cause(dict(report, self_target="hero")), "strike")
+
+    def test_depth_distribution_counts_each_run_and_preserves_missing_observations(self):
+        rows = [{"terminal": "death", "max_depth": floor} for floor in (2, 12, 2)]
+        rows.extend([{"terminal": "client_error"}, {"terminal": "wall_timeout", "max_depth": 0}])
+        rows.extend({"terminal": "client_error", "max_depth": value} for value in (None, True, "26", 1.5, -1))
+        summary = summarize(rows)
+        self.assertEqual(summary["runs_by_max_depth"], {"2": 2, "12": 1, "unobserved": 7})
+        self.assertEqual((summary["runs"], summary["max_depth"]), (10, 12))
+        self.assertEqual(summarize([])["runs_by_max_depth"], {})
+
+    def test_only_the_players_interruptions_can_bridge_an_attack_and_death(self):
+        from rogue_o_matic_cohort import death_cause
+
+        attack = {"type": "ability", "caster": "snake", "target": "hero", "outcome": "applied",
+                  "ability": {"id": "rogue.venomous_bite"}}
+        death = {"type": "died", "actor": "hero", "cause": "injury"}
+        for actor, expected in (("hero", "rogue.venomous_bite"), ("other", "injury")):
+            with self.subTest(actor=actor):
+                events = [attack, {"type": "interrupted", "actor": actor},
+                          {"type": "interrupted", "actor": "hero"}, death]
+                self.assertEqual(death_cause({"self_target": "hero", "last_combat_events": events}), expected)
+
     def test_attributes_an_applied_unseen_attack_without_inventing_its_identity(self):
         from rogue_o_matic_cohort import death_cause
 
@@ -236,6 +429,31 @@ class CohortSummaryTests(unittest.TestCase):
         attack["outcome"] = "miss"
         self.assertEqual(death_cause(report), "injury")
         attack.update(outcome="applied", target="other")
+        self.assertEqual(death_cause(report), "injury")
+
+    def test_latest_applied_hit_before_death_distinguishes_reflection_from_unseen_damage(self):
+        from rogue_o_matic_cohort import death_cause
+
+        reflected = {"type": "ability", "caster": "hero", "target": "hero", "outcome": "applied",
+                     "ability": {"id": "rogue.wand_fire"}}
+        unseen = {"type": "unseen_ability", "target": "hero", "outcome": "applied"}
+        death = {"type": "died", "actor": "hero", "cause": "injury"}
+        for events, expected in (([reflected, unseen, death], "unseen_ability"),
+                                 ([unseen, reflected, death], "rogue.wand_fire")):
+            with self.subTest(expected=expected):
+                self.assertEqual(death_cause({"self_target": "hero", "last_combat_events": events}), expected)
+
+    def test_anonymous_effect_between_an_attack_and_death_preserves_the_reported_injury(self):
+        from rogue_o_matic_cohort import death_cause
+
+        events = [
+            {"type": "ability", "caster": "snake", "target": "hero", "outcome": "applied",
+             "ability": {"id": "rogue.venomous_bite"}},
+            {"type": "anonymous_ability", "caster": "mage", "target": "hero", "outcome": "applied"},
+            {"type": "died", "actor": "hero", "cause": "injury"},
+        ]
+        report = {"self_target": "hero", "last_combat_events": events,
+                  "last_nutrition": {"kind": "required", "reserve": -3, "starve_at": -3}}
         self.assertEqual(death_cause(report), "injury")
 
     def test_reports_starvation_instead_of_the_last_self_targeted_search(self):
@@ -251,6 +469,15 @@ class CohortSummaryTests(unittest.TestCase):
         ]
         self.assertEqual(summarize(rows)["deaths_by_cause"],
                          {"starvation": 1, "undisclosed": 1, "rogue.wand_lightning": 1})
+
+    def test_missing_nutrition_measurements_leave_the_cause_of_death_undisclosed(self):
+        partial_readings = [
+            None, {"kind": "required", "reserve": -3}, {"kind": "required", "starve_at": -3},
+            {"kind": "required", "reserve": None, "starve_at": -3},
+        ]
+        rows = [{"terminal": "death", "last_nutrition": reading} for reading in partial_readings]
+        rows.append({"terminal": "death", "last_nutrition": {"kind": "required", "reserve": 0, "starve_at": 0}})
+        self.assertEqual(summarize(rows)["deaths_by_cause"], {"undisclosed": 4, "starvation": 1})
 
     def test_closest_return_floor_excludes_outbound_travel(self):
         from pathlib import Path
@@ -268,6 +495,54 @@ class CohortSummaryTests(unittest.TestCase):
                 _, report = trace_report(path)
                 self.assertEqual(report["closest_return_floor"], expected)
 
+    def test_terminal_acquisition_survives_without_a_final_position(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        rows = [{"action": {"type": "pickup"}, "floor": 3, "cell": "vault", "amulet_acquired": False},
+                {"terminal": "victory", "amulet_acquired": True, "max_depth": 3}]
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "turns.jsonl"
+            trace.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+            _, progress = trace_report(trace)
+        self.assertTrue(progress["amulet_acquired"])
+        self.assertIsNone(progress["closest_return_floor"])
+        self.assertEqual(progress["actions"], 1)
+
+    def test_final_landing_updates_return_distance_and_food_reserve(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        departing = {"floor": 3, "action": {"type": "move", "direction": "up"},
+                     "amulet_acquired": True, "nutrition_reserve": 20}
+        arriving = {"terminal": "action_budget", "floor": 2, "cell": "landing",
+                    "known_cells": 5, "tick": 150, "nutrition_reserve": 18, "amulet_acquired": True}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            path.write_text("\n".join(map(json.dumps, (departing, arriving))), encoding="utf-8")
+            _, progress = trace_report(path)
+        self.assertEqual(progress["actions"], 1)
+        self.assertEqual(progress["closest_return_floor"], 2)
+        self.assertEqual(progress["stair_transitions"], [
+            {"from": 3, "to": 2, "before_reserve": 20, "after_reserve": 18},
+        ])
+        self.assertEqual(progress["floors"]["2"]["first_reserve"], 18)
+
+    def test_acquisition_count_requires_a_boolean_observation(self):
+        rows = [{"terminal": "action_budget", "amulet_acquired": value} for value in (True, False, "false", None)]
+        self.assertEqual(summarize(rows)["amulets_acquired"], 1)
+
+    def test_verified_victories_in_older_reports_count_as_one_acquisition_each(self):
+        verified = {"terminal": "victory", "victory_verified": True}
+        rows = [verified, {**verified, "amulet_acquired": False}, {**verified, "amulet_acquired": True},
+                {"terminal": "victory"}, {"terminal": "client_error", "victory_verified": True},
+                {"terminal": "death", "amulet_acquired": True}]
+        summary = summarize(rows)
+        self.assertEqual((summary["victories"], summary["amulets_acquired"]), (3, 4))
+        self.assertNotIn("amulet_acquired", verified)
+
     def test_unverified_claim_does_not_count_as_a_victory(self):
         self.assertEqual(summarize([{"terminal": "victory"}])["victories"], 0)
 
@@ -280,10 +555,12 @@ class CohortSummaryTests(unittest.TestCase):
         def turn(floor, action, status, reserve):
             return {"floor": floor, "action": action, "result": {"status": status}, "nutrition_reserve": reserve}
 
-        rows = [turn(1, {"type": "use_ability", "id": "rogue.search"}, "confirmed", 300),
+        rows = [turn(1, {"type": "wait"}, "confirmed", None),
+                turn(1, {"type": "use_ability", "id": "rogue.search"}, "confirmed", 300),
                 turn(1, {"type": "use_ability", "id": "rogue.search"}, "rejected", 280),
                 turn(1, {"type": "move", "direction": "down"}, "confirmed", 250),
                 turn(2, {"type": "move", "direction": "west"}, "confirmed", 240),
+                turn(2, {"type": "wait"}, "confirmed", None),
                 turn(1, {"type": "wait"}, "confirmed", 310)]
         with tempfile.TemporaryDirectory() as directory:
             trace = Path(directory) / "turns.jsonl"
@@ -297,7 +574,7 @@ class CohortSummaryTests(unittest.TestCase):
         })
         self.assertEqual(progress["stair_transitions"], [
             {"from": 1, "to": 2, "before_reserve": 250, "after_reserve": 240},
-            {"from": 2, "to": 1, "before_reserve": 240, "after_reserve": 310},
+            {"from": 2, "to": 1, "before_reserve": None, "after_reserve": 310},
         ])
 
     def test_prices_resolved_supply_steps_and_counts_reversals_without_new_terrain(self):
@@ -312,12 +589,123 @@ class CohortSummaryTests(unittest.TestCase):
                 for tick, square, size, reason, reserve in [
                     (0, "a", 9, "seek_supplies", 20), (100, "b", 9, "explore", 18),
                     (200, "a", 9, "explore", 17), (300, "b", 10, "explore", 16)]]
+        rows[-1]["reason"] = "seek_supplies"
+        rows.append({**rows[-1], "cell": "a", "tick": 400, "nutrition_reserve": 10,
+                     "previous_intention_id": "300", "previous_intention_phase": "cancelled",
+                     "action": {"type": "wait"}})
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "turns.jsonl"
             log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
             _, progress = trace_report(log)
         self.assertEqual(progress["supply_detours"], {"ticks": 100, "reserve_spent": 2, "resolved_steps": 1})
         self.assertEqual(progress["reversals_without_new_terrain"], 1)
+
+    def test_supply_cost_survives_missing_terrain_samples_on_a_round_trip(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        rows = [
+            {"floor": 1, "cell": cell, "tick": tick, "reason": "seek_supplies",
+             "action": {"type": "move"}, "result": {"status": "confirmed", "receipt": {"intention": str(tick)}},
+             "previous_intention_id": str(tick - 10), "previous_intention_phase": "resolved"}
+            for tick, cell in [(10, "hall"), (20, "door"), (30, "hall")]
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "turns.jsonl"
+            trace.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+            _, progress = trace_report(trace)
+        self.assertEqual(progress["supply_detours"], {"ticks": 20, "reserve_spent": 0, "resolved_steps": 2})
+        self.assertEqual(progress.get("reversals_without_new_terrain", 0), 0)
+
+    def test_move_without_a_receipt_preserves_floor_totals_and_has_no_resolved_cost(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        move = {"floor": 1, "tick": 10, "cell": "hall", "known_cells": 2, "reason": "seek_supplies",
+                "action": {"type": "move"}, "result": {"status": "confirmed", "receipt": None}}
+        final = {"terminal": "action_budget", "floor": 1, "tick": 20, "cell": "door", "known_cells": 2}
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "turns.jsonl"
+            log.write_text(json.dumps(move) + "\n" + json.dumps(final), encoding="utf-8")
+            terminal, progress = trace_report(log)
+        self.assertEqual(terminal, final)
+        self.assertEqual(progress["floors"]["1"]["moves_admitted"], 1)
+        self.assertEqual(progress["supply_detours"]["resolved_steps"], 0)
+
+    def test_final_position_prices_the_last_supply_step_without_another_action(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        move = {"floor": 2, "cell": "hall", "known_cells": 5, "tick": 100, "nutrition_reserve": 90,
+                "action": {"type": "move"}, "reason": "seek_supplies",
+                "result": {"status": "confirmed", "receipt": {"intention": "step"}}}
+        final = {"terminal": "action_budget", "floor": 2, "cell": "door", "known_cells": 5,
+                 "tick": 220, "nutrition_reserve": 87, "previous_intention_id": "step",
+                 "previous_intention_phase": "resolved"}
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "turns.jsonl"
+            for start_tick, end_tick, ticks, untimed in ((100, 220, 120, 0), (None, 220, 0, 1),
+                                                        (100, None, 0, 1), (220, 100, 0, 1)):
+                with self.subTest(start_tick=start_tick, end_tick=end_tick):
+                    rows = [dict(move, tick=start_tick), dict(final, tick=end_tick)]
+                    for row in rows:
+                        if row["tick"] is None:
+                            del row["tick"]
+                    trace.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+                    _, progress = trace_report(trace)
+                    self.assertEqual(progress["actions"], 1)
+                    expected = {"ticks": ticks, "reserve_spent": 3, "resolved_steps": 1}
+                    if untimed:
+                        expected["untimed_steps"] = untimed
+                    self.assertEqual(progress["supply_detours"], expected)
+
+    def test_invalid_reserve_readings_preserve_detour_timing_and_valid_floor_samples(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        move = {"floor": 1, "cell": "hall", "known_cells": 2, "tick": 10, "reason": "seek_supplies",
+                "action": {"type": "move"}, "result": {"status": "confirmed", "receipt": {"intention": "move"}}}
+        end = {"floor": 1, "cell": "shelf", "known_cells": 2, "tick": 35, "terminal": "action_budget",
+               "previous_intention_id": "move", "previous_intention_phase": "resolved"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            for before, after in ((90, "bad"), (True, 90)):
+                with self.subTest(before=before, after=after):
+                    rows = [dict(move, nutrition_reserve=before), dict(end, nutrition_reserve=after)]
+                    path.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+                    terminal, progress = trace_report(path)
+                    self.assertEqual(terminal, rows[-1])
+                    self.assertEqual(progress["supply_detours"], {"ticks": 25, "reserve_spent": 0, "resolved_steps": 1})
+                    floor = progress["floors"]["1"]
+                    self.assertEqual((floor["first_reserve"], floor["lowest_reserve"], floor["last_reserve"]),
+                                     (90, 90, 90))
+
+    def test_trace_gap_breaks_movement_costs_and_floor_transitions(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        move = {"floor": 1, "cell": "start", "known_cells": 4, "tick": 100, "nutrition_reserve": 30,
+                "reason": "seek_supplies", "action": {"type": "move"},
+                "result": {"status": "confirmed", "receipt": {"intention": "step"}}}
+        end = {"terminal": "action_budget", "cell": "landing", "known_cells": 5, "tick": 500,
+               "nutrition_reserve": 20, "previous_intention_id": "step", "previous_intention_phase": "resolved"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            for gap in ('{"action":', "null", "{}", '{"action":{"type":"move"}}'):
+                for floor in (1, 2):
+                    with self.subTest(gap=gap, floor=floor):
+                        path.write_text("\n".join((json.dumps(move), gap, json.dumps(dict(end, floor=floor)))),
+                                        encoding="utf-8")
+                        terminal, progress = trace_report(path)
+                        self.assertEqual(terminal["floor"], floor)
+                        self.assertEqual(progress["actions"], 1)
+                        self.assertEqual(progress["supply_detours"]["resolved_steps"], 0)
+                        self.assertEqual(progress["stair_transitions"], [])
 
     def test_correlates_search_resolution_with_its_admission_floor(self):
         from pathlib import Path
@@ -330,6 +718,14 @@ class CohortSummaryTests(unittest.TestCase):
                     "result": {"status": "confirmed", "receipt": {"intention": intention}}}
 
         rows = [search("first"), search("second"), search("third"),
+                {"floor": 1, "action": {"type": "wait"}, "previous_intention_id": "third",
+                 "previous_intention_phase": "cancelled"},
+                {"floor": 2, "action": {"type": "wait"}, "previous_intention_id": "third",
+                 "previous_intention_phase": "resolved"},
+                {"floor": 1, "action": {"type": "wait"}, "previous_intention_id": "first",
+                 "previous_intention_phase": "started"},
+                {"floor": 1, "action": {"type": "wait"}, "previous_intention_id": "second",
+                 "previous_intention_phase": "queued"},
                 {"floor": 2, "action": {"type": "wait"}, "previous_intention_id": "first",
                  "previous_intention_phase": "resolved"},
                 {"terminal": "action_budget", "previous_intention_id": "second",
@@ -341,6 +737,68 @@ class CohortSummaryTests(unittest.TestCase):
         floor = progress["floors"]["1"]
         self.assertEqual((floor["searches_admitted"], floor["searches_resolved"],
                           floor["searches_failed"]), (3, 1, 1))
+
+    def test_trace_reader_preserves_complete_rows_around_invalid_utf8(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        first = b'{"floor":1,"action":{"type":"wait"}}\n'
+        last = b'{"terminal":"action_budget","floor":1,"cell":"end","known_cells":3}'
+        broken = b'{"reason":"\xe2\x82'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            for tail, expected_terminal in ((broken, None), (broken + b'"}\n' + last, "action_budget")):
+                with self.subTest(expected_terminal=expected_terminal):
+                    path.write_bytes(first + tail)
+                    terminal, progress = trace_report(path)
+                    self.assertEqual(terminal and terminal["terminal"], expected_terminal)
+                    self.assertEqual(progress["actions"], 1)
+                    self.assertEqual(progress["max_depth"], 1)
+
+    def test_client_trace_keeps_intact_turns_around_malformed_action_results(self):
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import Mock
+        from rogue_o_matic_cohort import play_on_server
+
+        rows = [
+            {"floor": 1, "action": {"type": "wait"}},
+            {"floor": 8, "cell": "bad", "action": {"type": "move"}, "result": None},
+            {"floor": 9, "cell": "bad", "action": {"type": "move"},
+             "result": {"status": "confirmed", "receipt": ["bad"]}},
+            {"floor": 10, "action": {}, "result": {"status": "confirmed"}},
+            {"floor": 3, "cell": "stairs", "action": {"type": "wait"}},
+            {"terminal": "action_budget"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = root / "client.py"
+            client.write_text("".join(f"print({json.dumps(row)!r})\n" for row in rows)
+                              + "raise SystemExit(1)\n", encoding="utf-8")
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            report = play_on_server(server, "test", 1, 2, 15, root / "turns.jsonl", 26, "amulet", client, False)
+        self.assertEqual((report["terminal"], report["actions"], report["max_depth"]), ("action_budget", 2, 3))
+        self.assertEqual(report["stair_transitions"], [])
+
+    def test_invalid_floor_rows_do_not_erase_progress_from_valid_observations(self):
+        import tempfile
+        from pathlib import Path
+        from rogue_o_matic_cohort import trace_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            path.write_text(
+                '{"floor":1,"action":{"type":"wait"}}\n'
+                '{"floor":true,"action":{"type":"wait"}}\n'
+                '{"floor":"2","cell":"bad","terminal":"death"}\n'
+                '{"floor":3,"cell":"end","terminal":"action_budget"}\n', encoding="utf-8")
+            terminal, progress = trace_report(path)
+        self.assertEqual(terminal["terminal"], "action_budget")
+        self.assertEqual((progress["actions"], progress["max_depth"]), (1, 3))
+        self.assertEqual(set(progress["floors"]), {"1", "3"})
+        self.assertEqual(progress["stair_transitions"], [])
 
     def test_partial_trace_preserves_depth_and_actions_when_the_last_row_is_incomplete(self):
         from pathlib import Path

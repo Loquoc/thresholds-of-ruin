@@ -1,86 +1,18 @@
 """A rejected growth transaction retires its admission without applying combat effects."""
-import copy
 import json
 import shutil
 import sqlite3
-import subprocess
-import tomllib
 import unittest
 from contextlib import closing
 
-from arena_matrix import toml_source
-from process_harness import ProcessTestCase, creature_package
+from growth_failure_package import growth_package
+from process_harness import ProcessTestCase
 from rogue_roster_package import unrelated_fallback
 from status_condition_package import actor_creature, checkpoint
 from stream_relay import StreamRelay
 
 
 class GrowthFailureProcesses(ProcessTestCase):
-    def package(self, *, reject_growth):
-        """A valid racial creature whose next selected class changes an ability.
-
-        Neither current creature owns a Mage HD. Only earned growth activates
-        its modifier, making the currently harmless non-hostile melee invalid.
-        The separate hostile finisher is always valid and has no random check.
-        """
-        name = "growth-refusal" if reject_growth else "growth-control"
-        package = creature_package(self, name, abilities=())
-        path = package / "scenario.toml"
-        manifest = tomllib.loads(path.read_text(encoding="utf-8"))
-        manifest["id"] = name
-        manifest["factions"] = {"owner": ["foe"], "foe": ["owner"]}
-        owner = manifest["characters"][0]["creature"]
-        owner.update(faction="owner", hit_dice=[{"source": "racial"}],
-                     future_growth={"kind": "selected", "source": {"kind": "class", "class": "mage"}})
-        species = manifest["creatures"]["species"]["human"]
-        species["attributes"]["speed"] = 0
-        species["behavior"] = {"disposition": "passive", "idle": "wait", "memory_ticks": 1000}
-        damage = species["melee"]["strikes"][0]["on_success"][0]["damage"]
-        damage["components"][0]["amount"] = {"kind": "fixed", "amount": 0}
-        manifest["ai_profiles"]["practice"] = {
-            "care": False, "equipment": False, "loot": False, "flee_percent": 0}
-        path.write_text(toml_source(manifest), encoding="utf-8", newline="\n")
-
-        path = package / "regions/1.toml"
-        region = tomllib.loads(path.read_text(encoding="utf-8"))
-        region["actors"][0]["turn_ticks"] = 1000
-        region["actors"][0]["creature"].update(faction="foe", future_growth={"kind": "disabled"})
-        region["items"] = [
-            {"id": 20, "at": [2, 1, 0], "carried_by": 2, "archetype": "token"},
-            {"id": 21, "at": [1, 1, 0], "carried_by": 1, "archetype": "tablet"},
-        ]
-        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
-
-        path = package / "rules.toml"
-        rules = tomllib.loads(path.read_text(encoding="utf-8"))
-        rules["growth"].update(threshold_base=100, threshold_per_tier=0, reward_base=100,
-                               reward_per_relative_tier=0, minimum_reward=100, maximum_reward=100)
-        melee = next(row for row in rules["abilities"] if row["id"] == "basic_melee")
-        melee.update(interaction="non_hostile",
-                     strikes={"kind": "natural_melee", "additional_riders": []})
-        finisher = copy.deepcopy(melee)
-        finisher.update(id="fixture_growth_finisher", name="Growth finisher", basic_attack=False,
-                        interaction="hostile_to_target", reach={"kind": "sight", "range": 6},
-                        timing={"source": {"kind": "fixed", "prepare": 1, "recover": 1}},
-                        strikes={"kind": "authored", "strikes": [{
-                            "offset": 0, "on_failure": [], "descriptors": [], "riders": [],
-                            "on_success": [{"kind": "damage", "damage": {
-                                "kind": "components", "components": [{"category": "impact",
-                                    "amount": {"kind": "rolled", "dice": {"count": 1, "sides": 2, "bonus": 1000}}}]}}]}]})
-        finisher.pop("cost", None)
-        finisher.pop("cooldown", None)
-        rules["abilities"].append(finisher)
-        rules["constants"]["default_abilities"].append(finisher["id"])
-        if reject_growth:
-            mage = next(row for row in rules["classes"] if row["id"] == "mage")
-            mage["modifiers"].append({"scope": "always", "op": {"kind": "add", "stat": {
-                "kind": "ability", "ability": "basic_melee", "stat": "flat_bonus"}, "value": 1}})
-        path.write_text(toml_source(rules), encoding="utf-8", newline="\n")
-        validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
-                                   capture_output=True, text=True, encoding="utf-8", timeout=30)
-        self.assertEqual(validated.returncode, 0, validated.stderr)
-        return package
-
     def prepared(self, package):
         server = self.server("--checkpoint-interval", 1, scenario=package)
         player, _ = self.client()
@@ -133,7 +65,7 @@ class GrowthFailureProcesses(ProcessTestCase):
         return self.frame(player, lambda row: matches(row.get("message") or {}))["message"]
 
     def test_text_explains_rollback_and_accepts_next_command(self):
-        package = self.package(reject_growth=True)
+        package = growth_package(self, reject_growth=True)
         _, setup, _, saved, _ = self.prepared(package)
         setup.stop()
         observer, before = self.client(observe=True, omit_memory=True)
@@ -188,7 +120,7 @@ class GrowthFailureProcesses(ProcessTestCase):
         self.assertGreater(int(after["state"]["observation"]["tick"]), 100)
 
     def test_control_fatal_kill_earns_selected_class_hd_and_drops_carried_item(self):
-        package = self.package(reject_growth=False)
+        package = growth_package(self, reject_growth=False)
         _, player, _, before, action = self.prepared(package)
         self.assertIsNone(self.act(player, action)["error"])
         after = checkpoint(self, player)
@@ -205,7 +137,7 @@ class GrowthFailureProcesses(ProcessTestCase):
         self.assertGreater(len(after["items"]), len(before["items"]), "fatal control creates a corpse")
 
     def test_rolled_back_growth_preserves_world_and_stays_retired_after_restart(self):
-        package = self.package(reject_growth=True)
+        package = growth_package(self, reject_growth=True)
         server, player, before, saved, action = self.prepared(package)
         before_records = self.saved_records(player)
         start = len(player.transcript)

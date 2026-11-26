@@ -5,6 +5,7 @@ import subprocess
 import tomllib
 
 from arena_matrix import toml_source
+from outcome_scripts import apply as apply_outcome_script
 from process_harness import ROOT
 from ruleset_sources import load_rules
 
@@ -27,7 +28,7 @@ def observed_meal_complete(frame, item, initial_reserve):
 
 def prepare(test, *, initial=8, maximum=12, unit_ticks=100, consume_turns=1,
             meal_amount=None, spare_meal=False, peer=False, concealed=False, ground_meal=False,
-            recovery_policies=None, name="nutrition-fixture"):
+            recovery_policies=None, terminal_on_death=False, name="nutrition-fixture"):
     package = test.directory / name
     shutil.copytree(ROOT / "scenarios/two-room", package)
     compiler = test.bin / ("tor-scenario" + test.suffix)
@@ -45,6 +46,8 @@ def prepare(test, *, initial=8, maximum=12, unit_ticks=100, consume_turns=1,
     (package / "rules.toml").write_text(toml_source(rules), encoding="utf-8", newline="\n")
     path = package / "scenario.toml"
     manifest = tomllib.loads(path.read_text(encoding="utf-8"))
+    if terminal_on_death:
+        apply_outcome_script(manifest, package, "death")
     manifest["id"] = name
     manifest["factions"] = {"subjects": []}
     manifest["archetypes"]["meal"] = {"name": "fixture meal", "identity": "item.food.meal", "class": "food",
