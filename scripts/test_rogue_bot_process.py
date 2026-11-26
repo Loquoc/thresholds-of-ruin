@@ -901,12 +901,22 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.check_safe_stair_route("diagonal")
 
     def test_bot_opens_a_closed_door_on_its_remembered_stair_route(self):
+        self.check_retreat_through_door(carrying=False)
+
+    def test_first_floor_carrier_opens_a_door_to_escape_a_griffin(self):
+        self.check_retreat_through_door(carrying=True)
+
+    def check_retreat_through_door(self, *, carrying):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
         manifest = contents["manifest"]
-        manifest["characters"][0]["loadout"] = []
+        character, = manifest["characters"]
+        character["loadout"] = []
+        if carrying:
+            character["loadout"].append({"archetype": "rogue.amulet_of_yendor", "quantity": 1})
+            character["known_identities"].append("item.amulet.amulet-of-yendor")
         manifest["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/start"}}
         region, = contents["regions"]
         region.update(anchors={"start": [4, 2, 0]}, doors=[{"id": 1, "at": [3, 2, 0], "height": 2, "open": False}],
@@ -922,8 +932,10 @@ from rogue_player import Adventurer
 from tor_client_bot import Direction, Move, OpenDoor, Outcome, Session, Wait
 token = os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1], token, 3) as guard:
-    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=2)
     turn = game.wait_for_decision()
+    carrying = sys.argv[2] == "carrying"
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=1 if carrying else 2)
+    assert player.carrying_objective(turn) == carrying
     assert turn.cell.stairs_up
     player.observe(turn)
     # Map a route around the closed door to the other side without opening it.
@@ -940,7 +952,7 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
 
     # A previously visited doorway can close again. Recovery can use the mapped detour.
     from rogue_retreat import recovery_stair_step
-    memory = player.maps[2]
+    memory = player.maps[player.depth]
     memory.visited.add(turn.cell_at(Direction.EAST.offset).key)
     step = recovery_stair_step(turn, memory, memory.stairs(Direction.UP), set())
     assert isinstance(step, Move) and turn.cell_at(step.direction.offset).key in memory.visited, step
@@ -962,8 +974,16 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     assert doorway.door.open
     entered = take_retreat_action(opened, Move(Direction.EAST))
     assert entered.cell.key == doorway.key
+    if carrying:
+        landing = take_retreat_action(entered, Move(Direction.EAST))
+        assert landing.cell.stairs_up
+        ascent, reason = player.choose(landing)
+        assert (ascent, reason) == (Move(Direction.UP), "retreat_upstairs")
+        receipt = landing.submit(ascent)
+        assert receipt.status is Outcome.CONFIRMED
+        assert game.wait_for_decision().outcome_of(receipt).value == "resolved"
 """
-        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+        result = subprocess.run([sys.executable, "-c", code, self.address, "carrying" if carrying else "outbound"], cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
                                 text=True, capture_output=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)

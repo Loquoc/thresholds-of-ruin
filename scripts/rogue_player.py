@@ -646,7 +646,7 @@ class Adventurer:
                 return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
             if step := self.step_onto_retreat_stair(turn, onward):
                 return step, MemoryReason.RETREAT_TO_STAIRS
-        if self.depth <= 1:
+        if self.depth <= 1 and not returning:
             return None
         dangerous = any(
             foe.name.casefold() in {"griffin", "dragon", "jabberwock", "wraith"}

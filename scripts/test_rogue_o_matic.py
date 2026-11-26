@@ -2632,6 +2632,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                            actors=[snake], hostiles=["snake"])
         self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "retreat_downstairs"))
 
+    def test_first_floor_retreat_routes_to_distant_upstairs_when_carrying_the_amulet(self):
+        rooms = [cell(str(x), x, up=x == 2) for x in range(-1, 3)]
+        griffin = {"id": "foe", "name": "griffin", "position": rooms[0]["position"]}
+        relic = {"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                 "identified": True, "quantity": 1}
+        for pack, expected in (([], None), ([relic], (Move(Direction.EAST), "retreat_to_stairs"))):
+            with self.subTest(carrying=bool(pack)):
+                turn = player_turn(rooms, actors=[griffin], hostiles=["foe"], inventory=pack)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                self.assertEqual(player.retreat_to_stairs(turn), expected)
+
     def test_retreat_routes_to_the_farther_stair_until_the_nearer_one_is_safe(self):
         corridor = [cell(str(x), x, up=x in (-2, 3)) for x in range(-2, 4)]
         dragon = {"id": "foe", "name": "dragon", "position": {"x": 0, "y": 2, "z": 0}}
