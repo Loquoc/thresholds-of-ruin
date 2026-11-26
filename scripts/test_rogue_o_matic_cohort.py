@@ -374,6 +374,14 @@ assert get_type_hints(play)["player"] is Adventurer
                 row = {"terminal": "death", "last_combat_events": history}
                 self.assertEqual(summarize([row])["deaths_by_cause"], {expected: 1})
 
+    def test_malformed_actor_ids_cannot_identify_the_player_in_death_reports(self):
+        for victim in (True, 1, {}, []):
+            death = {"type": "died", "actor": victim, "cause": "injury"}
+            for identity in ({}, {"self_target": victim}):
+                with self.subTest(victim=victim, identity=identity):
+                    row = {"terminal": "death", "last_combat_events": [death], **identity}
+                    self.assertEqual(summarize([row])["deaths_by_cause"], {"undisclosed": 1})
+
     def test_multiple_deaths_without_a_player_target_leave_attack_attribution_unresolved(self):
         from rogue_o_matic_cohort import death_cause
 

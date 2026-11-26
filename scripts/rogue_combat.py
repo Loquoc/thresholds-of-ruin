@@ -194,7 +194,7 @@ class OpponentHistory:
         return self.is_drainer(foe) and turn.distance_to(foe) <= 2
 
 
-def preceding_attack(events_before_death, actor):
+def preceding_attack(events_before_death: Iterable[object], actor: str) -> str | None:
     """Read newest first. Only the dying actor's interruptions can follow the attack."""
     for event in events_before_death:
         if not isinstance(event, dict):
@@ -218,20 +218,27 @@ def preceding_attack(events_before_death, actor):
     return None
 
 
-def combat_death_cause(history, player):
+def _sole_death_victim(history: Iterable[object]) -> str | None:
+    """Older reports omit the player target. Infer it only if every death names the same actor."""
+    victim = None
+    for event in history:
+        if not isinstance(event, dict) or event.get("type") != "died":
+            continue
+        actor = event.get("actor")
+        if not isinstance(actor, str) or (victim is not None and actor != victim):
+            return None
+        victim = actor
+    return victim
+
+
+def combat_death_cause(history: object, player: object) -> str | None:
     """Use the player's death event and its immediately preceding combat evidence."""
     if not isinstance(history, (list, tuple)):
         return None
     if player is None:
-        # Older reports omit the player target. Every recorded death must name the same victim.
-        for event in history:
-            if isinstance(event, dict) and event.get("type") == "died":
-                victim = event.get("actor")
-                if victim is None or (player is not None and player != victim):
-                    return None
-                player = victim
-        if player is None:
-            return None
+        player = _sole_death_victim(history)
+    if not isinstance(player, str):
+        return None
 
     events = reversed(history)
     for event in events:
