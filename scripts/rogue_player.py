@@ -639,19 +639,18 @@ class Adventurer:
         can_descend = self.depth < self.retrieval_depth and not returning
         downstairs = self.safe_stairs(turn, Direction.DOWN) if can_descend else set()
         onward = self.safe_stairs(turn, Direction.UP) if returning else downstairs
+        rejected = set()
         if onward and (returning or pressed or self.recovering_from_pursuit):
             if turn.cell and turn.cell.key in onward:
                 if returning:
                     return Move(Direction.UP), MemoryReason.RETREAT_UPSTAIRS
                 return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
-            if step := self.step_onto_retreat_stair(turn, onward):
+            step, rejected = self.assess_adjacent_retreat_stairs(turn, onward)
+            if step:
                 return step, MemoryReason.RETREAT_TO_STAIRS
         if returning:
             if not onward:
                 return None
-            # The direct approach rejected every walkable adjacent exit on this turn.
-            rejected = {cell.key for direction in turn.walkable_directions
-                        if (cell := turn.cell_at(direction.offset)) and cell.key in onward}
             return self.route_to_retreat_stairs(turn, onward, avoid=rejected)
         if self.depth <= 1:
             return None
@@ -669,7 +668,7 @@ class Adventurer:
             if turn.cell and turn.cell.key in downstairs:
                 return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
             exits.update(downstairs)
-        return self.route_to_retreat_stairs(turn, exits)
+        return self.route_to_retreat_stairs(turn, exits, avoid=rejected)
 
     def route_to_retreat_stairs(self, turn: Turn, exits: set[str], *,
                               avoid: Set[str] = frozenset()) -> tuple[Action, str] | None:
@@ -694,22 +693,32 @@ class Adventurer:
         return step, MemoryReason.RETREAT_TO_STAIRS
 
     def step_onto_retreat_stair(self, turn: Turn, exits: set[str]) -> Move | None:
+        step, _ = self.assess_adjacent_retreat_stairs(turn, exits)
+        return step
+
+    def assess_adjacent_retreat_stairs(self, turn: Turn, exits: set[str]) -> tuple[Move | None, set[str]]:
+        """Rank immediate exits and identify unsafe squares for longer routes this turn."""
         contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
+        rejected = set()
         candidates = []
         for direction in turn.walkable_directions:
             cell = turn.cell_at(direction.offset)
-            if cell is None or cell.key not in exits or cell.trap:
+            if cell is None or cell.key not in exits:
+                continue
+            if cell.trap:
+                rejected.add(cell.key)
                 continue
             exposure = self.opponents.melee_exposure(turn, cell.offset)
             guards = len(exposure.foes)
             if guards and (not turn.health or guards > contacts or exposure.threatens(turn.health, rounds=2)):
+                rejected.add(cell.key)
                 continue
             clearance = min((turn.distance_to(foe, from_offset=cell.offset) for foe in turn.hostiles), default=0)
             candidates.append(((exposure.damage, guards, -clearance), direction))
         if not candidates:
-            return None
+            return None, rejected
         _, direction = min(candidates, key=lambda candidate: candidate[0])
-        return Move(direction)
+        return Move(direction), rejected
 
     def evade(self, turn: Turn) -> tuple[Move, str] | None:
         step = choose_retreat_step(turn, self.opponents.damage_estimate)

@@ -2653,6 +2653,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
 
+    def test_outbound_retreat_keeps_rejected_downstairs_out_of_the_longer_route(self):
+        cells = [cell(str(x), x, up=x == -2, down=x == 1) for x in range(-2, 3)]
+        guard = {"id": "guard", "name": "griffin", "position": cells[-1]["position"]}
+        turn = player_turn(cells, actors=[guard], hostiles=["guard"], combat={"hp": 4, "max_hp": 20})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
+
     def test_retreat_routes_to_the_farther_stair_until_the_nearer_one_is_safe(self):
         corridor = [cell(str(x), x, up=x in (-2, 3)) for x in range(-2, 4)]
         dragon = {"id": "foe", "name": "dragon", "position": {"x": 0, "y": 2, "z": 0}}

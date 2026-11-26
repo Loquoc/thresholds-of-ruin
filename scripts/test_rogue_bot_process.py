@@ -997,6 +997,9 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     def test_carrier_approaches_the_far_exit_when_the_near_one_would_enter_contact(self):
         self.check_safe_stair_route("guarded_near_exit")
 
+    def test_outbound_bot_avoids_a_guarded_descent_while_recovering_from_pursuit(self):
+        self.check_safe_stair_route("guarded_descent")
+
     def check_safe_stair_route(self, scenario):
         from discovery_package import write_package
         from utility_potions_package import fixture
@@ -1020,13 +1023,16 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
                                     "turn_ticks": 1000000, "controller": "external"})
         contents["regions"].append({"id": 2, "name": "Upper floor", "size": [5, 5, 2],
                                     "chamber": True, "anchors": {"down": [2, 2, 0]}})
-        if scenario == "guarded_near_exit":
-            character, = manifest["characters"]
-            character["loadout"].append({"archetype": "rogue.amulet_of_yendor", "quantity": 1})
-            character["known_identities"].append("item.amulet.amulet-of-yendor")
+        if scenario in {"guarded_near_exit", "guarded_descent"}:
             lower["anchors"].update(up=[3, 2, 0], far=[0, 2, 0])
             contents["regions"][1]["anchors"]["far"] = [0, 2, 0]
             manifest["stair_pairs"]["far"] = {"upper": "2/far", "lower": "1/far"}
+            if scenario == "guarded_descent":
+                manifest["stair_pairs"]["escape"] = {"upper": "1/up", "lower": "2/down"}
+            else:
+                character, = manifest["characters"]
+                character["loadout"].append({"archetype": "rogue.amulet_of_yendor", "quantity": 1})
+                character["known_identities"].append("item.amulet.amulet-of-yendor")
         server = self.server(scenario=write_package(self, contents, "rogue-bot-safe-stair-route"))
         self.install_bot_extension()
         code = """
@@ -1058,6 +1064,7 @@ try:
     turn = session.observe()
     policy = Adventurer(26, "item.amulet.amulet-of-yendor", depth=2)
     policy.observe(turn)
+    policy.recovering_from_pursuit = scenario == "guarded_descent"
     exposed = scenario in {"guarded", "two_guards"}
     if exposed:
         griffin = next(foe for foe in turn.hostiles if foe.name == "griffin")
@@ -1070,8 +1077,8 @@ try:
         assert not turn.in_contact(griffin, from_offset=action.direction.offset)
         if scenario == "two_guards":
             assert any(turn.in_contact(foe, from_offset=action.direction.offset) for foe in turn.hostiles)
-    elif scenario == "guarded_near_exit":
-        assert policy.carrying_objective(turn)
+    elif scenario in {"guarded_near_exit", "guarded_descent"}:
+        assert policy.carrying_objective(turn) == (scenario == "guarded_near_exit")
         assert isinstance(action, Move) and reason == "retreat_to_stairs"
         assert action.direction.offset[0] == -1
         assert not any(turn.in_contact(foe, from_offset=action.direction.offset) for foe in turn.hostiles)
