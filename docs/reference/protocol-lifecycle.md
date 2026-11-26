@@ -246,6 +246,7 @@ its operands, branch or ID; do not restamp its original input context. A
 deliberately new command is constructed from current disclosed authority.
 
 Implementation: [`Service::process` and `Service::handle`](../../crates/server/src/session.rs),
+[command admission and publication](../../crates/server/src/session_commands.rs),
 [`Engine::retry_decoded`](../../crates/server/src/wire_request.rs),
 [`DecodedCommand::matches` / `requires_control`](../../crates/server/src/wire_adapter.rs),
 and [`Engine::retry_matching`](../../crates/server/src/engine.rs).

@@ -10,9 +10,11 @@ interactions: recover the **dawn seal** and return to the entrance. Death is
 persistent. A separate [**Rogue starter slice**](docs/play/rogue.md) authors Warrior
 and Mage presets, ordinary low-depth foes and finite supplies on open-ended,
 generated persistent floors. Its full 26-species roster, hunger and recovery,
-current loot and the scripted Amulet retrieval and ascent are implemented; calibrated
-depth/food pressure and complete-run balance remain unfinished. This is a development build, without an installer or automatic
-server launch for the Text and ASCII clients. Windows and Linux are supported.
+current loot and the scripted Amulet retrieval and ascent are implemented;
+calibrated depth/food pressure and complete-run balance remain unfinished.
+
+This is a development build, without an installer or automatic server launch
+for the Text and ASCII clients. Windows and Linux are supported.
 An optional [procedural 3D prototype](crates/client-3d/README.md) has its own
 workspace, checks and private local-server launcher. Remote deployment remains
 planned.
@@ -60,7 +62,8 @@ cargo run -p tor-client-ascii
 
 In text mode, start with `look`, `help`, `inventory`, and compass directions.
 In ASCII, use arrow keys or HJKL/YUBN to move, bump a disclosed opponent to
-attack, `,` to pick up, `d` to drop, and `_` or a map click to travel. Full controls and examples:
+attack, `,` to pick up, `d` to drop, and `_` or a map click to travel. Full
+controls and examples:
 
 - [Text play](docs/play/text.md)
 - [ASCII play](docs/play/ascii.md)
@@ -74,9 +77,10 @@ attack, `,` to pick up, `d` to drop, and `_` or a map click to travel. Full cont
 Normal client exit requests a durable save. Restart the server with the same
 `--save` path to resume. Ordinary action acknowledgements can precede disk
 persistence; a crash can lose an unsaved suffix. Saves require the current
-formats, and the project does not migrate older pre-release saves. Saves retain canonical content and procedural descriptors; unvisited authored
-regions may still require the exact immutable compiled bundle. Original TOML
-modules are not re-imported on resume. See [saving and recovery](docs/architecture/persistence.md).
+formats, and the project does not migrate older pre-release saves. Saves retain
+canonical content and procedural descriptors; unvisited authored regions may
+still require the exact immutable compiled bundle. Original TOML modules are not
+re-imported on resume. See [saving and recovery](docs/architecture/persistence.md).
 
 ## Develop or author content
 

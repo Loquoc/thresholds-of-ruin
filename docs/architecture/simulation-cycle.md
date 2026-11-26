@@ -78,6 +78,8 @@ have different handlers; not every request enters the action path. The engine
 also checks its own receipt/request contract before creating its candidate.
 
 Source: [session.rs](../../crates/server/src/session.rs), `process`;
+[session_commands.rs](../../crates/server/src/session_commands.rs),
+`admit_command` and `commit_command`;
 [engine.rs](../../crates/server/src/engine.rs),
 `apply_command_profiled_with_annotation`, `execute_checked_command`.
 
@@ -560,7 +562,7 @@ owning behavioral tests as well as documentation updates. Paths below are under
 | Contract | Source ranges | Existing witness/owner |
 | --- | --- | --- |
 | Owner loop / session gates | `server/src/runner.rs:139–218`; `server/src/session.rs:1658–1785` | Runner/session and backpressure contracts |
-| Role, retry, context | `server/src/session.rs:538–591,718–765` | Session request/permission contracts |
+| Role, retry, context | `server/src/session.rs` `Service::process`; `server/src/session_commands.rs` `Service::admit_command` | Session request/permission contracts |
 | Admission and actor ordering | `simulation/src/intention.rs:277–332,473–562`; `simulation/src/lib.rs:1268–1302` | `admission_has_no_gameplay_effect_until_simulation_executes`; `queued_actions_follow_actor_scheduler_order_not_submission_order` |
 | Action/deadline walk | `simulation/src/actions.rs:314–344,984–1048` | Action/scheduling contracts |
 | Timer/physics/work order | `simulation/src/physics.rs:950–1186`; `simulation/src/creature_time.rs:63–168` | Moving-expiry/arena-deadline witnesses above |
