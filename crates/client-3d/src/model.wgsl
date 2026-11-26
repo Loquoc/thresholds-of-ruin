@@ -5,7 +5,7 @@
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
     forward_io::{VertexOutput, FragmentOutput},
-    pbr_types::PbrInput,
+    pbr_types::{PbrInput, STANDARD_MATERIAL_FLAGS_UNLIT_BIT},
 }
 
 struct SurfaceParams {
@@ -61,8 +61,9 @@ fn fragment(
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
     var pbr_input: PbrInput = pbr_input_from_standard_material(in, is_front);
+    let lit = (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u;
 
-    if (surface.kind_and_flags.y > 0u) {
+    if (lit && surface.kind_and_flags.y > 0u) {
         let kind = surface.kind_and_flags.x;
         let wp = in.world_position.xyz;
         var sample_pos = wp * surface.detail.x;
@@ -130,7 +131,13 @@ fn fragment(
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
     var out: FragmentOutput;
-    out.color = apply_pbr_lighting(pbr_input);
+    // Match the standard forward pass. Undisclosed light must not tint
+    // our client's intentionally unlit silhouettes.
+    if (lit) {
+        out.color = apply_pbr_lighting(pbr_input);
+    } else {
+        out.color = pbr_input.material.base_color;
+    }
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
 }
