@@ -165,10 +165,11 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
         raise RuntimeError("The decision stream ended before a terminal picture")
     if not turn.terminal:
         detail.update(trace_position(turn, player))
+    ascent_by_floor = player.travel_times.ascent.copy()
     detail.update(
         **equipment.report(),
-        estimated_ascent_ticks_by_floor=player.travel_times.ascent,
-        estimated_ascent_ticks=sum(player.travel_times.ascent.values()),
+        estimated_ascent_ticks_by_floor=ascent_by_floor,
+        estimated_ascent_ticks=sum(ascent_by_floor.values()),
     )
     if record_decisions:
         detail["recording"] = turn.recording()

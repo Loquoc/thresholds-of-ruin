@@ -4260,6 +4260,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             "last_carried_devices": [],
         })
 
+    def test_budget_report_snapshots_the_return_estimate_for_each_floor(self):
+        from unittest.mock import Mock
+        from rogue_runner import play
+        from tor_client_bot import Session
+
+        session = Session(Mock())
+        session.wait_for_decision = Mock(return_value=player_turn([cell("here")]))
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.travel_times.ascent[1] = 100
+        first = play(session, player, 0, self.fail)
+        player.travel_times.ascent[2] = 250
+        second = play(session, player, 0, self.fail)
+
+        for report, expected in ((first, {1: 100}), (second, {1: 100, 2: 250})):
+            self.assertEqual(report["estimated_ascent_ticks_by_floor"], expected)
+            self.assertEqual(report["estimated_ascent_ticks"], sum(expected.values()))
+
     def test_a_terminal_only_attachment_reports_the_carried_objective(self):
         from unittest.mock import Mock
         from rogue_player import play
