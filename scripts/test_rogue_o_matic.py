@@ -776,13 +776,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(player, turn), (Unequip(turn.equipment[0]), "change_weapon"))
 
         # Keep the mace and strike while the swap would leave the player unarmed in contact.
-        contact = cell("enemy", 1)
-        foe = {"id": "orc", "name": "orc", "position": contact["position"]}
+        diagonal = cell("enemy", 1, 1)
+        foe = {"id": "orc", "name": "orc", "position": diagonal["position"]}
         strike = {"id": "basic_melee", "name": "Strike", "basic_attack": True, "target_kind": "actor",
                   "reach": {"kind": "melee"}, "cooldown_remaining": 0, "cost": None}
-        fight = player_turn([cell("here"), contact], actors=[foe], hostiles=["orc"], inventory=inventory,
-                            abilities=[strike], interactions={"slots": [slot], "inventory": offers})
-        self.assertEqual(choose(player, fight), (fight.attack(fight.hostiles[0]), "melee"))
+        for wall in (False, True):
+            with self.subTest(blocked_corner=wall):
+                room = [cell("here"), cell("east", 1, wall=wall), cell("south", y=1), diagonal]
+                fight = player_turn(room, actors=[foe], hostiles=["orc"], inventory=inventory,
+                                    abilities=[strike], interactions={"slots": [slot], "inventory": offers})
+                expected = ((Unequip(fight.equipment[0]), "change_weapon") if wall
+                            else (fight.attack(fight.hostiles[0]), "melee"))
+                self.assertEqual(choose(player, fight), expected)
 
         del offers[0]["equipped_slot"]
         turn = picture()
