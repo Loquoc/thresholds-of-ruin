@@ -249,7 +249,11 @@ def can_wield_shortbow(turn: Turn) -> bool:
         return True
     if slot and slot.removal_blocked:
         return False
-    return any(item.identity == "item.weapon.shortbow" and not item.known_cursed for item in turn.inventory)
+    if slot is None:
+        # Without a disclosed weapon slot, inventory still informs arrow collection.
+        return any(item.identity == "item.weapon.shortbow" and not item.known_cursed for item in turn.inventory)
+    return any(choice.slot is slot and choice.item.identity == "item.weapon.shortbow" and not choice.item.known_cursed
+               for choice in turn.equip_choices())
 
 
 def ready_weapon_for_range(turn: Turn, nearest: int) -> tuple[Action, str] | None:
