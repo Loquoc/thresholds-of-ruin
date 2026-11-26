@@ -4108,8 +4108,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 1, rows.append)
                 self.assertEqual(json.loads(json.dumps(rows[0]["result"])), expected)
 
+    def test_equip_admission_counts_each_item_once_before_it_is_observed_worn(self):
+        from rogue_equipment_history import EquipmentHistory
+
+        slot = {"id": "weapon", "name": "Weapon"}
+        blade = {"id": "blade", "name": "blade", "class": "weapon", "quantity": 1, "identified": False}
+        turn = player_turn([cell("here")], inventory=[blade], interactions={
+            "slots": [slot], "inventory": [{"item": "blade", "slot": slot}]})
+        equip, = turn.equip_choices()
+        history = EquipmentHistory()
+        history.observe(turn)
+        history.admitted(equip)
+        history.admitted(equip)
+        self.assertEqual(history.counts(), {"weapon": {"carried": 1, "equip_admitted": 1}})
+
     def test_equipment_history_counts_the_items_in_admitted_shots(self):
-        from rogue_gear import EquipmentHistory
+        from rogue_equipment_history import EquipmentHistory
         from tor_client_bot import Shot
 
         target = cell("east", 1)
@@ -4126,7 +4140,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(history.counts(), {"weapon": {"projectile_admitted": 2, "launcher_admitted": 1}})
 
     def test_equipment_report_counts_distinct_items_and_retains_last_device_offers(self):
-        from rogue_gear import EquipmentHistory
+        from rogue_equipment_history import EquipmentHistory
 
         wand = {"class": "wand", "identity": "item.wand.wand-light", "identified": True,
                 "name": "staff of light", "quantity": 1}
@@ -4148,7 +4162,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                          [(True, 0), (True, None), (False, None)])
 
     def test_equipment_report_distinguishes_empty_inventory_from_no_live_observation(self):
-        from rogue_gear import EquipmentHistory
+        from rogue_equipment_history import EquipmentHistory
 
         history = EquipmentHistory()
         history.observe(player_turn([], tick=300, combat={"terminal": True}))

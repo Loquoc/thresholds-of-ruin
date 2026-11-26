@@ -2017,7 +2017,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         if use == "conserve_food":
             report = rows[-1]
             self.assertEqual(report["equipment_opportunities"]["ring"],
-                             {"seen_on_ground": 1, "carried": 1, "recognized": 1, "worn": 1})
+                             {"seen_on_ground": 1, "carried": 1, "recognized": 1, "equip_admitted": 1, "worn": 1})
             self.assertEqual(report["last_inventory_tick"], report["tick"])
             self.assertEqual(report["last_carried_devices"], [])
 
@@ -2345,6 +2345,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         equipment = rows[-1]["equipment_opportunities"][category]
         self.assertEqual(equipment["seen_on_ground"], 1)
         self.assertEqual(equipment["carried"], 2)
+        self.assertEqual(equipment.get("equip_admitted", 0), 0 if found_cursed else 1)
         self.assertEqual(equipment["worn"], 1 if found_cursed else 2)
         kind = "body_armor" if category == "armor" else "weapon"
         observed = self.observe_ground_gear(found_id, kind, env)

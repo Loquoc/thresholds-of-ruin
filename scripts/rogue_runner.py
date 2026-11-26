@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import asdict
 
-from rogue_gear import EquipmentHistory
+from rogue_equipment_history import EquipmentHistory
 from rogue_player import Adventurer
 from tor_client_bot import Decision, Direction, Outcome, Result, Session, TrainingRefused, Turn, describe_action
 
