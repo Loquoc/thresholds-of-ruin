@@ -23,16 +23,15 @@ def useful_loot(item: Item) -> bool:
 
 def guarded_supply_cells(turn: Turn) -> set[str]:
     """Locate useful ground items within one square of any part of a visible hostile."""
-    guards = [offset for foe in turn.hostiles for offset in foe.cells]
-    guarded = set()
-    if guards:
-        for ground in turn.ground_items:
-            if ground.cell is None or ground.cell.key in guarded or not useful_loot(ground.item):
-                continue
-            x, y, z = ground.offset
-            if any(abs(x - gx) <= 1 and abs(y - gy) <= 1 and abs(z - gz) <= 1 for gx, gy, gz in guards):
-                guarded.add(ground.cell.key)
-    return guarded
+    if not turn.hostiles:
+        return set()
+    piles = {ground.cell.key: ground.offset for ground in turn.ground_items
+             if ground.cell is not None and useful_loot(ground.item)}
+    guards = {offset for foe in turn.hostiles for offset in foe.cells}
+    return {
+        key for key, (x, y, z) in piles.items()
+        if any(abs(x - gx) <= 1 and abs(y - gy) <= 1 and abs(z - gz) <= 1 for gx, gy, gz in guards)
+    }
 
 
 def usable_melee_weapon(item: Item) -> bool:

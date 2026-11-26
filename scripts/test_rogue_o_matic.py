@@ -1027,6 +1027,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.danger_until["near"] = 900
                 self.assertEqual(player.choose(turn), (Move(expected), "seek_item"))
 
+    def test_guard_warnings_cover_useful_piles_beside_any_part_of_a_foe(self):
+        from rogue_loot import guarded_supply_cells
+
+        cells = [cell(str(x), x) for x in range(7)]
+        body = [{"id": "guard", "name": "orc", "position": cells[x]["position"]} for x in (3, 4)]
+        ground = [{**cells[x], "reachable": False,
+                   "item": {"id": str(i), "name": category, "class": category, "identified": False, "quantity": 1}}
+                  for i, (x, category) in enumerate(((0, "food"), (2, "misc"), (5, "misc"),
+                                                     (5, "food"), (5, "coin"), (6, "food")))]
+        turn = player_turn(cells, actors=body, hostiles=["guard"], ground=ground)
+        self.assertEqual(guarded_supply_cells(turn), {"5"})
+
     def test_food_routes_prefer_an_unguarded_ration_but_can_reach_the_last_guarded_one(self):
         cells = [cell("here", down=True), cell("near", 1), cell("hall", -1), cell("far", -2)]
         for hunger, reason in (("nourished", "seek_item"), ("hungry", "forage")):
