@@ -4108,6 +4108,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 1, rows.append)
                 self.assertEqual(json.loads(json.dumps(rows[0]["result"])), expected)
 
+    def test_pickup_admission_tracks_ground_stacks_that_merge_into_one_carried_stack(self):
+        from rogue_equipment_history import EquipmentHistory
+
+        here = cell("here")
+        ration = {"id": "pack", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        piles = [{**here, "reachable": True, "item": dict(ration, id=key)} for key in ("one", "two")]
+        turn = player_turn([here], inventory=[ration], ground=piles)
+        history = EquipmentHistory()
+        history.observe(turn)
+        for pile in turn.ground_items:
+            history.admitted(Pickup(pile.item))
+        history.admitted(Pickup(turn.ground_items[0].item))
+        history.observe(player_turn([here], inventory=[dict(ration, quantity=3)]))
+        self.assertEqual(history.counts()["food"], {"seen_on_ground": 2, "pickup_admitted": 2, "carried": 1})
+
     def test_equip_admission_counts_each_item_once_before_it_is_observed_worn(self):
         from rogue_equipment_history import EquipmentHistory
 

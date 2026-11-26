@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 
-from tor_client_bot import Action, Equip, Item, Shot, Turn, UseItem, Zap
+from tor_client_bot import Action, Equip, Item, Pickup, Shot, Turn, UseItem, Zap
 
 
 def carried_device_report(turn: Turn) -> list[dict]:
@@ -28,7 +28,9 @@ class EquipmentHistory:
             self.stages[item.category][stage].add(item.target)
 
     def admitted(self, action: Action) -> None:
-        if isinstance(action, Equip):
+        if isinstance(action, Pickup):
+            self.record(action.item, "pickup_admitted")
+        elif isinstance(action, Equip):
             self.record(action.item, "equip_admitted")
         elif isinstance(action, Zap):
             self.record(action.device.item, "activation_admitted")
