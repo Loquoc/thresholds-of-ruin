@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Set
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -647,7 +647,12 @@ class Adventurer:
             if step := self.step_onto_retreat_stair(turn, onward):
                 return step, MemoryReason.RETREAT_TO_STAIRS
         if returning:
-            return self.route_to_retreat_stairs(turn, onward) if onward else None
+            if not onward:
+                return None
+            # The direct approach rejected every walkable adjacent exit on this turn.
+            rejected = {cell.key for direction in turn.walkable_directions
+                        if (cell := turn.cell_at(direction.offset)) and cell.key in onward}
+            return self.route_to_retreat_stairs(turn, onward, avoid=rejected)
         if self.depth <= 1:
             return None
         dangerous = any(
@@ -666,9 +671,10 @@ class Adventurer:
             exits.update(downstairs)
         return self.route_to_retreat_stairs(turn, exits)
 
-    def route_to_retreat_stairs(self, turn: Turn, exits: set[str]) -> tuple[Action, str] | None:
+    def route_to_retreat_stairs(self, turn: Turn, exits: set[str], *,
+                              avoid: Set[str] = frozenset()) -> tuple[Action, str] | None:
         """Choose a stair approach while accounting for pursuit and immediate melee risk."""
-        step = stair_retreat_step(turn, self.maps[self.depth], exits, self.last_retreat_origin)
+        step = stair_retreat_step(turn, self.maps[self.depth], exits, self.last_retreat_origin, avoid=avoid)
         if step is None:
             return None
         # Opening a door spends the turn in the current cell.

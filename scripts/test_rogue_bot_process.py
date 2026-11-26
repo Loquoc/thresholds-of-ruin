@@ -994,6 +994,9 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     def test_stair_retreat_leaves_the_lethal_guard_when_a_weaker_foe_remains(self):
         self.check_safe_stair_route("two_guards")
 
+    def test_carrier_approaches_the_far_exit_when_the_near_one_would_enter_contact(self):
+        self.check_safe_stair_route("guarded_near_exit")
+
     def check_safe_stair_route(self, scenario):
         from discovery_package import write_package
         from utility_potions_package import fixture
@@ -1017,6 +1020,13 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
                                     "turn_ticks": 1000000, "controller": "external"})
         contents["regions"].append({"id": 2, "name": "Upper floor", "size": [5, 5, 2],
                                     "chamber": True, "anchors": {"down": [2, 2, 0]}})
+        if scenario == "guarded_near_exit":
+            character, = manifest["characters"]
+            character["loadout"].append({"archetype": "rogue.amulet_of_yendor", "quantity": 1})
+            character["known_identities"].append("item.amulet.amulet-of-yendor")
+            lower["anchors"].update(up=[3, 2, 0], far=[0, 2, 0])
+            contents["regions"][1]["anchors"]["far"] = [0, 2, 0]
+            manifest["stair_pairs"]["far"] = {"upper": "2/far", "lower": "1/far"}
         server = self.server(scenario=write_package(self, contents, "rogue-bot-safe-stair-route"))
         self.install_bot_extension()
         code = """
@@ -1060,6 +1070,11 @@ try:
         assert not turn.in_contact(griffin, from_offset=action.direction.offset)
         if scenario == "two_guards":
             assert any(turn.in_contact(foe, from_offset=action.direction.offset) for foe in turn.hostiles)
+    elif scenario == "guarded_near_exit":
+        assert policy.carrying_objective(turn)
+        assert isinstance(action, Move) and reason == "retreat_to_stairs"
+        assert action.direction.offset[0] == -1
+        assert not any(turn.in_contact(foe, from_offset=action.direction.offset) for foe in turn.hostiles)
     else:
         direction = Direction.NORTH_WEST if scenario == "diagonal" else Direction.NORTH
         assert (action, reason) == (Move(direction), "retreat_to_stairs"), (action, reason)

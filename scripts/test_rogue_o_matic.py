@@ -2644,6 +2644,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(turn)
                 self.assertEqual(player.retreat_to_stairs(turn), expected)
 
+    def test_carrier_routes_to_far_stairs_without_entering_contact_at_the_near_exit(self):
+        cells = [cell(str(x), x, up=x in (-2, 1)) for x in range(-2, 3)]
+        guard = {"id": "guard", "name": "orc", "position": cells[-1]["position"]}
+        relic = {"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                 "identified": True, "quantity": 1}
+        turn = player_turn(cells, actors=[guard], hostiles=["guard"], inventory=[relic])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
+
     def test_retreat_routes_to_the_farther_stair_until_the_nearer_one_is_safe(self):
         corridor = [cell(str(x), x, up=x in (-2, 3)) for x in range(-2, 4)]
         dragon = {"id": "foe", "name": "dragon", "position": {"x": 0, "y": 2, "z": 0}}

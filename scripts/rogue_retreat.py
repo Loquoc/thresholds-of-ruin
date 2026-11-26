@@ -278,14 +278,15 @@ def _preferred_visible_stairs(turn: Turn, memory: FloorMap, exits: set[str],
 
 
 def stair_retreat_step(turn: Turn, memory: FloorMap, exits: set[str],
-                       previous_square: str | None) -> Move | OpenDoor | None:
+                       previous_square: str | None, *, avoid: Set[str] = frozenset()) -> Move | OpenDoor | None:
     """Approach visible stairs or follow a remembered route, avoiding pursuit and backtracking."""
-    avoid = {cell.key for foe in turn.hostiles for cell in turn.cells_of(foe)}
+    excluded = {cell.key for foe in turn.hostiles for cell in turn.cells_of(foe)}
+    excluded.update(avoid)
     if previous_square is not None:
-        avoid.add(previous_square)
+        excluded.add(previous_square)
     traps = memory.known_traps
     # Try every exit on clear ground before considering a route through a known trap.
-    for blocked in ((avoid | traps, avoid) if traps else (avoid,)):
+    for blocked in ((excluded | traps, excluded) if traps else (excluded,)):
         destinations = exits - blocked
         if step := _approach_visible_exit(turn, memory, destinations, blocked):
             return step
