@@ -197,16 +197,21 @@ class OpponentHistory:
 def preceding_attack(events_before_death, actor):
     """Read newest first. Only the dying actor's interruptions can follow the attack."""
     for event in events_before_death:
-        kind = event["type"]
+        if not isinstance(event, dict):
+            return None
+        kind = event.get("type")
         if kind == "interrupted" and event.get("actor") == actor:
             continue
-        if (kind not in {"ability", "unseen_ability"} or event.get("target") != actor
+        if (kind not in ("ability", "unseen_ability") or event.get("target") != actor
                 or event.get("outcome") != "applied"):
             return None
         self_inflicted = event.get("caster") == actor
         if kind == "unseen_ability" and not self_inflicted:
             return "unseen_ability"
-        ability = (event.get("ability") or {}).get("id")
+        detail = event.get("ability")
+        ability = detail.get("id") if isinstance(detail, dict) else None
+        if not isinstance(ability, str):
+            ability = None
         if self_inflicted and ability not in SELF_DAMAGE_ABILITIES:
             return None
         return ability or "unidentified_ability"
@@ -215,20 +220,26 @@ def preceding_attack(events_before_death, actor):
 
 def combat_death_cause(history, player):
     """Use the player's death event and its immediately preceding combat evidence."""
+    if not isinstance(history, (list, tuple)):
+        return None
     if player is None:
-        # Older reports omit the player target. A single victim makes it unambiguous.
-        victims = {event["actor"] for event in history if event["type"] == "died"}
-        if len(victims) != 1:
+        # Older reports omit the player target. Every recorded death must name the same victim.
+        for event in history:
+            if isinstance(event, dict) and event.get("type") == "died":
+                victim = event.get("actor")
+                if victim is None or (player is not None and player != victim):
+                    return None
+                player = victim
+        if player is None:
             return None
-        player = victims.pop()
 
     events = reversed(history)
     for event in events:
-        if event["type"] == "died" and event["actor"] == player:
+        if isinstance(event, dict) and event.get("type") == "died" and event.get("actor") == player:
             cause = event.get("cause")
             if cause == "starvation":
                 return cause
-            return preceding_attack(events, player) or cause
+            return preceding_attack(events, player) or (cause if isinstance(cause, str) else None)
     return None
 
 

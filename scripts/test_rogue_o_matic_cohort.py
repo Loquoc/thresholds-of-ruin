@@ -363,6 +363,17 @@ assert get_type_hints(play)["player"] is Adventurer
         self.assertEqual(summarize([journal_only, snapshot])["deaths_by_cause"],
                          {"rogue.venomous_bite": 1, "starvation": 1})
 
+    def test_incomplete_combat_events_preserve_only_supported_death_causes(self):
+        death = {"type": "died", "actor": "hero", "cause": "injury"}
+        strike = {"type": "ability", "caster": "orc", "target": "hero", "outcome": "applied",
+                  "ability": {"id": "strike"}}
+        for history, expected in (([strike, {}, death], "injury"), ([strike, None, death], "injury"),
+                                  ([{**strike, "ability": "unknown"}, death], "unidentified_ability"),
+                                  ([death, {"type": "died"}], "undisclosed"), (None, "undisclosed")):
+            with self.subTest(history=history):
+                row = {"terminal": "death", "last_combat_events": history}
+                self.assertEqual(summarize([row])["deaths_by_cause"], {expected: 1})
+
     def test_multiple_deaths_without_a_player_target_leave_attack_attribution_unresolved(self):
         from rogue_o_matic_cohort import death_cause
 
