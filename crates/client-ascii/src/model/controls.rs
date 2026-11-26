@@ -285,20 +285,10 @@ impl App {
                 Effect::None
             }
             MovementPrefix::Run => {
-                let run = match direction {
-                    Direction::North => Key::RunUp,
-                    Direction::South => Key::RunDown,
-                    Direction::West => Key::RunLeft,
-                    Direction::East => Key::RunRight,
-                    Direction::NorthEast => Key::RunNorthEast,
-                    Direction::NorthWest => Key::RunNorthWest,
-                    Direction::SouthEast => Key::RunSouthEast,
-                    Direction::SouthWest => Key::RunSouthWest,
-                    Direction::Up | Direction::Down => {
-                        self.status =
-                            "Running uses a horizontal direction; use < or > for stairs.".into();
-                        return Effect::None;
-                    }
+                let Some(run) = Key::run_toward(direction) else {
+                    self.status =
+                        "Running uses a horizontal direction; use < or > for stairs.".into();
+                    return Effect::None;
                 };
                 self.input(Input::Key { key: run })
             }
