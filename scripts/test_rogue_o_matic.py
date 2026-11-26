@@ -5066,6 +5066,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         on_stairs = player_turn([cell("stairs", down=True)], combat={"hp": 6}, stats=stats)
         self.assertEqual(choose(player, on_stairs), (Wait(), "recover"))
 
+    def test_recovery_on_the_retrieval_floor_preserves_food_for_the_return(self):
+        room = [cell("here", up=True), cell("down", 1, down=True)]
+        stats = {
+            "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False},
+            "nutrition": {"kind": "required", "reserve": 50, "maximum": 2000, "unit_ticks": 100,
+                          "hunger": "nourished", "elapsed": 0},
+        }
+        turn = player_turn(room, combat={"hp": 6}, stats=stats)
+        player = Adventurer(3, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        self.assertEqual(choose(player, turn), (Wait(), "recover"))
+        player.travel_times.ascent[2] = turn.nutrition.ticks_until_empty
+        self.assertIsNone(player.recovery_action(turn))
+
     def test_finishes_recovery_before_exposing_itself_to_more_combat(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         room = [cell("here"), cell("frontier", 1)]

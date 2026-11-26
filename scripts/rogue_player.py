@@ -733,11 +733,13 @@ class Adventurer:
 
         memory = self.maps[self.depth]
         returning = self.carrying_objective(turn)
-        direction = Direction.UP if returning else Direction.DOWN
+        direction = self.objective_stair_direction(returning=returning)
+        # On the retrieval floor, rest still needs to leave food for the return trip.
+        budget_direction = direction or Direction.UP
 
         def rest_if_affordable(points: int) -> tuple[Wait, str] | None:
             ticks = clock.ticks_to_regain(points)
-            if ticks is not None and self.can_afford_wait(turn, memory, direction, ticks):
+            if ticks is not None and self.can_afford_wait(turn, memory, budget_direction, ticks):
                 return Wait(), "recover"
             return None
 
@@ -758,7 +760,7 @@ class Adventurer:
         if food_route:
             action, reason = food_route
         else:
-            stairs = self.safe_stairs(turn, direction)
+            stairs = self.safe_stairs(turn, direction) if direction is not None else set()
             action = recovery_stair_step(turn, memory, stairs, danger)
             reason = "recover_en_route"
         if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
