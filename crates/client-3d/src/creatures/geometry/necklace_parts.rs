@@ -249,19 +249,19 @@ pub(super) fn emit(
             let at = surface + normal * lift;
             let transform = |point: Vec3| at + across * point.x + up * point.y + normal * point.z;
             let mut setting = Builder::default();
-            setting.res = p.metal.res;
+            setting.res = p.gold.res;
             setting.blob(Vec3::ZERO, radii, 1, 0.0, metal);
             let mut stone = Builder::default();
-            stone.res = p.satin.res;
+            stone.res = p.glass.res;
             stone.blob(Vec3::Z * 0.005, Vec3::new(0.010, 0.017, 0.006), 1, 0.0, gem);
-            fitted.emit(&mut p.metal, metal);
-            p.metal
+            fitted.emit(&mut p.gold, metal);
+            p.gold
                 .prism(root, at + up * 0.018, 0.0025, 0.0025, 6, metal, 0.0);
             for triangle in setting.surface_triangles() {
-                p.metal.tri(triangle.map(transform), metal);
+                p.gold.tri(triangle.map(transform), metal);
             }
             for triangle in stone.surface_triangles() {
-                p.satin.tri(triangle.map(transform), gem);
+                p.glass.tri(triangle.map(transform), gem);
             }
         }
         Neck::Teeth { cord } => {
@@ -301,7 +301,7 @@ pub(super) fn emit(
             }
             fitted.emit(&mut p.satin, cord);
             for (root, path) in teeth {
-                p.matte.tube(
+                p.stone.tube(
                     &path,
                     &[Vec2::splat(0.007), Vec2::splat(0.004), Vec2::ZERO],
                     5,
@@ -520,17 +520,17 @@ impl CollarProfile {
 impl FittedCollar {
     pub fn emit(&self, p: &mut Parts, metal: Vec3, beads: Vec3) {
         for (i, tier) in self.tiers.iter().enumerate() {
-            tier.emit(&mut p.metal, if i == 1 { beads } else { metal });
+            tier.emit(&mut p.gold, if i == 1 { beads } else { metal });
         }
         for &(root, center, tangent) in &self.fringe {
             let down = (center - root).normalize();
             let normal = tangent.cross(down).normalize();
             let across = down.cross(normal);
             let mut bead = Builder::default();
-            bead.res = p.satin.res;
+            bead.res = p.glass.res;
             bead.blob(Vec3::ZERO, Vec3::new(0.008, 0.012, 0.008), 1, 0.0, beads);
             for triangle in bead.surface_triangles() {
-                p.satin.tri(
+                p.glass.tri(
                     triangle.map(|v| center + across * v.x + down * v.y + normal * v.z),
                     beads,
                 );

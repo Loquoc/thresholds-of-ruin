@@ -182,7 +182,7 @@ pub(super) fn resolve_bracelet(
 
 pub(super) fn emit_bracelet(p: &mut Parts, ring: Builder, color: Vec3) {
     for triangle in ring.surface_triangles() {
-        p.metal.tri(triangle, color);
+        p.gold.tri(triangle, color);
     }
 }
 

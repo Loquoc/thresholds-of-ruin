@@ -405,7 +405,7 @@ fn conical_hat(p: &mut Parts) {
             })
             .collect();
         for i in 0..10 {
-            p.metal.tri_out(
+            p.gold.tri_out(
                 [center, points[i], points[(i + 1) % 10]],
                 center - Vec3::Z,
                 gold,
@@ -437,7 +437,7 @@ fn conical_hat(p: &mut Parts) {
                 cone_inlay(p, at(b, right)),
                 cone_inlay(p, at(a, right)),
             ];
-            p.metal.quad_out(q, q[0] - Vec3::Z, gold);
+            p.gold.quad_out(q, q[0] - Vec3::Z, gold);
         }
     }
 }
@@ -515,7 +515,7 @@ fn crystal(p: &mut Parts) {
                         center.lerp(q[face], 0.25),
                     ]
                     .map(|v| v + radial * 0.001);
-                    p.satin.tri_out(glint, inside, ice * 1.12);
+                    p.glass.tri_out(glint, inside, ice * 1.12);
                 }
             }
         }
@@ -555,7 +555,7 @@ fn crystal(p: &mut Parts) {
             )
         });
     }
-    rim(&mut p.satin, BROW, 0.15, 0.0025, ice);
+    rim(&mut p.glass, BROW, 0.15, 0.0025, ice);
 }
 
 fn plume(p: &mut Parts) {
@@ -2082,7 +2082,7 @@ mod tests {
         for (x, y) in [(-0.045, 0.34), (0.0, 0.495), (0.05, 0.30), (0.022, 0.405)] {
             let origin = Vec3::new(x, y, -0.4);
             let cloth = p.matte.outer_surface(origin, Vec3::Z).unwrap();
-            let inlay = p.metal.outer_surface(origin, Vec3::Z).unwrap();
+            let inlay = p.gold.outer_surface(origin, Vec3::Z).unwrap();
             assert!(inlay.z > cloth.z + 0.001, "ornament buried at {x}, {y}");
             assert!(inlay.z < cloth.z + 0.015, "ornament floats off the cone");
         }
@@ -2094,7 +2094,7 @@ mod tests {
             for y in [0.397, 0.405, 0.413] {
                 let origin = Vec3::new(x, y, -0.4);
                 let cloth = p.matte.outer_surface(origin, Vec3::Z).unwrap();
-                let inlay = p.metal.outer_surface(origin, Vec3::Z).unwrap();
+                let inlay = p.gold.outer_surface(origin, Vec3::Z).unwrap();
                 assert!(
                     inlay.z > cloth.z + 0.001,
                     "crescent interior buried at {x}, {y}"
@@ -2522,7 +2522,7 @@ mod tests {
         let mut p = Parts::default();
         emit_authored(&mut p, HeadwearKind::CrystalHelmet);
         assert!(!p.ghost.is_empty());
-        assert!(!p.satin.is_empty());
+        assert!(!p.glass.is_empty());
         assert!(p.metal.is_empty());
         let mut iron = Parts::default();
         emit_authored(&mut iron, HeadwearKind::IronSkullCap);
