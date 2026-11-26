@@ -1268,6 +1268,7 @@ impl Game {
                 .restore(snapshot.intentions, &context.shared.intentions)
                 .ok_or(PersistError::Intentions)?,
             scenario_policy: snapshot.scenario_policy.unwrap_or_default(),
+            authored_teleport_levels: crate::AuthoredTeleportLevels::default(),
             floor_activation: snapshot
                 .floor_activation
                 .map(|index| context.floor_activation(index))

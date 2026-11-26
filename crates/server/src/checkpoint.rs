@@ -531,15 +531,24 @@ impl DiskCheckpoint {
         let mut game = restore
             .restore(self.game)
             .map_err(|error| Failure::new(ErrorCode::InvalidArchive, &error.to_string()))?;
-        // Hook runtimes are never saved; restored games get the package's.
-        let attach_scripts = |game: &mut Game| -> Result<(), Failure> {
+        // Recreate package-derived runtime inputs on current and retained boundaries.
+        let teleport_levels = archive
+            .scenario
+            .package
+            .as_ref()
+            .map(|package| package.authored_teleport_levels())
+            .transpose()
+            .map_err(|_| invalid_archive())?
+            .unwrap_or_default();
+        let attach_package_runtime = |game: &mut Game| -> Result<(), Failure> {
+            game.bind_authored_teleport_levels(teleport_levels.clone());
             match archive.scenario.package.as_deref() {
                 Some(package) => package.attach_scripts(game, archive.scenario.seed),
                 None if game.script_state().is_none() => Ok(()),
                 None => Err(invalid_archive()),
             }
         };
-        attach_scripts(&mut game)?;
+        attach_package_runtime(&mut game)?;
         let mut spatial_audit = crate::scenario_package::SpatialAudit::new(
             archive.scenario.package.as_deref(),
             archive.scenario.seed,
@@ -626,7 +635,7 @@ impl DiskCheckpoint {
             let mut game = restore
                 .restore(boundary.game)
                 .map_err(|error| Failure::new(ErrorCode::InvalidArchive, &error.to_string()))?;
-            attach_scripts(&mut game)?;
+            attach_package_runtime(&mut game)?;
             spatial_audit.check(&game)?;
             for (world, registry, scope) in game.historical_chart_authorities() {
                 historical_audit.check_shared(world, registry, scope)?;

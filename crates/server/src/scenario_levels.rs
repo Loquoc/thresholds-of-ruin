@@ -1,12 +1,14 @@
-//! Bounded player-facing level names. A level is a presentation grouping, not
-//! a room, streaming scope, activation boundary, or new piece of saved state.
+//! Named level membership and bounded player-facing level names. Membership
+//! supplies the random scroll's scope, not room or activation boundaries.
 
 use std::{borrow::Cow, collections::BTreeMap};
 
 use serde::{Deserialize, Serialize};
 
 use crate::procedural_world::{FamilyCatalog, WorldFamily};
-use crate::scenario_package::RegionIndex;
+use crate::scenario_package::{Package, RegionIndex};
+use tor_simulation::{AuthoredTeleportLevels, GameError};
+use tor_world::{Extent, RegionId};
 
 const DEPTH: &str = "{depth}";
 
@@ -92,6 +94,31 @@ impl LevelLabels {
         let (family, world) = FamilyCatalog::new(families, seed).find(region)?;
         let (depth, _) = world.address(region)?;
         depth_label(self.procedural.get(family)?, depth).map(Cow::Owned)
+    }
+}
+
+impl Package {
+    pub(crate) fn authored_teleport_levels(&self) -> Result<AuthoredTeleportLevels, GameError> {
+        let Some(labels) = &self.manifest.levels else {
+            return Ok(AuthoredTeleportLevels::default());
+        };
+        let mut groups = BTreeMap::<&str, Vec<(RegionId, Extent)>>::new();
+        for (room, level) in &labels.regions {
+            let room = room.parse().map_err(|_| GameError::InvalidLocation)?;
+            let row = self.index.region(room).ok_or(GameError::InvalidLocation)?;
+            let [width, depth, height] = row.size;
+            let extent = Extent::new(width, depth, height).ok_or(GameError::InvalidLocation)?;
+            let extent = if row.chamber {
+                extent.with_shell().ok_or(GameError::InvalidLocation)?
+            } else {
+                extent
+            };
+            groups
+                .entry(level)
+                .or_default()
+                .push((RegionId(room), extent));
+        }
+        AuthoredTeleportLevels::new(groups.into_values())
     }
 }
 

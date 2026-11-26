@@ -1281,6 +1281,15 @@ costume replacement while checking the root position and the remaining leg
 under a shared world anchor. A new stream still starts with no inherited path.
 This checks scene placement, not rig-specific foot contacts or rendered pixels.
 
+## Named-level random teleport scrolls
+
+Two paid-read Engine witnesses showed an authored same-level destination was
+excluded whether loaded or initially unbuilt. A different level with the same
+display name stayed excluded. The fix uses pinned level IDs, loads only the
+bounded destination set before selection, and preserves source-free full replay,
+checkpoint recovery and a repeat read after rewind. The archive-version
+boundary test caught a stale schema expectation, not a separate gameplay defect.
+
 ## Independent client dependency locks
 
 The November 18 rusqlite update changed the server manifest and root lock but

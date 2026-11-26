@@ -705,10 +705,20 @@ impl Game {
         actor: crate::ActorId,
         target: crate::ActorId,
     ) -> Result<ResolutionContext, GameError> {
+        self.resolution_context_for_source(plan, actor, target, false)
+    }
+
+    fn resolution_context_for_source(
+        &self,
+        plan: ResolutionPlan<'_>,
+        actor: crate::ActorId,
+        target: crate::ActorId,
+        reading: bool,
+    ) -> Result<ResolutionContext, GameError> {
         Ok(ResolutionContext {
             hold_damage: None,
             spatial: None,
-            relocation: self.relocation_resolution_input(plan, target)?,
+            relocation: self.relocation_resolution_input(plan, target, reading)?,
             target_recovery_context: if plan
                 .contextual_conditions(EffectRecipient::Target, &self.content.rules)
             {
@@ -750,6 +760,7 @@ impl Game {
         &self,
         plan: ResolutionPlan<'_>,
         target: crate::ActorId,
+        reading: bool,
     ) -> Result<Option<RelocationInput>, GameError> {
         let Some(effect @ (PlannedEffect::TeleportRandom | PlannedEffect::TeleportToRayOrigin)) =
             plan.spatial_effect()
@@ -758,6 +769,7 @@ impl Game {
         };
         let from = Placement::capture(self, target).ok_or(GameError::UnknownActor)?;
         let destinations = match effect {
+            PlannedEffect::TeleportRandom if reading => self.scroll_teleport_candidates(target)?,
             PlannedEffect::TeleportRandom => self.random_relocation_candidates(target)?,
             PlannedEffect::TeleportToRayOrigin => match plan {
                 ResolutionPlan::RayEncounter { ray, .. } => self
@@ -952,8 +964,10 @@ impl Game {
         let resolution = plan
             .resolution()
             .ok_or(GameError::Rule(RuleError::InvalidPlan))?;
-        let mut context = self.resolution_context(resolution, plan.actor(), plan.target())?;
-        if matches!(plan, Plan::Read { .. }) {
+        let reading = matches!(plan, Plan::Read { .. });
+        let mut context =
+            self.resolution_context_for_source(resolution, plan.actor(), plan.target(), reading)?;
+        if reading {
             if let Some(input) = context.relocation.as_mut() {
                 input.mode = MovementMode::Voluntary;
             }

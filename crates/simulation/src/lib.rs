@@ -212,6 +212,7 @@ pub mod public_plan;
 pub mod quantity;
 mod readied_ambush;
 mod relocation;
+pub use relocation::AuthoredTeleportLevels;
 pub mod resolution_diagnostics;
 pub mod resources;
 pub mod survival_diagnostics;
@@ -742,6 +743,7 @@ pub struct Game {
     /// Region streaming state; empty unless regions were frozen or detached.
     lifecycle: streaming::Lifecycle,
     scenario_policy: floor_activation::ScenarioPolicy,
+    authored_teleport_levels: AuthoredTeleportLevels,
     floor_activation: Option<floor_activation::ActivationState>,
     unique_retrieval: Option<unique_retrieval::UniqueRetrievalState>,
     /// Internal continuation boundary, drained before engine admission. Not a
@@ -796,6 +798,7 @@ impl Clone for Game {
             intentions: self.intentions.clone(),
             lifecycle: self.lifecycle.clone(),
             scenario_policy: self.scenario_policy.clone(),
+            authored_teleport_levels: self.authored_teleport_levels.clone(),
             floor_activation: self.floor_activation.clone(),
             unique_retrieval: self.unique_retrieval.clone(),
             population_entry_boundary: self.population_entry_boundary,
@@ -980,6 +983,7 @@ impl Game {
             intentions: Shared::default(),
             lifecycle: streaming::Lifecycle::default(),
             scenario_policy: floor_activation::ScenarioPolicy::default(),
+            authored_teleport_levels: AuthoredTeleportLevels::default(),
             floor_activation: None,
             unique_retrieval: None,
             population_entry_boundary: None,
