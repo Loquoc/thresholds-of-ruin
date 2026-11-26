@@ -373,6 +373,9 @@ class Adventurer:
         """A bear trap or a creature's hold prevents an ordinary retreat step."""
         return self.trapped(turn) or bool(turn.holds)
 
+    def can_use_stairs(self, turn: Turn) -> bool:
+        return not (self.restrained(turn) or turn.has_condition("rogue.levitation"))
+
     @staticmethod
     def respond_to_bear_trap(turn: Turn) -> tuple[Action, str]:
         """Choose how to spend a turn while pinned by an active bear trap."""
@@ -522,8 +525,10 @@ class Adventurer:
         can_ascend = returning or self.depth > 1
         can_descend = not returning and self.depth < self.retrieval_depth
 
+        stairs_accessible = self.can_use_stairs(turn)
+
         def blocks_usable_exit(foe: Creature) -> bool:
-            return any(
+            return stairs_accessible and any(
                 (cell.stairs_up and can_ascend and self.stair_is_safe(cell.key, Direction.UP, turn.tick))
                 or (cell.stairs_down and can_descend and self.stair_is_safe(cell.key, Direction.DOWN, turn.tick))
                 for cell in turn.cells_of(foe)
@@ -626,9 +631,7 @@ class Adventurer:
                 if self.stair_is_safe(key, direction, turn.tick)}
 
     def retreat_to_stairs(self, turn: Turn, *, pressed: bool = False) -> tuple[Action, str] | None:
-        if not turn.hostiles or self.restrained(turn):
-            return None
-        if turn.has_condition("rogue.levitation"):
+        if not turn.hostiles or not self.can_use_stairs(turn):
             return None
         returning = self.carrying_objective(turn)
         can_descend = self.depth < self.retrieval_depth and not returning
@@ -793,7 +796,7 @@ class Adventurer:
             return None
         if here.key in self.danger_until or not self.stair_is_safe(here.key, Direction.DOWN, turn.tick):
             return None
-        if self.restrained(turn) or turn.has_condition("rogue.levitation"):
+        if not self.can_use_stairs(turn):
             return None
         if any(item.identity is None and item.category in {"wand", "ring", "potion"} for item in turn.inventory):
             return self.scroll_trial(turn, at_exit=True)

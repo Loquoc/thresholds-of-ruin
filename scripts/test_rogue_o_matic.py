@@ -3087,12 +3087,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         room = [cell("here"), cell("plain", 1), cell("exit", -1, down=True)]
         enemies = [{"id": name, "name": "rattlesnake", "position": tile["position"]}
                    for name, tile in zip(["other", "blocker"], room[1:])]
-        turn = player_turn(room, actors=enemies, hostiles=["other", "blocker"], abilities=[melee],
-                           combat={"hp": 7, "max_hp": 42})
-        for warning_until, expected in ((turn.tick + 1, "other"), (turn.tick, "blocker")):
-            with self.subTest(warning_until=warning_until):
+        for condition, warning, expected in ((None, 1, "other"), (None, 0, "blocker"),
+                                             ("rogue.levitation", 0, "other"), ("rogue.bear_trap", 0, "other")):
+            with self.subTest(condition=condition, warning=warning):
+                conditions = [{"condition": {"id": condition, "name": condition},
+                               "phase": "active", "remaining_ticks": 100}] if condition else []
+                turn = player_turn(room, actors=enemies, hostiles=["other", "blocker"], abilities=[melee],
+                                   combat={"hp": 7, "max_hp": 42}, stats={"conditions": conditions})
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
-                player.unsafe_stairs["exit", Direction.DOWN] = warning_until
+                player.unsafe_stairs["exit", Direction.DOWN] = turn.tick + warning
                 player.opponents.damage_by_target["other"] = 3
                 action, reason = choose(player, turn)
                 self.assertEqual((reason, action.target.target), ("melee", expected))

@@ -2845,7 +2845,10 @@ with ExitStack() as stack:
     def test_extended_player_pushes_from_its_outer_body_cell(self):
         self.pinned_melee("dislocating_strike", extended=True)
 
-    def pinned_melee(self, expected, *, returning=False, extended=False):
+    def test_levitating_bot_attacks_the_harder_hitter_beside_a_blocked_exit(self):
+        self.pinned_melee("basic_melee", levitating=True)
+
+    def pinned_melee(self, expected, *, returning=False, extended=False, levitating=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -2862,6 +2865,8 @@ with ExitStack() as stack:
         manifest["characters"][0]["loadout"] = [{"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0}]
         if expected == "rattling_blow":
             manifest["characters"][0]["loadout"].append({"archetype": "rogue.dart", "quantity": 3})
+        if levitating:
+            manifest["characters"][0]["loadout"].append({"archetype": "rogue.levitation", "quantity": 1})
         upper, lower = ("2/landing", "1/guarded") if returning else ("1/guarded", "2/landing")
         manifest["stair_pairs"] = {"exit": {"upper": upper, "lower": lower}}
         region, = contents["regions"]
@@ -2896,12 +2901,20 @@ with ExitStack() as stack:
 import os
 from contextlib import ExitStack
 from rogue_player import Adventurer
-from tor_client_bot import ActivityPhase, Direction, Move, Outcome, Session, Wait
+from tor_client_bot import ActivityPhase, Direction, ItemUse, Move, Outcome, Session, UseItem, Wait
 
 with ExitStack() as clients:
     game, west, east = [clients.enter_context(Session.connect(os.environ["BOT_TEST_ADDRESS"],
                         os.environ["TOR_SERVER_TOKEN"], i)) for i in (1, 3, 4)]
     turn = game.wait_for_decision()
+    levitating = os.environ["LEVITATING"] == "1"
+    if levitating:
+        potion = next(item for item in turn.inventory if ItemUse.DRINK in item.uses)
+        assert turn.submit(UseItem(potion, ItemUse.DRINK)).status is Outcome.CONFIRMED
+        for foe in (west, east):
+            assert foe.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
+        assert turn.has_condition("rogue.levitation")
     if os.environ["EXPECTED_MELEE"] == "rattling_blow":
         assert any(shot.launcher is None for shot in turn.ranged_attacks(max_distance=4, hostile_only=True))
     assert len(turn.hostiles) == 2 and not turn.walkable_directions
@@ -2928,17 +2941,22 @@ with ExitStack() as clients:
     player.unsafe_stairs[exit_cell.key, direction] = turn.tick
     action, reason = player.choose(turn)
     assert (exit_cell.stairs_up if returning else exit_cell.stairs_down)
-    assert reason == "melee" and exit_cell in turn.cells_of(action.target)
+    assert reason == "melee"
+    if levitating:
+        assert action.target == other
+    else:
+        assert exit_cell in turn.cells_of(action.target)
     assert action.ability.identity == os.environ["EXPECTED_MELEE"], (action, turn.abilities)
     if blocker_dx > 1:
         assert (blocker_dx + 1, 0, 0) in action.target.cells, action.target
     attack = turn.submit(action)
     assert attack.status is Outcome.CONFIRMED
-    for foe in (west, east):
-        assert foe.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    if not levitating:
+        for foe in (west, east):
+            assert foe.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
     after = game.wait_for_decision()
     assert after.outcome_of(attack) is ActivityPhase.RESOLVED
-    incoming = east.observe().recent_combat.incoming
+    incoming = (west if levitating else east).observe().recent_combat.incoming
     assert any(hit.ability == action.ability.identity for hit in incoming), incoming
     if action.ability.identity == "dislocating_strike":
         assert after.cell_at((blocker_dx, 0, 0)).stairs_down
@@ -2957,7 +2975,8 @@ with ExitStack() as clients:
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
                              env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"),
-                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN, "EXPECTED_MELEE": expected, "RETURNING": str(int(returning))},
+                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN, "EXPECTED_MELEE": expected, "RETURNING": str(int(returning)),
+                                  "LEVITATING": str(int(levitating))},
                              capture_output=True, text=True, timeout=55)
         self.assertEqual(run.returncode, 0, run.stderr)
 
