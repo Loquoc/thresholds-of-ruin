@@ -588,6 +588,8 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         shots = [row for row in turns if row.get("reason") in {"throw_projectile", "launch_projectile"}
                  and row["result"]["status"] == "confirmed"]
         self.assertTrue(shots, "Seed 47 produced no confirmed projectile actions")
+        self.assertEqual(summary["runs_reporting_equipment"], 1)
+        self.assertEqual(summary["equipment_opportunity_totals"], report["equipment_opportunities"])
         weapons = report["equipment_opportunities"]["weapon"]
         for field in ("projectile", "launcher"):
             distinct = {row["action"][field] for row in shots if row["action"][field] is not None}

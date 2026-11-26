@@ -104,6 +104,22 @@ def reported_max_depth(row: dict) -> int:
     return depth if type(depth) is int and depth > 0 else 0
 
 
+def summarize_equipment(rows):
+    """Sum per-run item counts. An empty equipment report contributes to coverage."""
+    totals = {}
+    reported = 0
+    for row in rows:
+        equipment = row.get("equipment_opportunities")
+        if not isinstance(equipment, dict):
+            continue
+        reported += 1
+        for category, stages in equipment.items():
+            if isinstance(stages, dict):
+                counts = totals.setdefault(category, Counter())
+                counts.update({stage: n for stage, n in stages.items() if type(n) is int and n >= 0})
+    return {"runs_reporting_equipment": reported, "equipment_opportunity_totals": totals}
+
+
 def summarize(rows):
     reached = Counter(map(reported_max_depth, rows))
     unobserved = reached.pop(0, 0)
@@ -124,6 +140,7 @@ def summarize(rows):
         "runs_by_max_depth": distribution,
         "deaths_by_cause": dict(sorted(Counter(
             death_cause(row) for row in rows if row["terminal"] == "death").items())),
+        **summarize_equipment(rows),
         "results": rows,
     }
 

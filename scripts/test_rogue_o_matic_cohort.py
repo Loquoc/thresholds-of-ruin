@@ -303,6 +303,22 @@ assert get_type_hints(play)["player"] is Adventurer
                 summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
                 self.assertEqual(summary["results"], [result])
 
+    def test_equipment_totals_sum_each_reported_stage_across_runs(self):
+        rows = [
+            {"terminal": "death", "equipment_opportunities": {"weapon": {"carried": 2, "pickup_admitted": 1}}},
+            {"terminal": "victory", "equipment_opportunities": {"weapon": {"carried": 1, "equip_admitted": 1},
+                                                                "food": {"pickup_admitted": 3}}},
+            {"terminal": "action_budget", "equipment_opportunities": {}},
+            {"terminal": "wall_timeout"},
+        ]
+        report = summarize(rows)
+        self.assertEqual(report["runs_reporting_equipment"], 3)
+        self.assertEqual(report["equipment_opportunity_totals"], {
+            "weapon": {"carried": 3, "pickup_admitted": 1, "equip_admitted": 1},
+            "food": {"pickup_admitted": 3},
+        })
+        self.assertEqual(rows[0]["equipment_opportunities"]["weapon"]["carried"], 2)
+
     def test_counts_victory_and_distinguishes_disclosed_and_undisclosed_deaths(self):
         rows = [
             {"seed": 42, "terminal": "victory", "max_depth": 26, "amulet_acquired": True,
