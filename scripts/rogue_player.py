@@ -482,6 +482,8 @@ class Adventurer:
         """Fight a lone drainer when using this stair already failed to shake it."""
         if len(turn.hostiles) != 1 or not adjacent or turn.cell is None or not turn.cell.stairs_up:
             return None
+        if not self.can_use_stairs(turn):
+            return None
         guard = adjacent[0]
         if self.last_guarded_landing != (turn.cell.key, guard.target) or not self.opponents.is_drainer(guard):
             return None

@@ -2668,6 +2668,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(player, turn)
                 self.assertEqual(action.ability.identity if reason == "melee" else reason, expected)
 
+    def test_levitating_bot_can_break_contact_with_a_remembered_stair_guard(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.last_guarded_landing = "landing", "guard"
+        player.opponents.draining_targets.add("guard")
+        player.opponents.damage_by_target["guard"] = 1
+        tiles = [cell("landing", up=True), cell("away", -1), cell("guard", 1)]
+        guard = {"id": "guard", "name": "orc", "position": tiles[-1]["position"]}
+        strike = {"id": "strike", "name": "Strike", "basic_attack": True, "reach": {"kind": "melee"},
+                  "target_kind": "actor", "cost": None, "cooldown_remaining": 0}
+        floating = {"condition": {"id": "rogue.levitation", "name": "Levitation"},
+                    "phase": "active", "remaining_ticks": 100}
+        turn = player_turn(tiles, actors=[guard], hostiles=["guard"], abilities=[strike],
+                           combat={"hp": 24, "max_hp": 28}, stats={"conditions": [floating]})
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat"))
+
     def test_explores_past_a_landing_when_a_known_drainer_is_distant(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.opponents.draining_names.add("rattlesnake")

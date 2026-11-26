@@ -758,13 +758,18 @@ with ExitStack() as stack:
     def test_amulet_carrier_ascends_instead_of_fighting_an_ordinary_enemy(self):
         self.check_stair_refuge(enemy_x=2, expect_escape=True, carrying=True)
 
-    def check_stair_refuge(self, enemy_x, *, expect_escape, carrying=False):
+    def test_levitating_bot_steps_away_from_a_remembered_guard(self):
+        self.check_stair_refuge(enemy_x=2, expect_escape=True, levitate_on_return=True)
+
+    def check_stair_refuge(self, enemy_x, *, expect_escape, carrying=False, levitate_on_return=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
         character, = contents["manifest"]["characters"]
         character["loadout"] = [{"archetype": "rogue.amulet_of_yendor", "quantity": 1}] if carrying else []
+        if levitate_on_return:
+            character["loadout"].append({"archetype": "rogue.levitation", "quantity": 1})
         if carrying:
             character["known_identities"].append("item.amulet.amulet-of-yendor")
         contents["manifest"]["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/start"}}
@@ -778,7 +783,7 @@ with ExitStack() as stack:
         code = """
 import os, sys
 from rogue_player import Adventurer
-from tor_client_bot import Direction, Move, Outcome, Session, Wait
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem, Wait
 token = os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1], token, 3) as enemy:
     turn = game.wait_for_decision()
@@ -826,6 +831,18 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         assert player.depth == 6 and landing.cell.key == turn.cell.key
         strike, reason = player.choose(landing)
         assert reason == "melee" and strike.target.target == turn.hostiles[0].target, (strike, reason)
+        if sys.argv[4] == "levitate":
+            dose = next(item for item in landing.inventory if ItemUse.DRINK in item.uses)
+            assert landing.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+            floating = game.wait_for_decision()
+            assert floating.has_condition("rogue.levitation") and floating.in_contact(floating.hostiles[0])
+            player.observe(floating)
+            step, reason = player.choose(floating)
+            assert reason == "retreat" and isinstance(step, Move), (step, reason)
+            assert floating.submit(step).status is Outcome.CONFIRMED
+            after = game.wait_for_decision()
+            assert after.cell.key != landing.cell.key and not any(after.in_contact(foe) for foe in after.hostiles)
+            sys.exit(0)
         receipt = landing.submit(strike)
         assert receipt.status is Outcome.CONFIRMED
         assert game.wait_for_decision().outcome_of(receipt).value == "resolved"
@@ -836,7 +853,7 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
 """
         expected = "escape" if expect_escape else "explore"
         result = subprocess.run([sys.executable, "-c", code, self.address, expected,
-                                 "carrying" if carrying else "outbound"], cwd=self.directory,
+                                 "carrying" if carrying else "outbound", "levitate" if levitate_on_return else "grounded"], cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
                                 text=True, capture_output=True, timeout=45)
         self.assertEqual(result.returncode, 0, result.stderr)
