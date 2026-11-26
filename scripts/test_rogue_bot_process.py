@@ -903,7 +903,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     def test_bot_opens_a_closed_door_on_its_remembered_stair_route(self):
         self.check_retreat_through_door(carrying=False)
 
-    def test_first_floor_carrier_opens_a_door_to_escape_a_griffin(self):
+    def test_first_floor_carrier_opens_a_door_to_escape_an_orc(self):
         self.check_retreat_through_door(carrying=True)
 
     def check_retreat_through_door(self, *, carrying):
@@ -920,7 +920,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         manifest["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/start"}}
         region, = contents["regions"]
         region.update(anchors={"start": [4, 2, 0]}, doors=[{"id": 1, "at": [3, 2, 0], "height": 2, "open": False}],
-                      actors=[{"archetype": "rogue.griffin", "id": 3, "at": [1, 2, 0],
+                      actors=[{"archetype": "rogue.orc" if carrying else "rogue.griffin", "id": 3, "at": [1, 2, 0],
                                "turn_ticks": 1000000, "controller": "external"}])
         contents["regions"].append({"id": 2, "name": "Upper", "size": [5, 5, 2], "chamber": True,
                                     "anchors": {"down": [2, 2, 0]}})

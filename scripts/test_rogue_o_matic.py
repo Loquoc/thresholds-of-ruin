@@ -2634,12 +2634,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_first_floor_retreat_routes_to_distant_upstairs_when_carrying_the_amulet(self):
         rooms = [cell(str(x), x, up=x == 2) for x in range(-1, 3)]
-        griffin = {"id": "foe", "name": "griffin", "position": rooms[0]["position"]}
+        foe = {"id": "foe", "name": "orc", "position": rooms[0]["position"]}
         relic = {"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,
                  "identified": True, "quantity": 1}
         for pack, expected in (([], None), ([relic], (Move(Direction.EAST), "retreat_to_stairs"))):
             with self.subTest(carrying=bool(pack)):
-                turn = player_turn(rooms, actors=[griffin], hostiles=["foe"], inventory=pack)
+                turn = player_turn(rooms, actors=[foe], hostiles=["foe"], inventory=pack)
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 player.observe(turn)
                 self.assertEqual(player.retreat_to_stairs(turn), expected)
