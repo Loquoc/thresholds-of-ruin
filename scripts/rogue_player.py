@@ -365,6 +365,14 @@ class Adventurer:
     def carrying_objective(self, turn: Turn) -> bool:
         return any(item.identity == self.objective for item in turn.inventory)
 
+    def objective_stair_direction(self, *, returning: bool) -> Direction | None:
+        """Ascend with the objective, or descend until the retrieval floor is reached."""
+        if returning:
+            return Direction.UP
+        if self.depth < self.retrieval_depth:
+            return Direction.DOWN
+        return None
+
     @staticmethod
     def trapped(turn: Turn) -> bool:
         return turn.has_condition("rogue.bear_trap")
@@ -525,7 +533,7 @@ class Adventurer:
     def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
         returning = self.carrying_objective(turn)
         can_ascend = returning or self.depth > 1
-        can_descend = not returning and self.depth < self.retrieval_depth
+        can_descend = self.objective_stair_direction(returning=returning) is Direction.DOWN
 
         stairs_accessible = self.can_use_stairs(turn)
 
@@ -636,9 +644,8 @@ class Adventurer:
         if not turn.hostiles or not self.can_use_stairs(turn):
             return None
         returning = self.carrying_objective(turn)
-        can_descend = self.depth < self.retrieval_depth and not returning
-        downstairs = self.safe_stairs(turn, Direction.DOWN) if can_descend else set()
-        onward = self.safe_stairs(turn, Direction.UP) if returning else downstairs
+        direction = self.objective_stair_direction(returning=returning)
+        onward = self.safe_stairs(turn, direction) if direction is not None else set()
         rejected = set()
         if onward and (returning or pressed or self.recovering_from_pursuit):
             if turn.cell and turn.cell.key in onward:
@@ -664,10 +671,10 @@ class Adventurer:
         exits = self.safe_stairs(turn, Direction.UP)
         if turn.cell and turn.cell.key in exits:
             return Move(Direction.UP), MemoryReason.RETREAT_UPSTAIRS
-        if dangerous and downstairs:
-            if turn.cell and turn.cell.key in downstairs:
+        if dangerous and onward:
+            if turn.cell and turn.cell.key in onward:
                 return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
-            exits.update(downstairs)
+            exits.update(onward)
         return self.route_to_retreat_stairs(turn, exits, avoid=rejected)
 
     def route_to_retreat_stairs(self, turn: Turn, exits: set[str], *,
@@ -834,9 +841,9 @@ class Adventurer:
 
     def follow_stairs(self, turn: Turn, memory: FloorMap, *, returning: bool) -> tuple[Action, str] | None:
         """Descend toward the retrieval floor or follow upstairs with the objective."""
-        if turn.cell is None or (not returning and self.depth >= self.retrieval_depth):
+        direction = self.objective_stair_direction(returning=returning)
+        if turn.cell is None or direction is None:
             return None
-        direction = Direction.UP if returning else Direction.DOWN
         stairs = self.safe_stairs(turn, direction)
         if not stairs:
             # A temporary warning on the only exit can expire while we wait on this side.

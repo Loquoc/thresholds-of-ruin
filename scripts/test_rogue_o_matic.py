@@ -6098,7 +6098,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                  "quantity": 1, "identified": True}
         for depth, inventory, direction, reason in (
             (2, [], Direction.DOWN, "descend"),
+            (2, [prize], Direction.UP, "ascend"),
             (3, [], Direction.EAST, "explore"),
+            (4, [], Direction.EAST, "explore"),
+            (4, [prize], Direction.UP, "ascend"),
             (3, [prize], Direction.UP, "ascend"),
         ):
             with self.subTest(depth=depth, reason=reason):
