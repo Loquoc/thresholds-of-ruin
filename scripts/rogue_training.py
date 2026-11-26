@@ -10,7 +10,8 @@ def training_choices(training: Training, skill: str) -> Iterator[tuple[PointPool
         (TrainingKind.TALENT, ("rattling_blow", "dislocating_strike")),
         (TrainingKind.SKILL, (skill,)),
     )
-    pools = training.pools()
+    # Spend restricted points first so flexible pools remain available for later purchases.
+    pools = sorted(training.pools(), key=lambda pool: len(pool.allowed))
     for kind, identities in priorities:
         eligible = [pool for pool in pools if pool.available and kind in pool.allowed]
         if not eligible:

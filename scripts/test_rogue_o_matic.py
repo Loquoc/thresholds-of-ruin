@@ -1430,6 +1430,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         training.preview.assert_called_once_with(pool, talent)
         training.options.assert_called_once_with(kind)
 
+    def test_training_saves_flexible_points_when_a_talent_only_pool_can_pay(self):
+        from unittest.mock import Mock
+        from rogue_training import purchase_training
+        from tor_client_bot import PointPool, Training, TrainingKind, TrainingOption
+
+        talent = TrainingKind.TALENT
+        flexible = PointPool(1, "growth", "Growth", 1, (talent, TrainingKind.SKILL), ())
+        dedicated = PointPool(2, "talents", "Talents", 1, (talent,), ())
+        option = TrainingOption(talent, "rattling_blow", "Rattling blow", (), ())
+        for dedicated_is_lethal in (False, True):
+            with self.subTest(dedicated_is_lethal=dedicated_is_lethal):
+                training = Mock(spec=Training)
+                training.pools.return_value = (flexible, dedicated)
+                training.options.return_value = (option,)
+                safe = Mock(would_die=False)
+                training.preview.side_effect = [Mock(would_die=True), safe] if dedicated_is_lethal else [safe]
+                purchase, _ = purchase_training(training, ())
+                expected_pool = flexible if dedicated_is_lethal else dedicated
+                self.assertEqual(purchase["pool"], expected_pool.identity)
+                self.assertEqual(training.preview.call_args_list[0].args, (dedicated, option))
+                training.confirm.assert_called_once_with(safe)
+
     def test_training_skips_a_lethal_preview_and_confirms_only_the_safe_alternative(self):
         from unittest.mock import Mock
         from rogue_training import purchase_training
