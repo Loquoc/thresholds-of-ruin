@@ -592,6 +592,14 @@ hit testing. Window resize, cursor movement and redraw never advance time.
 Only one request is in flight; gameplay input while pending is discarded rather
 than silently queued into extra turns.
 
+Input reduction is a fixed precedence list in
+[`model/input.rs`](../../crates/client-ascii/src/model/input.rs): a pending
+weapon swap or screenshot, then the open full screen, then message paging, open
+selections, cancellation, editors, cursors and finally ordinary play keys. The
+first stage that owns an input consumes it. Add a new mode as a stage in the
+list rather than as a check inside another stage. The renderer draws the same
+screens as one method per overlay, in stacking order.
+
 Diagnostic frames are emitted after successful native presentation and optional
 PPM capture. `profile.version=1` reports update application, drawing, native
 presentation/pacing, capture, prior report duration, turn interval and consumed
