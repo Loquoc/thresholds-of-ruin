@@ -466,8 +466,16 @@ causes). The fix applies the
 receipt's phase when it first names the intention. Three model tests in
 `weapon_swap_admission_tests` cover a resolved removal, every ending phase and
 still-running controls. Before the fix, the resolved and ending cases failed at
-their receipt-phase assertions and the running controls passed. The ready-frame
-wait stays as an ordinary readiness check, not as the fix.
+their receipt-phase assertions and the running controls passed. The readiness check
+stays as an ordinary precondition, not as the fix.
+
+A later run on `cda7ce01` exposed a separate driver error in the same method.
+The final ASCII frame both reported the cursed dagger and satisfied every
+readiness check; the first wait consumed it, and the second timed out waiting
+for another frame. Wait for the refusal and readiness together before pressing
+the inventory key. Keep the inventory designation and unchanged equipment
+assertions. This is one harness cause, not another Wield defect. That second wait
+was added on this branch, in `afcc2f0`.
 
 ### Headless fight wait read a compact frame, 27 November
 

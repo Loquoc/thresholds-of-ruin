@@ -583,15 +583,15 @@ class ProjectileProcesses(ProcessTestCase):
         after = self.settle()
         self.assertEqual(self.sockets(after)[dagger], 0)
         self.assertIsNone(self.sockets(after)[bow])
-        shown = self.ascii_frame(window, lambda f: "it is cursed" in f["messages"]["turn"])
-        self.assertIn("dagger", shown["messages"]["turn"])
-        # As in the successful swap, the refusal can reach the observer before
-        # the ASCII window has reconciled its picture and can accept a key.
-        self.ascii_frame(window, lambda f: (
-            not f["busy"] and f["observation_current"] and f["character_ready"]
+        # Refusal and readiness may arrive in the same frame; a second wait
+        # would look only at later frames, which an idle client need not emit.
+        shown = self.ascii_frame(window, lambda f: (
+            "it is cursed" in f["messages"]["turn"]
+            and not f["busy"] and f["observation_current"] and f["character_ready"]
             and f["can_admit_intention"] and not f["intentions"]
             and self.sockets(f).get(dagger) == 0
         ))
+        self.assertIn("dagger", shown["messages"]["turn"])
         inventory = self.key(window, "inventory")
         rows = inventory["inventory_rows"]
         self.assertIsNotNone(rows, "the ready client must open the inventory")
