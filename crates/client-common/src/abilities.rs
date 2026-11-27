@@ -590,7 +590,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .abilities
-            .push(ability.clone());
+            .push(ability);
         let before = view.clone();
         for line in [
             "shimmer wave sentinel",

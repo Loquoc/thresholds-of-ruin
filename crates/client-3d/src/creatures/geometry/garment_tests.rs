@@ -1072,13 +1072,18 @@ fn equipped_waist_armor_keeps_the_rendered_bridal_train_and_linings() {
     let bride = female(CreatureModel::Human, 2).dressed(Wardrobe::RoyalBride);
     let measured = |look: &Look| {
         let (world, rig, _, meshes) = spawn_one(look);
-        rig.skirt_layers.iter().map(|&layer| {
-            let points = points_under(&world, &meshes, layer);
-            assert!(points.len() > 100, "measured layer is an actual garment");
-            points.iter().fold((f32::INFINITY, f32::INFINITY), |(y,z), p| {
-                (y.min(p.y), z.min(p.z))
+        rig.skirt_layers
+            .iter()
+            .map(|&layer| {
+                let points = points_under(&world, &meshes, layer);
+                assert!(points.len() > 100, "measured layer is an actual garment");
+                points
+                    .iter()
+                    .fold((f32::INFINITY, f32::INFINITY), |(y, z), p| {
+                        (y.min(p.y), z.min(p.z))
+                    })
             })
-        }).collect::<Vec<_>>()
+            .collect::<Vec<_>>()
     };
     let dressed = measured(&bride);
     assert_eq!(dressed.len(), 3);
@@ -1086,7 +1091,11 @@ fn equipped_waist_armor_keeps_the_rendered_bridal_train_and_linings() {
     let mut gear = Equipment::default();
     gear.select("leather").unwrap();
     let armored = measured(&bride.equipped(gear));
-    assert_eq!(armored.len(), 4, "tassets must add a mesh, not replace the dress");
+    assert_eq!(
+        armored.len(),
+        4,
+        "tassets must add a mesh, not replace the dress"
+    );
     assert!(armored[0].0 > -0.35, "tassets remain short");
     for (actual, original) in armored[1..].iter().zip(&dressed) {
         assert!((actual.0 - original.0).abs() < 0.02 && (actual.1 - original.1).abs() < 0.02);

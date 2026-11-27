@@ -188,23 +188,11 @@ fn equipment_removal_restores_plan_and_uncertain_pieces_are_kept() {
 }
 
 fn assert_same_parts(actual: &Parts, expected: &Parts) {
-    for (a, b) in [
-        &actual.matte,
-        &actual.metal,
-        &actual.satin,
-        &actual.sheer,
-        &actual.ghost,
-        &actual.glow,
-    ]
-    .into_iter()
-    .zip([
-        &expected.matte,
-        &expected.metal,
-        &expected.satin,
-        &expected.sheer,
-        &expected.ghost,
-        &expected.glow,
-    ]) {
+    for (a, b) in actual
+        .all_builders()
+        .into_iter()
+        .zip(expected.all_builders())
+    {
         a.assert_same_recipe(b);
     }
 }
@@ -267,25 +255,18 @@ fn production_recipe_matches_frozen_preplan_geometry_and_materials() {
             {
                 // This one fixture intentionally gains an underlying bracelet.
                 // All other geometry/materials remain exactly the frozen recipe.
-                assert_eq!(actual.metal.surface_triangles().count(), 384);
-                assert_eq!(expected.metal.surface_triangles().count(), 0);
-                actual.metal.assert_same_recipe_after(384, &expected.metal);
-                for (a, b) in [
-                    &actual.matte,
-                    &actual.satin,
-                    &actual.sheer,
-                    &actual.ghost,
-                    &actual.glow,
-                ]
-                .into_iter()
-                .zip([
-                    &expected.matte,
-                    &expected.satin,
-                    &expected.sheer,
-                    &expected.ghost,
-                    &expected.glow,
-                ]) {
-                    a.assert_same_recipe(b);
+                assert_eq!(actual.gold.surface_triangles().count(), 384);
+                assert_eq!(expected.gold.surface_triangles().count(), 0);
+                for (a, b) in actual
+                    .all_builders()
+                    .into_iter()
+                    .zip(expected.all_builders())
+                {
+                    if std::ptr::eq(a, &actual.gold) {
+                        a.assert_same_recipe_after(384, b);
+                    } else {
+                        a.assert_same_recipe(b);
+                    }
                 }
             } else {
                 assert_same_parts(&actual, &expected);
@@ -512,23 +493,11 @@ fn cloth_bell_gloves_use_forearm_geometry_and_clear_the_outer_sleeve() {
                 compact.soften();
                 plan.emit(&mut actual, body, 1.0);
                 Plan { cuff: None, ..plan }.emit(&mut compact, body, 1.0);
-                for (full, under) in [
-                    &actual.matte,
-                    &actual.metal,
-                    &actual.satin,
-                    &actual.sheer,
-                    &actual.ghost,
-                    &actual.glow,
-                ]
-                .into_iter()
-                .zip([
-                    &compact.matte,
-                    &compact.metal,
-                    &compact.satin,
-                    &compact.sheer,
-                    &compact.ghost,
-                    &compact.glow,
-                ]) {
+                for (full, under) in actual
+                    .all_builders()
+                    .into_iter()
+                    .zip(compact.all_builders())
+                {
                     full.assert_preserves_recipe_prefix(under);
                 }
                 let Some(Cuff::AuthoredBell {

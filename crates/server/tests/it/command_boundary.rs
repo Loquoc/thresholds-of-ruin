@@ -268,7 +268,7 @@ fn developer_commands_are_parsed_and_backend_only_commands_stay_private() {
             vector: [0, 0, -1],
         },
     };
-    let wire = engine.encode_command(ActorId(1), backend.clone()).unwrap();
+    let wire = engine.encode_command(ActorId(1), backend).unwrap();
     assert_eq!(
         tor_server::wire_adapter::decode_command(&wire).unwrap(),
         DecodedCommand::Display {

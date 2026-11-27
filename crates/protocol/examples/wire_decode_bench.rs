@@ -111,7 +111,7 @@ fn main() {
         frontend: "decode-bench".into(),
     };
     measure("hello", &hello, decode_request, samples, 0);
-    let mut large = hello.clone();
+    let mut large = hello;
     let overhead = serde_json::to_string(&large).unwrap().len();
     if let ClientMessage::Hello { token, .. } = &mut large {
         token.push_str(&"x".repeat(MAX_REQUEST_BYTES - overhead));

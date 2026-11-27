@@ -1513,7 +1513,7 @@ mod tests {
         retried
             .relocate_exact_item_in_candidate(item, source, destination)
             .unwrap();
-        let mut control = before.clone();
+        let mut control = before;
         control
             .relocate_exact_item_in_candidate(item, source, destination)
             .unwrap();

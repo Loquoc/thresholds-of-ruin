@@ -963,7 +963,7 @@ mod persistent_effect_budget_tests {
         }
         let missing = s::content_ids::ConditionId::new("missing").unwrap();
         for (condition, rest) in [
-            (missing.clone(), opposite.clone()),
+            (missing.clone(), opposite),
             (incoming.clone(), missing.clone()),
         ] {
             let effect = s::rules::Effect::HasteDose { condition, rest };

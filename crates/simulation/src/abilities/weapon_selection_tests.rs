@@ -1754,7 +1754,7 @@ fn projectile_token_witness_rejects_duplicate_and_future_generation() {
     alias.reservation.order += 1;
     duplicate.tokens.push(alias);
     assert!(!duplicate.valid(game.content.rules()));
-    let mut future = plan.clone();
+    let mut future = plan;
     future.tokens[0].reservation.generation = game
         .creature(ActorId(1))
         .unwrap()
@@ -2548,7 +2548,7 @@ fn launch_refusal_identifies_known_requirements_without_disclosing_hidden_types(
         "wielding the selected launcher fixes the refusal"
     );
 
-    let mut wrong_family = game.clone();
+    let mut wrong_family = game;
     edit(&mut wrong_family, ammo, |spec| {
         spec.projectile.as_mut().unwrap().family =
             crate::content_ids::LauncherFamilyId::new("fixture.other").unwrap();
@@ -2683,7 +2683,7 @@ fn projectile_ai_request_is_identical_under_unknown_numeric_and_curse_changes() 
         ordinary.plan.is_none(),
         "fresh numeric capture belongs to execution"
     );
-    let mut twin = game.clone();
+    let mut twin = game;
     twin.items
         .edit(ammo, |item| {
             item.condition.hit_enchantment = crate::limits::NUMERIC as i32;
@@ -5576,7 +5576,7 @@ fn ranged_pair_detour_does_not_invent_knowledge_or_ignore_exposure() {
         ranged_detour_with_budget(&unknown, &view, &profile, &mut 512),
         None
     );
-    let mut exposed = game.clone();
+    let mut exposed = game;
     let engagement = crate::behavior::Engagement {
         reference: crate::perception::ActorReferenceKind::Creature,
         target: blocker,

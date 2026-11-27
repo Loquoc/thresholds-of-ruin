@@ -103,7 +103,7 @@ fn standalone_pool_rejects_positional_missing_duplicate_and_unknown_fields() {
     let mut missing = positive.clone();
     missing.as_object_mut().unwrap().remove("directories");
     assert!(decode(&missing).is_err());
-    let mut unknown = positive.clone();
+    let mut unknown = positive;
     unknown["extra"] = json!(0);
     assert!(decode(&unknown).is_err());
     let raw = r#"{"scopes":[],"scopes":[],"directories":[]}"#;
@@ -126,7 +126,7 @@ fn decode_with(value: &Value, limits: DecodeLimits) -> Result<DecodedPool, serde
 fn rich_json(label: &str) -> Value {
     let run =
         json!({"region":u64::MAX,"z":i32::MIN,"y":i32::MIN,"first_x":i32::MIN,"last_x":i32::MIN});
-    json!({"scopes":[{"id":label,"members":[u64::MAX],"primary":[{"cells":run.clone(),"membership":{"primary":{"kind":"room","id":u32::MAX},"doorway":u32::MAX}}],"rooms":[{"room":u32::MAX,"runs":[run]}],"mapping":{"status":"uncertified"}}],"directories":[[0]]})
+    json!({"scopes":[{"id":label,"members":[u64::MAX],"primary":[{"cells":run,"membership":{"primary":{"kind":"room","id":u32::MAX},"doorway":u32::MAX}}],"rooms":[{"room":u32::MAX,"runs":[run]}],"mapping":{"status":"uncertified"}}],"directories":[[0]]})
 }
 #[test]
 fn actual_writer_maximum_operands_fit_exact_conservative_charge() {

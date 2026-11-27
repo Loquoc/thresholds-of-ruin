@@ -743,10 +743,10 @@ fn haste_captured_duration_operands_and_condition_references_are_strict() {
         missing.as_object_mut().unwrap().remove(field);
         assert!(serde_json::from_value::<PlannedEffect>(missing).is_err());
     }
-    let mut equal = encoded.clone();
+    let mut equal = encoded;
     equal["rest"] = equal["id"].clone();
     assert!(serde_json::from_value::<PlannedEffect>(equal).is_err());
-    let mut changed = plan.clone();
+    let mut changed = plan;
     let Plan::Drink { effects, .. } = &mut changed else {
         unreachable!()
     };

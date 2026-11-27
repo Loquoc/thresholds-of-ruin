@@ -211,6 +211,18 @@ fn shown(message: &ServerMessage) -> bool {
     )
 }
 
+/// How [`Connection::next`] treats a message after query-reply routing.
+enum QueryReply {
+    /// The message answers the current query; present it now.
+    Deliver,
+    /// The message answers no current query; drop it.
+    Skip,
+    /// The answer is accepted but waits for a palette request first.
+    Hold,
+    /// The message is not a chart or map query reply.
+    Other,
+}
+
 impl Connection {
     pub async fn connect(
         address: SocketAddr,
@@ -792,6 +804,224 @@ impl Connection {
         Ok(request_id)
     }
 
+    /// The next message: a held update first, otherwise one from the server.
+    /// `None` means a background query deadline passed and was handled.
+    async fn receive_next(&mut self) -> Result<Option<(ServerMessage, usize)>, ConnectionError> {
+        let received = match self.held.take() {
+            Some(message) => (message, 0),
+            None => match &self.recovery {
+                Some(recovery) => tokio::time::timeout_at(
+                    recovery.deadline,
+                    receive_sized(
+                        &mut self.socket,
+                        self.capabilities.max_response_bytes as usize,
+                        &mut self.responses,
+                    ),
+                )
+                .await
+                .map_err(|_| "Stream resynchronization timed out")??,
+                None => {
+                    let deadline = self
+                        .map_request
+                        .as_ref()
+                        .map(|(pending, _)| pending.deadline)
+                        .into_iter()
+                        .chain(
+                            self.chart_request
+                                .as_ref()
+                                .map(|(pending, _)| pending.deadline),
+                        )
+                        .chain(
+                            self.observation_demand
+                                .pending
+                                .as_ref()
+                                .map(|pending| pending.deadline),
+                        )
+                        .chain(self.observation_due())
+                        .min();
+                    let received = self.receive_with_background_queries();
+                    if let Some(deadline) = deadline {
+                        match tokio::time::timeout_at(deadline, received).await {
+                            Ok(result) => result?,
+                            Err(_) => {
+                                self.expire_chart_request();
+                                if self.map_request.as_ref().is_some_and(|(pending, _)| {
+                                    tokio::time::Instant::now() >= pending.deadline
+                                }) {
+                                    if let Some((pending, _)) = self.map_request.take() {
+                                        self.state.reject_map_query(&pending.request_id);
+                                    }
+                                }
+                                return Ok(None);
+                            }
+                        }
+                    } else {
+                        received.await?
+                    }
+                }
+            },
+        };
+        Ok(Some(received))
+    }
+
+    /// Hold a shown update until the pace since the previous one has passed.
+    /// While waiting it stays in `held`, so a cancelled `next` keeps it.
+    async fn pace_shown(&mut self, message: ServerMessage) -> ServerMessage {
+        if !(self.is_synchronized() && shown(&message)) {
+            return message;
+        }
+        let due = self
+            .last_shown
+            .map(|shown| shown + self.pace)
+            .filter(|due| !self.skipping && *due > Instant::now());
+        let message = match due {
+            Some(due) => {
+                self.held = Some(message);
+                tokio::time::sleep_until(due.into()).await;
+                self.held.take().expect("held update")
+            }
+            None => message,
+        };
+        self.last_shown = Some(Instant::now());
+        message
+    }
+
+    /// Privileged replies reach only wizard clients, and only valid ones.
+    fn check_wizard_reply(&self, message: &ServerMessage) -> Result<(), ConnectionError> {
+        // (privileged reply name, invalid payload name, validation)
+        let (reply, payload, valid) = match message {
+            ServerMessage::CreatureCatalog { page, .. } => (
+                "creature catalog",
+                "creature catalog",
+                page.validate().map_err(|e| e.to_string()),
+            ),
+            ServerMessage::WizardReport { report, .. } => (
+                "wizard report",
+                "wizard report",
+                report.validate().map_err(|e| e.to_string()),
+            ),
+            ServerMessage::CreatureInspection { report, .. } => (
+                "inspection",
+                "creature inspection",
+                report.validate().map_err(|e| e.to_string()),
+            ),
+            ServerMessage::CreatureStrikePage { page, .. } => (
+                "strike detail",
+                "strike detail",
+                page.validate().map_err(|e| e.to_string()),
+            ),
+            ServerMessage::CombatDiagnostics { report, .. } => (
+                "combat diagnostics",
+                "combat diagnostics",
+                report.validate().map_err(|e| e.to_string()),
+            ),
+            _ => return Ok(()),
+        };
+        if self.role != AccessRole::Wizard {
+            return Err(format!("Privileged {reply} sent to a non-wizard client").into());
+        }
+        valid.map_err(|error| format!("Invalid {payload}: {error}").into())
+    }
+
+    /// Route a chart or map page, or an error answering one of those
+    /// queries. Late or superseded answers are skipped, never turned into
+    /// a live-stream repair request.
+    fn route_query_reply(
+        &mut self,
+        message: &ServerMessage,
+        response_bytes: usize,
+    ) -> Result<QueryReply, ConnectionError> {
+        if let ServerMessage::ChartPage {
+            context,
+            request_id,
+            page,
+        } = message
+        {
+            if !self.is_synchronized()
+                || page.base != self.state.observation_base()
+                || page.branch != *self.state.branch()
+                || page.context != *self.state.context()
+                || !self.chart_request.as_ref().is_some_and(|(pending, query)| {
+                    pending.request_id == *request_id && self.charts.pending(request_id, query)
+                })
+            {
+                return Ok(QueryReply::Skip);
+            }
+            self.charts
+                .accept(context, request_id, page, response_bytes, &self.state)?;
+            self.chart_request = None;
+            return Ok(QueryReply::Deliver);
+        }
+        if let ServerMessage::MapPage {
+            context,
+            request_id,
+            page,
+        } = message
+        {
+            // A newer observation cancels the old assembly. Late pages are
+            // discarded, never turned into a live-stream repair request.
+            if !self.is_synchronized()
+                || page.base != self.state.observation_base()
+                || page.branch != *self.state.branch()
+                || context.input.stream != *self.state.context()
+                || !self.map_request.as_ref().is_some_and(|(pending, query)| {
+                    pending.request_id == *request_id
+                        && self.state.map_query_pending(request_id, query)
+                })
+            {
+                return Ok(QueryReply::Skip);
+            }
+            self.state
+                .accept_map_page(context, request_id, page, response_bytes)?;
+            self.map_request = None;
+            let ask = self.palette.notice(crate::palette::map_assets(&page.cells));
+            if ask {
+                self.palette_request = Some(PendingQuery::new());
+                return Ok(QueryReply::Hold);
+            }
+            return Ok(QueryReply::Deliver);
+        }
+        if let ServerMessage::Error {
+            request_id: Some(id),
+            ..
+        } = message
+        {
+            if self.chart_request.as_ref().is_some_and(|(pending, query)| {
+                pending.request_id == *id && self.charts.pending(id, query)
+            }) {
+                let context = message
+                    .reply_context()
+                    .ok_or("Chart error has no attachment context")?;
+                self.state
+                    .validate_reply_context(context)
+                    .map_err(|_| "Invalid chart error context")?;
+                self.charts.reject(id);
+                self.chart_request = None;
+                return Ok(QueryReply::Deliver);
+            }
+            if id.starts_with("chart-") {
+                return Ok(QueryReply::Skip);
+            }
+            if self.map_request.as_ref().is_some_and(|(pending, query)| {
+                pending.request_id == *id && self.state.map_query_pending(id, query)
+            }) {
+                let context = message
+                    .reply_context()
+                    .ok_or("Map error has no attachment context")?;
+                self.state
+                    .validate_reply_context(context)
+                    .map_err(|e| format!("Invalid map error context: {e:?}"))?;
+                self.state.reject_map_query(id);
+                self.map_request = None;
+                return Ok(QueryReply::Deliver);
+            }
+            if id.starts_with("map-") {
+                return Ok(QueryReply::Skip);
+            }
+        }
+        Ok(QueryReply::Other)
+    }
+
     /// Apply ordered updates and palettes before presentation. A palette that
     /// misses a revision, or an observation naming an asset the palette
     /// lacks, sends a `palette` request; its answer is an ordinary palette
@@ -808,72 +1038,10 @@ impl Connection {
             if let Some(message) = self.pending_presentation.take() {
                 return Ok(message);
             }
-            let (mut message, response_bytes) = match self.held.take() {
-                Some(message) => (message, 0),
-                None => match &self.recovery {
-                    Some(recovery) => tokio::time::timeout_at(
-                        recovery.deadline,
-                        receive_sized(
-                            &mut self.socket,
-                            self.capabilities.max_response_bytes as usize,
-                            &mut self.responses,
-                        ),
-                    )
-                    .await
-                    .map_err(|_| "Stream resynchronization timed out")??,
-                    None => {
-                        let deadline = self
-                            .map_request
-                            .as_ref()
-                            .map(|(pending, _)| pending.deadline)
-                            .into_iter()
-                            .chain(
-                                self.chart_request
-                                    .as_ref()
-                                    .map(|(pending, _)| pending.deadline),
-                            )
-                            .chain(
-                                self.observation_demand
-                                    .pending
-                                    .as_ref()
-                                    .map(|pending| pending.deadline),
-                            )
-                            .chain(self.observation_due())
-                            .min();
-                        let received = self.receive_with_background_queries();
-                        if let Some(deadline) = deadline {
-                            match tokio::time::timeout_at(deadline, received).await {
-                                Ok(result) => result?,
-                                Err(_) => {
-                                    self.expire_chart_request();
-                                    if self.map_request.as_ref().is_some_and(|(pending, _)| {
-                                        tokio::time::Instant::now() >= pending.deadline
-                                    }) {
-                                        if let Some((pending, _)) = self.map_request.take() {
-                                            self.state.reject_map_query(&pending.request_id);
-                                        }
-                                    }
-                                    continue;
-                                }
-                            }
-                        } else {
-                            received.await?
-                        }
-                    }
-                },
+            let Some((message, response_bytes)) = self.receive_next().await? else {
+                continue;
             };
-            if self.is_synchronized() && shown(&message) {
-                let due = self
-                    .last_shown
-                    .map(|shown| shown + self.pace)
-                    .filter(|due| !self.skipping && *due > Instant::now());
-                if let Some(due) = due {
-                    self.held = Some(message);
-                    tokio::time::sleep_until(due.into()).await;
-                    message = self.held.take().expect("held update");
-                }
-                self.last_shown = Some(Instant::now());
-            }
+            let message = self.pace_shown(message).await;
             if self.timing {
                 if let ServerMessage::Ack { request_id, .. } = &message {
                     self.timing_event("client_ack", request_id, None, None);
@@ -907,44 +1075,7 @@ impl Connection {
                 } => self.state.record_server_notice(context, *code, message),
                 _ => {}
             }
-            if let ServerMessage::CreatureCatalog { page, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged creature catalog sent to a non-wizard client".into());
-                }
-                page.validate()
-                    .map_err(|error| format!("Invalid creature catalog: {error}"))?;
-            }
-            if let ServerMessage::WizardReport { report, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged wizard report sent to a non-wizard client".into());
-                }
-                report
-                    .validate()
-                    .map_err(|error| format!("Invalid wizard report: {error}"))?;
-            }
-            if let ServerMessage::CreatureInspection { report, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged inspection sent to a non-wizard client".into());
-                }
-                report
-                    .validate()
-                    .map_err(|error| format!("Invalid creature inspection: {error}"))?;
-            }
-            if let ServerMessage::CreatureStrikePage { page, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged strike detail sent to a non-wizard client".into());
-                }
-                page.validate()
-                    .map_err(|error| format!("Invalid strike detail: {error}"))?;
-            }
-            if let ServerMessage::CombatDiagnostics { report, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged combat diagnostics sent to a non-wizard client".into());
-                }
-                report
-                    .validate()
-                    .map_err(|error| format!("Invalid combat diagnostics: {error}"))?;
-            }
+            self.check_wizard_reply(&message)?;
             // Revocation wins even when the delayed private reply carries the
             // previously valid cursor. Do not turn it into a snapshot-repair
             // request before checking the current controller boundary.
@@ -959,94 +1090,14 @@ impl Connection {
             {
                 return Err("Private projectile choices sent without current control".into());
             }
-            if let ServerMessage::ChartPage {
-                context,
-                request_id,
-                page,
-            } = &message
-            {
-                if !self.is_synchronized()
-                    || page.base != self.state.observation_base()
-                    || page.branch != *self.state.branch()
-                    || page.context != *self.state.context()
-                    || !self.chart_request.as_ref().is_some_and(|(pending, query)| {
-                        pending.request_id == *request_id && self.charts.pending(request_id, query)
-                    })
-                {
-                    continue;
-                }
-                self.charts
-                    .accept(context, request_id, page, response_bytes, &self.state)?;
-                self.chart_request = None;
-                return Ok(message);
-            }
-            if let ServerMessage::MapPage {
-                context,
-                request_id,
-                page,
-            } = &message
-            {
-                // A newer observation cancels the old assembly. Late pages are
-                // discarded, never turned into a live-stream repair request.
-                if !self.is_synchronized()
-                    || page.base != self.state.observation_base()
-                    || page.branch != *self.state.branch()
-                    || context.input.stream != *self.state.context()
-                    || !self.map_request.as_ref().is_some_and(|(pending, query)| {
-                        pending.request_id == *request_id
-                            && self.state.map_query_pending(request_id, query)
-                    })
-                {
-                    continue;
-                }
-                self.state
-                    .accept_map_page(context, request_id, page, response_bytes)?;
-                self.map_request = None;
-                let ask = self.palette.notice(crate::palette::map_assets(&page.cells));
-                if ask {
+            match self.route_query_reply(&message, response_bytes)? {
+                QueryReply::Deliver => return Ok(message),
+                QueryReply::Skip => continue,
+                QueryReply::Hold => {
                     self.pending_presentation = Some(message);
-                    self.palette_request = Some(PendingQuery::new());
                     continue;
                 }
-                return Ok(message);
-            }
-            if let ServerMessage::Error {
-                request_id: Some(id),
-                ..
-            } = &message
-            {
-                if self.chart_request.as_ref().is_some_and(|(pending, query)| {
-                    pending.request_id == *id && self.charts.pending(id, query)
-                }) {
-                    let context = message
-                        .reply_context()
-                        .ok_or("Chart error has no attachment context")?;
-                    self.state
-                        .validate_reply_context(context)
-                        .map_err(|_| "Invalid chart error context")?;
-                    self.charts.reject(id);
-                    self.chart_request = None;
-                    return Ok(message);
-                }
-                if id.starts_with("chart-") {
-                    continue;
-                }
-                if self.map_request.as_ref().is_some_and(|(pending, query)| {
-                    pending.request_id == *id && self.state.map_query_pending(id, query)
-                }) {
-                    let context = message
-                        .reply_context()
-                        .ok_or("Map error has no attachment context")?;
-                    self.state
-                        .validate_reply_context(context)
-                        .map_err(|e| format!("Invalid map error context: {e:?}"))?;
-                    self.state.reject_map_query(id);
-                    self.map_request = None;
-                    return Ok(message);
-                }
-                if id.starts_with("map-") {
-                    continue;
-                }
+                QueryReply::Other => {}
             }
             let reply_context = message.reply_context();
             if let Some(context) = reply_context {

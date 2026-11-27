@@ -1125,7 +1125,7 @@ fn gold_detour_requires_disclosed_blockage_and_disclosed_first_steps() {
     crate::observation::observation_cells_mut(&mut undisclosed.visible_cells)
         .retain(|cell| cell.location == view.location || cell.location == at(1, 4, 1));
     assert_eq!(bounded_gold_choice(&game, &undisclosed, &mut 512), None);
-    let mut wrong_frame = view.clone();
+    let mut wrong_frame = view;
     for cell in crate::observation::observation_cells_mut(&mut wrong_frame.visible_cells) {
         cell.frame = (cell.frame + 1) % 24;
     }

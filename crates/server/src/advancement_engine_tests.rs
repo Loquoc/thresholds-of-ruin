@@ -1348,7 +1348,7 @@ fn owner_form_catalog_source_maximum_escaped_singleton_fits_complete_frame() {
     let message = p::ServerMessage::AdvancementPage {
         context: context.clone(),
         request_id: request_id.clone(),
-        page: Box::new(page.clone()),
+        page: Box::new(page),
     };
     let encoded = p::encode_response(&message, None, budget.limit).unwrap();
     assert_eq!(p::decode_response(&encoded.text).unwrap(), message);

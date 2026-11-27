@@ -211,10 +211,7 @@ mod tests {
         let metadata = AttachmentMetadata {
             media_type: AttachmentMediaType::Text,
             byte_len: text.len() as u32,
-            sha256: Sha256::digest(text)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>(),
+            sha256: tor_protocol::lower_hex(&Sha256::digest(text)),
         };
         validate(&metadata, text).unwrap();
         assert!(validate(&metadata, b" exact ").is_err());
@@ -222,10 +219,7 @@ mod tests {
         let bytes = [0xff];
         let metadata = AttachmentMetadata {
             byte_len: 1,
-            sha256: Sha256::digest(bytes)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>(),
+            sha256: tor_protocol::lower_hex(&Sha256::digest(bytes)),
             ..metadata
         };
         assert!(validate(&metadata, &bytes).is_err());
@@ -255,10 +249,7 @@ mod tests {
         let metadata = AttachmentMetadata {
             media_type: AttachmentMediaType::Text,
             byte_len: bytes.len() as u32,
-            sha256: Sha256::digest(bytes)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>(),
+            sha256: tor_protocol::lower_hex(&Sha256::digest(bytes)),
         };
         (
             crate::engine::Receipt {

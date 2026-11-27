@@ -92,7 +92,7 @@ fn own_stats_facts_capture_and_equality_do_not_materialize_owned_collections() {
     );
     let after = crate::diagnostics::work_counts();
     let copied = after.own_stats_static_entries_copied - before.own_stats_static_entries_copied;
-    let mut one_more = facts.clone();
+    let mut one_more = facts;
     assert!(one_more
         .derived
         .subtypes

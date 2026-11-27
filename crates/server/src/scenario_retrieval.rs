@@ -296,7 +296,7 @@ mod tests {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/rogue-geometry");
         let original = resolve_source(&root).unwrap();
-        let mut manifest = original.manifest.clone();
+        let mut manifest = original.manifest;
         manifest.unique_retrieval = Some(
             serde_json::from_value(json!({
                 "version":1,"protagonist":"selected_character","family":"dungeon",

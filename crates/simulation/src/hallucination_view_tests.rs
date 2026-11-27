@@ -16,7 +16,7 @@ fn blank_map() -> MapAppearance {
     MapAppearance {
         object_presentation: None,
         wall: false,
-        material: "".into(),
+        material: String::new(),
         asset: None,
         place_hint: false,
         stairs_up: false,
@@ -119,7 +119,7 @@ fn blind_awareness_is_factual_and_cure_does_not_reveal_visual_scene() {
         .visible_cells
         .iter()
         .all(|c| c.object_presentation.is_none()));
-    let before_cells = view.visible_cells.clone();
+    let before_cells = view.visible_cells;
     game.apply_effects(
         OWNER,
         &[crate::rules::Effect::RemoveCondition {
@@ -254,9 +254,9 @@ fn cosmetic_memory_is_exact_and_strict_not_reselected_on_restore() {
     };
     let mut appearance = blank_map();
     appearance.ground_items.push(MapItemAppearance {
-        presentation: Some(sample.clone()),
+        presentation: Some(sample),
         class: crate::ItemClass::Weapon,
-        description: "".into(),
+        description: String::new(),
         name: "object".into(),
         appearance: "object".into(),
         identified: false,
@@ -283,7 +283,7 @@ fn cosmetic_memory_is_exact_and_strict_not_reselected_on_restore() {
             "{field}"
         );
     }
-    let mut invalid = encoded.clone();
+    let mut invalid = encoded;
     invalid["ground_items"][0]
         .as_object_mut()
         .unwrap()

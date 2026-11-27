@@ -30,6 +30,7 @@ impl<'a> MapCell<'a> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct MapMemory {
     pub records: BTreeMap<String, RememberedCell>,
+    /// Placed occurrences. Every value names a key in `records`.
     pub cells: BTreeMap<Position, String>,
     previous: BTreeMap<String, Vec<Position>>,
     previous_viewport: Option<MapWindow>,
@@ -290,6 +291,7 @@ impl MapMemory {
         let over_budget = |this: &Self| {
             this.records.len() > MAX_MAP_TRANSFER_CELLS || this.bytes > MAX_MAP_TRANSFER_BYTES
         };
+        let mut evicted = false;
         if over_budget(self) {
             let placed: BTreeSet<_> = self.cells.values().cloned().collect();
             let keys: Vec<_> = self
@@ -305,6 +307,7 @@ impl MapMemory {
                     break;
                 }
                 self.remove(&key);
+                evicted = true;
             }
         }
         if over_budget(self) {
@@ -327,6 +330,7 @@ impl MapMemory {
                     break;
                 }
                 self.remove(&key);
+                evicted = true;
             }
         }
         // Pathological valid live metadata may exceed the independent cache
@@ -337,9 +341,18 @@ impl MapMemory {
                 break;
             };
             self.remove(&key);
+            evicted = true;
             self.limited = true;
             self.coverage = None;
         }
+        // Without an eviction every placement still names a kept record, so
+        // the ordinary per-update path skips this scan of every placement.
+        if evicted {
+            self.forget_unrecorded_placements();
+        }
+    }
+    /// Restore the placement invariant after evictions or a bulk install.
+    fn forget_unrecorded_placements(&mut self) {
         self.cells.retain(|_, key| self.records.contains_key(key));
     }
     pub fn needs_window(&self, requested: MapWindow) -> bool {
@@ -396,6 +409,7 @@ impl MapMemory {
         self.coverage = Some(coverage);
         self.install_cells(cells);
         self.trim(Some(viewport));
+        self.forget_unrecorded_placements();
         Ok(())
     }
     /// Copy each appearance once for the native thread, even when several
@@ -429,6 +443,7 @@ impl MapMemory {
             self.put(key, record);
         }
         self.trim(viewport);
+        self.forget_unrecorded_placements();
     }
     fn install_cells(&mut self, cells: BTreeMap<Position, RememberedMapCell>) {
         self.limited = false;
@@ -480,6 +495,77 @@ fn bounds(min: [i32; 3], max: [i32; 3]) -> MapWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn remembered(key: &str, position: Position) -> RememberedCell {
+        RememberedCell {
+            appearance: RememberedMapCell {
+                object_presentation: None,
+                key: key.into(),
+                position,
+                wall: false,
+                material: "stone".into(),
+                asset: None,
+                place_hint: false,
+                stairs_up: false,
+                stairs_down: false,
+                trap: None,
+                door: None,
+                ground_items: vec![],
+            },
+            last_seen_tick: None,
+            last_seen_revision: None,
+        }
+    }
+
+    #[test]
+    fn a_snapshot_placement_without_its_record_is_not_installed() {
+        let viewport = MapWindow::normal();
+        let kept = viewport.min;
+        let orphan = viewport.max;
+        let mut memory = MapMemory::default();
+        memory.install_snapshot(
+            Some(viewport),
+            Some(viewport),
+            BTreeMap::from([(kept, "kept".into()), (orphan, "missing".into())]),
+            BTreeMap::from([("kept".into(), remembered("kept", kept))]),
+        );
+        assert!(memory.at(kept).is_some());
+        assert!(memory.at(orphan).is_none());
+        assert_eq!(memory.cells.len(), 1);
+    }
+
+    #[test]
+    fn evicted_records_take_their_placements_with_them() {
+        let viewport = MapWindow::normal();
+        let mut memory = MapMemory {
+            coverage: Some(viewport),
+            ..Default::default()
+        };
+        // Few placed offscreen records whose bytes exceed the budget, so
+        // eviction must remove records that still have placements.
+        let large = "x".repeat(1 << 20);
+        for index in 0..10 {
+            let key = format!("cell-{index}");
+            let position = Position {
+                x: viewport.max.x + 1 + index,
+                y: 0,
+                z: 0,
+            };
+            let mut record = remembered(&key, position);
+            record.appearance.material = large.clone();
+            memory.put(key.clone(), record);
+            memory.cells.insert(position, key);
+        }
+        assert!(memory.bytes > MAX_MAP_TRANSFER_BYTES);
+        memory.trim(Some(viewport));
+        assert!(memory.bytes <= MAX_MAP_TRANSFER_BYTES);
+        assert!(memory.records.len() < 10);
+        assert!(!memory.cells.is_empty());
+        assert!(memory
+            .cells
+            .values()
+            .all(|key| memory.records.contains_key(key)));
+    }
 
     #[test]
     fn offscreen_placement_budget_drops_farthest_aliased_occurrences_not_visible_ones() {

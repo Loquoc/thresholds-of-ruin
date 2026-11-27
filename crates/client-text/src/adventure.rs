@@ -19,20 +19,7 @@ pub(crate) fn distance(p: Position) -> u64 {
     u64::from(p.x.unsigned_abs()) + u64::from(p.y.unsigned_abs()) + u64::from(p.z.unsigned_abs())
 }
 
-pub fn direction_name(d: Direction) -> &'static str {
-    match d {
-        Direction::North => "north",
-        Direction::East => "east",
-        Direction::South => "south",
-        Direction::West => "west",
-        Direction::NorthEast => "northeast",
-        Direction::SouthEast => "southeast",
-        Direction::SouthWest => "southwest",
-        Direction::NorthWest => "northwest",
-        Direction::Up => "up",
-        Direction::Down => "down",
-    }
-}
+pub use tor_client_common::direction_name;
 
 fn bearing(p: Position) -> Option<Direction> {
     if p.z != 0 {

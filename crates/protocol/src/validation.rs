@@ -215,148 +215,7 @@ impl StateView {
             return Err(InvalidState::InvalidInteraction);
         }
         if let Some(interactions) = &o.interactions {
-            let inventory: std::collections::HashMap<_, _> =
-                o.inventory.iter().map(|item| (item.id, item)).collect();
-            if !unique(o.known_item_uses.iter().map(|use_| use_.item))
-                || o.known_item_uses.iter().any(|use_| {
-                    let Some(item) = inventory.get(&use_.item) else {
-                        return true;
-                    };
-                    !item.identified
-                        || item.identity.is_unknown()
-                        || (use_.identifies.is_empty()
-                            && use_.throw_range.is_none()
-                            && use_.launch_range.is_none())
-                        || (!use_.identifies.is_empty()
-                            && (item.class != crate::ItemClass::Scroll
-                                || !crate::wire::valid_identification_classes(&use_.identifies)))
-                        || [use_.throw_range, use_.launch_range]
-                            .into_iter()
-                            .flatten()
-                            .any(|range| !range.valid())
-                })
-            {
-                return Err(InvalidState::InvalidInteraction);
-            }
-            let mut equipped = HashSet::new();
-            if interactions.refused.len() > 4096
-                || interactions
-                    .refused
-                    .iter()
-                    .any(|refusal| !matches!(refusal.action, crate::Action::Zap { .. }))
-                || interactions.curse_blocked.len() > 4096
-                || interactions.slots.len() > crate::MAX_EQUIPMENT_SLOTS
-                || interactions.slots.iter().any(|slot| !slot.valid())
-                || interactions.completed.iter().any(|action| {
-                    !matches!(
-                        action,
-                        crate::Action::Equip { slot: 0..=63, .. }
-                            | crate::Action::Unequip { .. }
-                            | crate::Action::Drink { .. }
-                            | crate::Action::Eat { .. }
-                            | crate::Action::Read { .. }
-                            | crate::Action::Ignite { .. }
-                            | crate::Action::Extinguish { .. }
-                            | crate::Action::Zap { .. }
-                    )
-                })
-                || interactions.identification.as_ref().is_some_and(|choice| {
-                    choice.choice.0.is_empty()
-                        || choice.choice.0.len() > 256
-                        || !crate::wire::valid_identification_classes(&choice.classes)
-                        || choice.items.len() > 64
-                        || !unique(choice.items.iter().copied())
-                        || choice.items.iter().any(|item| {
-                            inventory
-                                .get(item)
-                                .is_none_or(|item| !choice.classes.contains(&item.class))
-                        })
-                })
-                || interactions.inventory.len() > inventory.len()
-                || !unique(interactions.inventory.iter().map(|item| item.item))
-                || interactions.inventory.iter().any(|interaction| {
-                    let Some(item) = inventory.get(&interaction.item) else {
-                        return true;
-                    };
-                    (interaction.zappable != interaction.device_activation.is_some())
-                        || interaction.portable_light.as_ref().is_some_and(|light| {
-                            !light.valid()
-                                || item.class != crate::ItemClass::Tool
-                                || item.quantity != 1
-                                || interaction
-                                    .slot
-                                    .as_ref()
-                                    .is_none_or(|slot| slot.id != "held_light")
-                                || ((light.lit || light.ignitable || light.extinguishable)
-                                    && interaction.equipped_slot.is_none())
-                        })
-                        || (!item.identified
-                            && matches!(
-                                interaction.device_activation,
-                                Some(
-                                    crate::DeviceActivation::SelfTarget
-                                        | crate::DeviceActivation::DirectionOrSelf
-                                )
-                            ))
-                        || (!item.identified
-                            && (interaction.known_equipment.is_some()
-                                || interaction.known_projectile_bonus.is_some()))
-                        || interaction
-                            .known_projectile_bonus
-                            .as_ref()
-                            .is_some_and(|bonus| !bonus.valid())
-                        || (interaction.charges.is_some()
-                            && (!item.identified || !interaction.zappable))
-                        || interaction.slot.as_ref().is_some_and(|slot| !slot.valid())
-                        || (interaction.slot.is_none()
-                            && (interaction.equipped_slot.is_some()
-                                || interaction.known_equipment.is_some()))
-                        || ((interaction.drinkable || interaction.edible)
-                            && interaction.slot.is_some())
-                        || (interaction.drinkable && interaction.edible)
-                        || interaction.equipped_slot.is_some_and(|slot| {
-                            !equipped.insert(slot)
-                                || interactions.slots.get(usize::from(slot))
-                                    != interaction.slot.as_ref()
-                        })
-                        || interaction
-                            .known_equipment
-                            .as_ref()
-                            .is_some_and(|equipment| {
-                                equipment.modifiers.len() > 128
-                                    || equipment.modifiers.iter().any(|value| !value.valid())
-                                    || equipment.attack.is_some()
-                                        != interaction
-                                            .slot
-                                            .as_ref()
-                                            .is_some_and(|slot| slot.requires_attack)
-                                    || equipment
-                                        .attack
-                                        .as_ref()
-                                        .is_some_and(|attack| !attack.valid())
-                            })
-                })
-                || interactions.preparation.as_ref().is_some_and(|progress| {
-                    match &progress.action {
-                        crate::Action::Escape { .. } => false,
-                        crate::Action::UseAbility { id, supplies, .. } => {
-                            !crate::valid_content_id(id) || !supplies.valid()
-                        }
-                        crate::Action::Equip { item, slot } => {
-                            !inventory.contains_key(item)
-                                || usize::from(*slot) >= interactions.slots.len()
-                        }
-                        crate::Action::Unequip { item }
-                        | crate::Action::Drink { item }
-                        | crate::Action::Eat { item }
-                        | crate::Action::Read { item }
-                        | crate::Action::Ignite { item }
-                        | crate::Action::Extinguish { item }
-                        | crate::Action::Zap { item, .. } => !inventory.contains_key(item),
-                        _ => true,
-                    }
-                })
-            {
+            if !interactions_valid(o, interactions) {
                 return Err(InvalidState::InvalidInteraction);
             }
         }
@@ -450,6 +309,158 @@ impl crate::OwnStats {
                 .count()
                 <= 1
     }
+}
+
+/// Item interactions and remembered item uses agree with the inventory, the
+/// equipment slots and each other.
+fn interactions_valid(o: &crate::Observation, interactions: &crate::InteractionView) -> bool {
+    let inventory: std::collections::HashMap<_, _> =
+        o.inventory.iter().map(|item| (item.id, item)).collect();
+    let uses_invalid = !unique(o.known_item_uses.iter().map(|use_| use_.item))
+        || o.known_item_uses.iter().any(|use_| {
+            let Some(item) = inventory.get(&use_.item) else {
+                return true;
+            };
+            !item.identified
+                || item.identity.is_unknown()
+                || (use_.identifies.is_empty()
+                    && use_.throw_range.is_none()
+                    && use_.launch_range.is_none())
+                || (!use_.identifies.is_empty()
+                    && (item.class != crate::ItemClass::Scroll
+                        || !crate::wire::valid_identification_classes(&use_.identifies)))
+                || [use_.throw_range, use_.launch_range]
+                    .into_iter()
+                    .flatten()
+                    .any(|range| !range.valid())
+        });
+    if uses_invalid {
+        return false;
+    }
+    let mut equipped = HashSet::new();
+    let invalid = interactions.refused.len() > 4096
+        || interactions
+            .refused
+            .iter()
+            .any(|refusal| !matches!(refusal.action, crate::Action::Zap { .. }))
+        || interactions.curse_blocked.len() > 4096
+        || interactions.slots.len() > crate::MAX_EQUIPMENT_SLOTS
+        || interactions.slots.iter().any(|slot| !slot.valid())
+        || interactions.completed.iter().any(|action| {
+            !matches!(
+                action,
+                crate::Action::Equip { slot: 0..=63, .. }
+                    | crate::Action::Unequip { .. }
+                    | crate::Action::Drink { .. }
+                    | crate::Action::Eat { .. }
+                    | crate::Action::Read { .. }
+                    | crate::Action::Ignite { .. }
+                    | crate::Action::Extinguish { .. }
+                    | crate::Action::Zap { .. }
+            )
+        })
+        || interactions.identification.as_ref().is_some_and(|choice| {
+            choice.choice.0.is_empty()
+                || choice.choice.0.len() > 256
+                || !crate::wire::valid_identification_classes(&choice.classes)
+                || choice.items.len() > 64
+                || !unique(choice.items.iter().copied())
+                || choice.items.iter().any(|item| {
+                    inventory
+                        .get(item)
+                        .is_none_or(|item| !choice.classes.contains(&item.class))
+                })
+        })
+        || interactions.inventory.len() > inventory.len()
+        || !unique(interactions.inventory.iter().map(|item| item.item))
+        || interactions.inventory.iter().any(|interaction| {
+            inventory.get(&interaction.item).is_none_or(|item| {
+                item_interaction_invalid(interaction, item, interactions, &mut equipped)
+            })
+        })
+        || interactions
+            .preparation
+            .as_ref()
+            .is_some_and(|progress| match &progress.action {
+                crate::Action::Escape { .. } => false,
+                crate::Action::UseAbility { id, supplies, .. } => {
+                    !crate::valid_content_id(id) || !supplies.valid()
+                }
+                crate::Action::Equip { item, slot } => {
+                    !inventory.contains_key(item) || usize::from(*slot) >= interactions.slots.len()
+                }
+                crate::Action::Unequip { item }
+                | crate::Action::Drink { item }
+                | crate::Action::Eat { item }
+                | crate::Action::Read { item }
+                | crate::Action::Ignite { item }
+                | crate::Action::Extinguish { item }
+                | crate::Action::Zap { item, .. } => !inventory.contains_key(item),
+                _ => true,
+            });
+    !invalid
+}
+
+/// Whether one item's disclosed interaction contradicts the item or its slot.
+/// `equipped` collects equipped slots so each is claimed at most once.
+fn item_interaction_invalid(
+    interaction: &crate::ItemInteractionView,
+    item: &crate::ItemView,
+    interactions: &crate::InteractionView,
+    equipped: &mut HashSet<u16>,
+) -> bool {
+    (interaction.zappable != interaction.device_activation.is_some())
+        || interaction.portable_light.as_ref().is_some_and(|light| {
+            !light.valid()
+                || item.class != crate::ItemClass::Tool
+                || item.quantity != 1
+                || interaction
+                    .slot
+                    .as_ref()
+                    .is_none_or(|slot| slot.id != "held_light")
+                || ((light.lit || light.ignitable || light.extinguishable)
+                    && interaction.equipped_slot.is_none())
+        })
+        || (!item.identified
+            && matches!(
+                interaction.device_activation,
+                Some(
+                    crate::DeviceActivation::SelfTarget | crate::DeviceActivation::DirectionOrSelf
+                )
+            ))
+        || (!item.identified
+            && (interaction.known_equipment.is_some()
+                || interaction.known_projectile_bonus.is_some()))
+        || interaction
+            .known_projectile_bonus
+            .as_ref()
+            .is_some_and(|bonus| !bonus.valid())
+        || (interaction.charges.is_some() && (!item.identified || !interaction.zappable))
+        || interaction.slot.as_ref().is_some_and(|slot| !slot.valid())
+        || (interaction.slot.is_none()
+            && (interaction.equipped_slot.is_some() || interaction.known_equipment.is_some()))
+        || ((interaction.drinkable || interaction.edible) && interaction.slot.is_some())
+        || (interaction.drinkable && interaction.edible)
+        || interaction.equipped_slot.is_some_and(|slot| {
+            !equipped.insert(slot)
+                || interactions.slots.get(usize::from(slot)) != interaction.slot.as_ref()
+        })
+        || interaction
+            .known_equipment
+            .as_ref()
+            .is_some_and(|equipment| {
+                equipment.modifiers.len() > 128
+                    || equipment.modifiers.iter().any(|value| !value.valid())
+                    || equipment.attack.is_some()
+                        != interaction
+                            .slot
+                            .as_ref()
+                            .is_some_and(|slot| slot.requires_attack)
+                    || equipment
+                        .attack
+                        .as_ref()
+                        .is_some_and(|attack| !attack.valid())
+            })
 }
 
 #[cfg(test)]

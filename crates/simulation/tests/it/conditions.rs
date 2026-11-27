@@ -115,7 +115,7 @@ fn named_records_restore_without_refresh() {
     state.advance_active(99);
     let records: Vec<_> = state.instances().cloned().collect();
     assert_eq!(
-        ConditionState::from_recorded(records.clone(), state.next_generation(), &rules).unwrap(),
+        ConditionState::from_recorded(records, state.next_generation(), &rules).unwrap(),
         state
     );
 }
@@ -139,7 +139,7 @@ fn recorded_condition_invariants_are_rejected_independently() {
     let rules = Ruleset::validate(document).unwrap();
     let valid = tor_simulation::conditions::ConditionInstance {
         phase: tor_simulation::conditions::ConditionPhase::Active,
-        condition: def.id.clone(),
+        condition: def.id,
         source: ActorId(1),
         remaining: Some(201),
         stacks: 2,

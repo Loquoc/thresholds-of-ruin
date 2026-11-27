@@ -127,7 +127,7 @@ pub fn match_disclosed_sentence(
                 return Ok(ParsedCommand::Orphan {
                     prompt: format!("Which way do you want to use {}?", ability.name),
                     before: ability.name.to_lowercase(),
-                    after: suffix.clone(),
+                    after: suffix,
                 });
             }
             if ability.target_kind == tor_protocol::AbilityTargetKind::DirectionalRay {
@@ -162,7 +162,7 @@ pub fn match_disclosed_sentence(
             return Ok(ParsedCommand::Orphan {
                 prompt: format!("Who do you want to use {} on?", ability.name),
                 before: ability.name.to_lowercase(),
-                after: suffix.clone(),
+                after: suffix,
             });
         }
         let noun = if noun.is_empty() { "me" } else { noun };

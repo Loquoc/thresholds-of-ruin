@@ -122,6 +122,299 @@ pub enum ParsedCommand {
     Refused(String),
 }
 
+/// Session and meta commands such as `save`, `pace` or `wizard`, which never
+/// reach the world. `None` when the sentence is not one.
+fn session_command(
+    tokens: &[Token],
+    raw_line: Option<&str>,
+) -> Result<Option<ParsedCommand>, String> {
+    if let Some(word) = tokens[0].as_word() {
+        match word {
+            "save" if tokens.len() == 1 => {
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Save)));
+            }
+            "sync" if tokens.len() == 1 => {
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Sync)));
+            }
+            "control" if tokens.len() == 1 => {
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Control)));
+            }
+            "release" if tokens.len() == 1 => {
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Release)));
+            }
+            "places" if tokens.len() == 1 => {
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Places)));
+            }
+            "all"
+                if matches!(
+                    tokens.get(1).and_then(Token::as_word),
+                    Some("skips" | "skip" | "leaves" | "leave" | "takes" | "take")
+                ) =>
+            {
+                let verb = tokens[1].as_word().unwrap_or_default();
+                let rest: Vec<String> = tokens[2..].iter().map(Token::text).collect();
+                return Ok(Some(ParsedCommand::Session(SessionCommand::AllSkips(
+                    match (verb, rest.as_slice()) {
+                        (_, []) => None,
+                        // "all takes everything" leaves nothing.
+                        ("takes" | "take", [w]) if w == "everything" => Some("nothing".into()),
+                        ("takes" | "take", _) => {
+                            return Err(
+                                "Use all skips <kinds of thing>, or all takes everything.".into()
+                            )
+                        }
+                        (_, words) => Some(words.join(" ")),
+                    },
+                ))));
+            }
+            "pace" if tokens.len() <= 2 => {
+                let pace = match tokens.get(1) {
+                    None => None,
+                    Some(token) => Some(
+                        token
+                            .text()
+                            .parse::<u64>()
+                            .ok()
+                            .filter(|ms| *ms <= 5000)
+                            .ok_or("Use pace <milliseconds from 0 to 5000>.")?,
+                    ),
+                };
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Pace(pace))));
+            }
+            "history" => {
+                let rest: Vec<_> = tokens[1..].iter().map(|t| t.text()).collect();
+                if rest.len() > 1 {
+                    return Err("Use history [before-id]".into());
+                }
+                let before = rest.first().cloned();
+                return Ok(Some(ParsedCommand::Session(SessionCommand::History {
+                    before,
+                })));
+            }
+            "branch-history" | "branch_history" => {
+                let rest: Vec<_> = tokens[1..].iter().map(|t| t.text()).collect();
+                if rest.is_empty() || rest.len() > 2 {
+                    return Err("Use branch-history <branch> [before-id]".into());
+                }
+                let branch = rest[0].clone();
+                let before = rest.get(1).cloned();
+                return Ok(Some(ParsedCommand::Session(
+                    SessionCommand::BranchHistory { branch, before },
+                )));
+            }
+            "note" | "bookmark" | "report" => {
+                let text = if let Some(raw) = raw_line {
+                    let (_, rest) = crate::word(raw.trim());
+                    rest.to_string()
+                } else {
+                    tokens[1..]
+                        .iter()
+                        .map(|t| t.text())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                if text.trim().is_empty() {
+                    return Err(format!("What {} would you like to make?", word));
+                }
+                if word == "report" {
+                    return Ok(Some(ParsedCommand::Session(SessionCommand::Report {
+                        text,
+                    })));
+                }
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Note {
+                    text,
+                    is_bookmark: word == "bookmark",
+                })));
+            }
+            "name" => {
+                if tokens.len() < 3 {
+                    return Err(
+                        "Use name <place number> <new name> or name room <new name>.".into(),
+                    );
+                }
+                let (target, name) = if let Some(raw) = raw_line {
+                    let (_, rest) = crate::word(raw.trim());
+                    let (t, n) = crate::word(rest);
+                    (t.to_string(), n.to_string())
+                } else {
+                    let t = tokens[1].text();
+                    let n = tokens[2..]
+                        .iter()
+                        .map(|t| t.text())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    (t, n)
+                };
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Name {
+                    target,
+                    name,
+                })));
+            }
+            "annotate" => {
+                if let Some(raw) = raw_line {
+                    let (_, rest) = crate::word(raw.trim());
+                    let (source, rest) = crate::word(rest);
+                    let (audience, rest) = crate::word(rest);
+                    let (category, rest) = crate::word(rest);
+                    let (anchor, text) = crate::word(rest);
+                    if source.is_empty()
+                        || audience.is_empty()
+                        || category.is_empty()
+                        || anchor.is_empty()
+                        || text.is_empty()
+                    {
+                        return Err(
+                            "Use annotate <source> <audience> <category> <anchor> <text>".into(),
+                        );
+                    }
+                    return Ok(Some(ParsedCommand::Session(SessionCommand::Annotate {
+                        source: source.into(),
+                        audience: audience.into(),
+                        category: category.into(),
+                        anchor: anchor.into(),
+                        text: text.into(),
+                    })));
+                } else {
+                    let rest: Vec<_> = tokens[1..].iter().map(|t| t.text()).collect();
+                    if rest.len() < 5 {
+                        return Err(
+                            "Use annotate <source> <audience> <category> <anchor> <text>".into(),
+                        );
+                    }
+                    return Ok(Some(ParsedCommand::Session(SessionCommand::Annotate {
+                        source: rest[0].clone(),
+                        audience: rest[1].clone(),
+                        category: rest[2].clone(),
+                        anchor: rest[3].clone(),
+                        text: rest[4..].join(" "),
+                    })));
+                }
+            }
+            "wizard" => {
+                let command = if let Some(raw) = raw_line {
+                    let (_, rest) = crate::word(raw.trim());
+                    rest.to_string()
+                } else {
+                    tokens[1..]
+                        .iter()
+                        .map(|t| t.text())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                if command.trim().is_empty() {
+                    return Err("Use wizard <server developer command>.".into());
+                }
+                return Ok(Some(ParsedCommand::Session(SessionCommand::Wizard {
+                    command,
+                })));
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+/// Multi-word verb phrases at the start of a sentence, such as "pick up".
+/// `None` when the sentence opens with none.
+fn phrasal_command(tokens: &[Token]) -> Result<Option<ParsedCommand>, String> {
+    let words: Vec<&str> = tokens.iter().filter_map(|t| t.as_word()).collect();
+    if words.len() >= 2 {
+        match (words[0], words[1]) {
+            ("pick", "up") => {
+                return parse_transitive_or_ditransitive(Verb::Take, &tokens[2..]).map(Some);
+            }
+            ("put", "down") => {
+                return parse_transitive_or_ditransitive(Verb::Drop, &tokens[2..]).map(Some);
+            }
+            ("look", "at") => {
+                return parse_transitive_or_ditransitive(Verb::Examine, &tokens[2..]).map(Some);
+            }
+            ("look", "in" | "inside") => {
+                let rest_np = parse_noun_phrase(&tokens[2..])?;
+                return Ok(Some(ParsedCommand::Ditransitive {
+                    verb: Verb::Examine,
+                    direct: rest_np,
+                    preposition: Preposition::In,
+                    indirect: NounPhrase::empty(),
+                }));
+            }
+            ("look", "under") => {
+                let rest_np = parse_noun_phrase(&tokens[2..])?;
+                return Ok(Some(ParsedCommand::Ditransitive {
+                    verb: Verb::Examine,
+                    direct: rest_np,
+                    preposition: Preposition::Under,
+                    indirect: NounPhrase::empty(),
+                }));
+            }
+            ("look", "behind") => {
+                let rest_np = parse_noun_phrase(&tokens[2..])?;
+                return Ok(Some(ParsedCommand::Ditransitive {
+                    verb: Verb::Examine,
+                    direct: rest_np,
+                    preposition: Preposition::Behind,
+                    indirect: NounPhrase::empty(),
+                }));
+            }
+            ("climb", "up") => {
+                return Ok(Some(ParsedCommand::Directional {
+                    direction: Direction::Up,
+                }));
+            }
+            ("climb", "down") => {
+                return Ok(Some(ParsedCommand::Directional {
+                    direction: Direction::Down,
+                }));
+            }
+            ("put", "on") => {
+                return parse_transitive_or_ditransitive(Verb::Wear, &tokens[2..]).map(Some);
+            }
+            ("take", "off") => {
+                return parse_transitive_or_ditransitive(Verb::Remove, &tokens[2..]).map(Some);
+            }
+            ("put" | "blow", "out") | ("turn" | "switch", "off") => {
+                return parse_transitive_or_ditransitive(Verb::Extinguish, &tokens[2..]).map(Some);
+            }
+            ("turn" | "switch", "on") => {
+                return parse_transitive_or_ditransitive(Verb::Light, &tokens[2..]).map(Some);
+            }
+            ("set", "down") => {
+                return parse_transitive_or_ditransitive(Verb::Drop, &tokens[2..]).map(Some);
+            }
+            ("get", "in" | "into") | ("go", "in" | "into" | "inside") => {
+                return parse_transitive_or_ditransitive(Verb::Enter, &tokens[2..]).map(Some);
+            }
+            ("look", "around") if words.len() == 2 => {
+                return Ok(Some(ParsedCommand::Intransitive { verb: Verb::Look }));
+            }
+            ("sit", "down") | ("lie", "down") if words.len() == 2 => {
+                return Ok(Some(ParsedCommand::Intransitive {
+                    verb: if words[0] == "sit" {
+                        Verb::Sit
+                    } else {
+                        Verb::Sleep
+                    },
+                }));
+            }
+            ("get", "out") | ("go", "out") if words.len() == 2 => {
+                return Ok(Some(ParsedCommand::Intransitive { verb: Verb::Exit }));
+            }
+            ("talk", "to" | "with") | ("speak", "to" | "with") | ("chat", "with") => {
+                return parse_transitive_or_ditransitive(Verb::Talk, &tokens[2..]).map(Some);
+            }
+            ("go", "to" | "toward" | "towards") => {
+                let np = parse_noun_phrase(&tokens[2..])?;
+                return Ok(Some(ParsedCommand::Transitive {
+                    verb: Verb::Go,
+                    direct: np,
+                }));
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
 /// Matches a sentence of tokens to a ParsedCommand.
 pub fn match_sentence(tokens: &[Token]) -> Result<ParsedCommand, String> {
     match_sentence_with_raw(tokens, None)
@@ -146,183 +439,8 @@ pub fn match_sentence_with_raw(
     }
 
     // Check for session / meta commands
-    if let Some(word) = tokens[0].as_word() {
-        match word {
-            "save" if tokens.len() == 1 => {
-                return Ok(ParsedCommand::Session(SessionCommand::Save));
-            }
-            "sync" if tokens.len() == 1 => {
-                return Ok(ParsedCommand::Session(SessionCommand::Sync));
-            }
-            "control" if tokens.len() == 1 => {
-                return Ok(ParsedCommand::Session(SessionCommand::Control));
-            }
-            "release" if tokens.len() == 1 => {
-                return Ok(ParsedCommand::Session(SessionCommand::Release));
-            }
-            "places" if tokens.len() == 1 => {
-                return Ok(ParsedCommand::Session(SessionCommand::Places));
-            }
-            "all"
-                if matches!(
-                    tokens.get(1).and_then(Token::as_word),
-                    Some("skips" | "skip" | "leaves" | "leave" | "takes" | "take")
-                ) =>
-            {
-                let verb = tokens[1].as_word().unwrap_or_default();
-                let rest: Vec<String> = tokens[2..].iter().map(Token::text).collect();
-                return Ok(ParsedCommand::Session(SessionCommand::AllSkips(
-                    match (verb, rest.as_slice()) {
-                        (_, []) => None,
-                        // "all takes everything" leaves nothing.
-                        ("takes" | "take", [w]) if w == "everything" => Some("nothing".into()),
-                        ("takes" | "take", _) => {
-                            return Err(
-                                "Use all skips <kinds of thing>, or all takes everything.".into()
-                            )
-                        }
-                        (_, words) => Some(words.join(" ")),
-                    },
-                )));
-            }
-            "pace" if tokens.len() <= 2 => {
-                let pace = match tokens.get(1) {
-                    None => None,
-                    Some(token) => Some(
-                        token
-                            .text()
-                            .parse::<u64>()
-                            .ok()
-                            .filter(|ms| *ms <= 5000)
-                            .ok_or("Use pace <milliseconds from 0 to 5000>.")?,
-                    ),
-                };
-                return Ok(ParsedCommand::Session(SessionCommand::Pace(pace)));
-            }
-            "history" => {
-                let rest: Vec<_> = tokens[1..].iter().map(|t| t.text()).collect();
-                if rest.len() > 1 {
-                    return Err("Use history [before-id]".into());
-                }
-                let before = rest.first().cloned();
-                return Ok(ParsedCommand::Session(SessionCommand::History { before }));
-            }
-            "branch-history" | "branch_history" => {
-                let rest: Vec<_> = tokens[1..].iter().map(|t| t.text()).collect();
-                if rest.is_empty() || rest.len() > 2 {
-                    return Err("Use branch-history <branch> [before-id]".into());
-                }
-                let branch = rest[0].clone();
-                let before = rest.get(1).cloned();
-                return Ok(ParsedCommand::Session(SessionCommand::BranchHistory {
-                    branch,
-                    before,
-                }));
-            }
-            "note" | "bookmark" | "report" => {
-                let text = if let Some(raw) = raw_line {
-                    let (_, rest) = crate::word(raw.trim());
-                    rest.to_string()
-                } else {
-                    tokens[1..]
-                        .iter()
-                        .map(|t| t.text())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                };
-                if text.trim().is_empty() {
-                    return Err(format!("What {} would you like to make?", word));
-                }
-                if word == "report" {
-                    return Ok(ParsedCommand::Session(SessionCommand::Report { text }));
-                }
-                return Ok(ParsedCommand::Session(SessionCommand::Note {
-                    text,
-                    is_bookmark: word == "bookmark",
-                }));
-            }
-            "name" => {
-                if tokens.len() < 3 {
-                    return Err(
-                        "Use name <place number> <new name> or name room <new name>.".into(),
-                    );
-                }
-                let (target, name) = if let Some(raw) = raw_line {
-                    let (_, rest) = crate::word(raw.trim());
-                    let (t, n) = crate::word(rest);
-                    (t.to_string(), n.to_string())
-                } else {
-                    let t = tokens[1].text();
-                    let n = tokens[2..]
-                        .iter()
-                        .map(|t| t.text())
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    (t, n)
-                };
-                return Ok(ParsedCommand::Session(SessionCommand::Name {
-                    target,
-                    name,
-                }));
-            }
-            "annotate" => {
-                if let Some(raw) = raw_line {
-                    let (_, rest) = crate::word(raw.trim());
-                    let (source, rest) = crate::word(rest);
-                    let (audience, rest) = crate::word(rest);
-                    let (category, rest) = crate::word(rest);
-                    let (anchor, text) = crate::word(rest);
-                    if source.is_empty()
-                        || audience.is_empty()
-                        || category.is_empty()
-                        || anchor.is_empty()
-                        || text.is_empty()
-                    {
-                        return Err(
-                            "Use annotate <source> <audience> <category> <anchor> <text>".into(),
-                        );
-                    }
-                    return Ok(ParsedCommand::Session(SessionCommand::Annotate {
-                        source: source.into(),
-                        audience: audience.into(),
-                        category: category.into(),
-                        anchor: anchor.into(),
-                        text: text.into(),
-                    }));
-                } else {
-                    let rest: Vec<_> = tokens[1..].iter().map(|t| t.text()).collect();
-                    if rest.len() < 5 {
-                        return Err(
-                            "Use annotate <source> <audience> <category> <anchor> <text>".into(),
-                        );
-                    }
-                    return Ok(ParsedCommand::Session(SessionCommand::Annotate {
-                        source: rest[0].clone(),
-                        audience: rest[1].clone(),
-                        category: rest[2].clone(),
-                        anchor: rest[3].clone(),
-                        text: rest[4..].join(" "),
-                    }));
-                }
-            }
-            "wizard" => {
-                let command = if let Some(raw) = raw_line {
-                    let (_, rest) = crate::word(raw.trim());
-                    rest.to_string()
-                } else {
-                    tokens[1..]
-                        .iter()
-                        .map(|t| t.text())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                };
-                if command.trim().is_empty() {
-                    return Err("Use wizard <server developer command>.".into());
-                }
-                return Ok(ParsedCommand::Session(SessionCommand::Wizard { command }));
-            }
-            _ => {}
-        }
+    if let Some(command) = session_command(tokens, raw_line)? {
+        return Ok(command);
     }
 
     // A particle at the end belongs with the verb: "put the corpse down" is
@@ -340,101 +458,8 @@ pub fn match_sentence_with_raw(
         }
     }
 
-    // 2. Multi-word verb phrases at the beginning of the sentence
-    let words: Vec<&str> = tokens.iter().filter_map(|t| t.as_word()).collect();
-    if words.len() >= 2 {
-        match (words[0], words[1]) {
-            ("pick", "up") => {
-                return parse_transitive_or_ditransitive(Verb::Take, &tokens[2..]);
-            }
-            ("put", "down") => {
-                return parse_transitive_or_ditransitive(Verb::Drop, &tokens[2..]);
-            }
-            ("look", "at") => {
-                return parse_transitive_or_ditransitive(Verb::Examine, &tokens[2..]);
-            }
-            ("look", "in" | "inside") => {
-                let rest_np = parse_noun_phrase(&tokens[2..])?;
-                return Ok(ParsedCommand::Ditransitive {
-                    verb: Verb::Examine,
-                    direct: rest_np,
-                    preposition: Preposition::In,
-                    indirect: NounPhrase::empty(),
-                });
-            }
-            ("look", "under") => {
-                let rest_np = parse_noun_phrase(&tokens[2..])?;
-                return Ok(ParsedCommand::Ditransitive {
-                    verb: Verb::Examine,
-                    direct: rest_np,
-                    preposition: Preposition::Under,
-                    indirect: NounPhrase::empty(),
-                });
-            }
-            ("look", "behind") => {
-                let rest_np = parse_noun_phrase(&tokens[2..])?;
-                return Ok(ParsedCommand::Ditransitive {
-                    verb: Verb::Examine,
-                    direct: rest_np,
-                    preposition: Preposition::Behind,
-                    indirect: NounPhrase::empty(),
-                });
-            }
-            ("climb", "up") => {
-                return Ok(ParsedCommand::Directional {
-                    direction: Direction::Up,
-                });
-            }
-            ("climb", "down") => {
-                return Ok(ParsedCommand::Directional {
-                    direction: Direction::Down,
-                });
-            }
-            ("put", "on") => {
-                return parse_transitive_or_ditransitive(Verb::Wear, &tokens[2..]);
-            }
-            ("take", "off") => {
-                return parse_transitive_or_ditransitive(Verb::Remove, &tokens[2..]);
-            }
-            ("put" | "blow", "out") | ("turn" | "switch", "off") => {
-                return parse_transitive_or_ditransitive(Verb::Extinguish, &tokens[2..]);
-            }
-            ("turn" | "switch", "on") => {
-                return parse_transitive_or_ditransitive(Verb::Light, &tokens[2..]);
-            }
-            ("set", "down") => {
-                return parse_transitive_or_ditransitive(Verb::Drop, &tokens[2..]);
-            }
-            ("get", "in" | "into") | ("go", "in" | "into" | "inside") => {
-                return parse_transitive_or_ditransitive(Verb::Enter, &tokens[2..]);
-            }
-            ("look", "around") if words.len() == 2 => {
-                return Ok(ParsedCommand::Intransitive { verb: Verb::Look });
-            }
-            ("sit", "down") | ("lie", "down") if words.len() == 2 => {
-                return Ok(ParsedCommand::Intransitive {
-                    verb: if words[0] == "sit" {
-                        Verb::Sit
-                    } else {
-                        Verb::Sleep
-                    },
-                });
-            }
-            ("get", "out") | ("go", "out") if words.len() == 2 => {
-                return Ok(ParsedCommand::Intransitive { verb: Verb::Exit });
-            }
-            ("talk", "to" | "with") | ("speak", "to" | "with") | ("chat", "with") => {
-                return parse_transitive_or_ditransitive(Verb::Talk, &tokens[2..]);
-            }
-            ("go", "to" | "toward" | "towards") => {
-                let np = parse_noun_phrase(&tokens[2..])?;
-                return Ok(ParsedCommand::Transitive {
-                    verb: Verb::Go,
-                    direct: np,
-                });
-            }
-            _ => {}
-        }
+    if let Some(command) = phrasal_command(tokens)? {
+        return Ok(command);
     }
 
     // 3. Match leading verb

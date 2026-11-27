@@ -394,7 +394,7 @@ fn identity_text_is_bounded_and_required_when_decoding() {
         ("x".repeat(61), "a".into()),
         ("x".into(), "a".repeat(81)),
         ("\n".into(), "a".into()),
-        ("x".into(), "".into()),
+        ("x".into(), String::new()),
     ] {
         let data =
             serde_json::to_vec(&serde_json::json!({ "corpse_identity":"item.corpse.test.text-probe", "name": name, "faction": faction })).unwrap();

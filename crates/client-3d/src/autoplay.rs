@@ -232,7 +232,7 @@ pub fn run(
                     == 1
             })
             .min_by_key(|c| (c.position.x - feet.x).abs() + (c.position.y - feet.y).abs())
-            .map(|c| c.key.to_owned())
+            .map(|c| c.key.clone())
     };
     let command = match step {
         Step::Panel(open) => {
@@ -251,7 +251,7 @@ pub fn run(
             .iter()
             .find(|i| !i.reachable)
             .and_then(|i| view.visible.iter().find(|c| c.position == i.position))
-            .map(|c| Cmd::Travel(c.key.to_owned())),
+            .map(|c| Cmd::Travel(c.key.clone())),
         Step::TravelToDoor => view
             .visible
             .iter()
@@ -273,7 +273,7 @@ pub fn run(
             .iter()
             .filter(|c| !c.wall && c.position.z == feet.z)
             .max_by_key(|c| (c.position.x - feet.x).abs() + (c.position.y - feet.y).abs())
-            .map(|c| Cmd::Travel(c.key.to_owned())),
+            .map(|c| Cmd::Travel(c.key.clone())),
     };
     match command {
         Some(command) => {

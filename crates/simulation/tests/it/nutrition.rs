@@ -474,7 +474,7 @@ fn nutrition_records_reject_missing_invalid_or_inconsistent_state() {
         changed["nutrition"] = invalid;
         assert!(rejects(changed));
     }
-    let mut inconsistent = original.clone();
+    let mut inconsistent = original;
     inconsistent["health_recovery"]["nutrition"] = json!({"kind":"normal"});
     assert!(
         rejects(inconsistent),

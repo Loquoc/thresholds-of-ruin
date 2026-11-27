@@ -2225,11 +2225,12 @@ fn closed_panel_preserves_resolved_attachment_and_fit_without_side_opening() {
         );
         let body = HumanoidBody::resolve(&look);
         let mut shell =
-            ClothSurface::new(skirt_cut(body, 0.4, 0.86, false, true), 0.86, 12, 0.33, 7)
-                .with_hem(Hem::Train {
+            ClothSurface::new(skirt_cut(body, 0.4, 0.86, false, true), 0.86, 12, 0.33, 7).with_hem(
+                Hem::Train {
                     extension: 0.1,
                     front_rise: 0.15,
-                });
+                },
+            );
         shell.paired = true;
         let torso = torso_shape(body, None, false);
         shell.seam = Some(std::sync::Arc::new(
@@ -2254,7 +2255,10 @@ fn closed_panel_preserves_resolved_attachment_and_fit_without_side_opening() {
             }
         }
         assert!(
-            shell.point(0.5, 0.0, false).distance(shell.closed_point(0.5, 0.0, false)) > 0.1
+            shell
+                .point(0.5, 0.0, false)
+                .distance(shell.closed_point(0.5, 0.0, false))
+                > 0.1
         );
     }
 }

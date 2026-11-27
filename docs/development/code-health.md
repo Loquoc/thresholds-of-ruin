@@ -123,6 +123,179 @@ broader performance and scaling work is finished.
 
 ## Retained or resolved findings
 
+### CH-026: Whole-tree reference and suppression audits
+
+- **Category/status:** maintainability; audited on branch
+  `claude/code-docs-refactor-ovqedk`. No correction was needed.
+- **Documentation references:** every backticked code-like name (snake_case
+  with an underscore, or CamelCase) in the 97 Markdown files was matched against
+  the repository's code and configuration. Of 1,024 distinct names, 40 have no
+  match in code. Each is a Clippy lint name, a Rogue 5.4.4 source name in the
+  research notes, a third-party crate name, a name a plan proposes, a wire code
+  that serde renders in snake_case, a JSON wizard operation, a deliberately
+  historical test name, or the bad half of a naming example. None is a stale
+  reference to renamed code.
+- **Markers and suppressions:** no `TODO`, `FIXME`, `XXX` or `HACK` remains in
+  Rust or Python sources. All 15 `allow(dead_code)`/`allow(unused…)`
+  attributes are in test support, benchmark examples that include shared test
+  modules through `#[path]`, or 3D GPU uniform and platform-specific code.
+
+### CH-025: Oversized dispatch and validation functions
+
+- **Category/status:** maintainability; partly corrected on branch
+  `claude/code-docs-refactor-ovqedk` (pending hosted CI and merge). No
+  gameplay, wire or save change.
+- **Source/trigger:** a line-count inventory of every production function in
+  the main workspace and the 3D workspace. The largest mixed several
+  independent concerns behind one `match` or one long sequence of checks.
+- **Correction:** each split is a pure extraction. Arms and checks keep their
+  order, early returns and messages. Among them:
+  - `Service::apply_wizard` drops from 521 to 262 lines. Creature advancement,
+    template toggling, room placement, item stock, creature spawning and rewind
+    are now methods; rewind still returns before observer revalidation.
+  - Intention-admission refusals are mapped by `intention_refusal`.
+  - The text client's `Engine::play` drops from 343 to 114 lines.
+    `direct_goal`, `resume_pending` and `read_sentence` hold the lone
+    hold/magic shortcuts, answers to earlier questions and per-sentence
+    interpretation.
+  - `Connection::next` routes chart and map query replies through
+    `route_query_reply`.
+  - Earlier commits on the branch split `App::input`, `window_loop`,
+    `Ruleset::validate`, `StateView::validate`, `AbilityPlan::valid`,
+    scripting `invoke` and the others listed in the pull request.
+- **Later splits:** `OutcomeFacts::capture_selected` drops from 302 to 33
+  lines. Its discovery, motion, sighting, door, interaction, combat, goal and
+  actor-name steps are now functions that append facts in the original order.
+- **Retained, with reasons:** seven main-workspace functions remain at 300 or
+  more lines.
+  - `advance_preparation` (now 408 lines) and `apply_outcome_effects` are
+    ordered state machines; their checks and effects run in an order replay
+    depends on. Only self-contained steps were taken out of the first:
+    `isolate_equipped_unit` and `schedule_after_strike`.
+  - `Ruleset::validate` (394) builds the interned catalogs, checks the
+    constants, calls one validator per definition kind and derives the talent
+    order, flag graph and indexes. Each stage needs the catalogs built before
+    it.
+  - `parse_wizard_with_origin` is one flat grammar table.
+  - The creature-inspection and combat-diagnostics views are linear view
+    builders.
+  - `roll_planned_effect` (300) was itself extracted on this branch from the
+    strike resolver. It is one exhaustive match from each planned effect to its
+    resolved effect, and its random draws happen in the order replay depends on.
+  - The fourteen 3D functions of that size, mostly mesh and outfit
+    composition, belong to the 3D geometry work, which has its own open fitting
+    failures.
+- **Evidence:** each change passed its crate's tests and the process tests of
+  the affected binaries; see the pull request's verification section.
+
+### CH-021: Client map memory rescanned every placement on each update
+
+- **Category/status:** performance; confirmed per-update cost proportional to
+  retained memory, corrected on branch `claude/code-docs-refactor-ovqedk`
+  (pending hosted CI and merge). No correctness defect was found.
+- **Source/trigger:** [map memory](../../crates/client-common/src/map_memory.rs)
+  `trim` ended every `overlay` by checking each placed cell against the record
+  map, even when nothing was evicted. A callgrind profile of the client
+  workload attributed about 56% of all instructions to that scan.
+- **Correction:** the scan now runs only after an eviction in `trim` or after a
+  bulk snapshot or region install, the only paths that can leave a placement
+  without its record. The invariant is documented on `MapMemory::cells`.
+- **Evidence:** two new unit tests (an orphaned snapshot placement, and evicted
+  placed records over the byte budget) each fail when their reconciliation is
+  removed. A local balanced `perf_compare.py` run is recorded in the
+  [client workload](performance.md#client-workloads): at 20,956 retained cells,
+  apply p50 fell from 1.129 to 0.126 ms per update, with identical memory and
+  chart counts. That is a synthetic stationary workload, not a whole-client or
+  exploration measurement, and has no ledger entry yet.
+
+### CH-023: Ruleset reference sets were rebuilt for every validation call
+
+- **Category/status:** performance; confirmed repeated work on restore and
+  derivation, corrected on branch `claude/code-docs-refactor-ovqedk` (pending
+  hosted CI and merge). No gameplay or format change.
+- **Source/trigger:** [`Ruleset`](../../crates/simulation/src/rules.rs)
+  `validate_condition_modifiers`, `validate_effects` and `validate_strikes` each
+  cloned every ability, tag, type, condition, descriptor and flag ID into fresh
+  sets on every call. A callgrind profile of engine open attributed about 21%
+  of its instructions to the first of these.
+- **Correction:** `ReferenceSets` is derived once in `Ruleset::validate` and
+  stored beside the indexes. It is a pure function of the validated document,
+  so ruleset equality keeps its meaning. `References` looks equipment slots up
+  through the existing index instead of a per-call map of borrowed definitions.
+- **Evidence:** restart p50 fell 10–18% in the 1,000-history combat cases
+  across two balanced local comparisons; see the
+  [combat workload](performance.md#combat-workload-v1) for both runs and their
+  unexplained client-apply shift.
+
+### CH-024: Workspace-wide stricter-lint audit
+
+- **Category/status:** maintainability and small-scale performance; applied on
+  branch `claude/code-docs-refactor-ovqedk` (pending hosted CI and merge).
+- **Method:** every non-3D workspace target was linted with sixteen extra
+  Clippy lints beyond the CI set (among them `redundant_clone`,
+  `needless_collect`, `format_collect`, `or_fun_call`, `set_contains_or_insert`
+  and `manual_string_new`), producing 495 distinct findings.
+- **Applied:** 151 of 152 redundant clones (production values now move where
+  the original was dead) and the manual empty strings. Seventeen copies of
+  per-byte `format!("{byte:02x}")` digest encoding, which allocated 64 strings
+  per SHA-256, now use one `tor_protocol::lower_hex`, and the server's separate
+  cell-key encoder delegates to it. Its exhaustive test keeps an independent
+  `format!` oracle. Of the 21 eager `or`/`map_or` arguments, only one allocated
+  (a status `String` in the ASCII weapon-preview path) and is now lazy; the rest
+  build cheap pure values, and none consumes randomness.
+- **Rejected, with reasons:** all production `needless_collect` findings. Each
+  collect ends a borrow before the loop mutates its owner, or collects into a
+  `BTreeSet` for deduplication and deterministic order. Two automatic fixes
+  failed to compile for exactly that reason. All ten
+  `set_contains_or_insert` findings are validation memos that insert a key
+  only after its check succeeds; inserting first would leave a failed key
+  marked valid. One `redundant_clone` suggestion in
+  a test removed the copy that made a value mutable and was restored.
+  `redundant_closure_for_method_calls` (160) and `trivially_copy_pass_by_ref`
+  (19) are style-only and were left as written. These nursery lints are not
+  added to CI because of such false positives.
+
+### CH-022: Mirrored protocol/simulation sources had no drift guard
+
+- **Category/status:** maintainability; confirmed byte-identical duplication,
+  guarded on branch `claude/code-docs-refactor-ovqedk` (pending hosted CI and
+  merge).
+- **Source/trigger:** `item_identity.rs` and `item_knowledge.rs` exist in both
+  `tor-protocol` and `tor-simulation`, which may not depend on each other.
+  Nothing kept the copies identical.
+- **Correction:** [`check_architecture.py`](../../scripts/check_architecture.py)
+  `MIRRORED_SOURCES` now rejects any difference or missing copy, with first-red
+  tests in `test_check_architecture.py`. Both files say they are mirrored.
+- **Open question:** how to remove the duplicate is a dependency-policy decision
+  for the maintainer, not part of this guard. The constraint is the
+  [architecture overview](../architecture/overview.md)'s rule that protocol and
+  simulation types stay independent, so a wire change cannot silently change
+  simulation or save data. The 644 mirrored lines depend only on `serde` (and
+  `serde_json` in their tests). Options:
+  - **Keep both copies and the guard (current).** No dependency change, but
+    every edit is made twice; the check catches a forgotten copy, not a wrong
+    shared edit.
+  - **One source file compiled into both crates.** `tor-simulation` would
+    include the protocol file with `#[path = "../../protocol/src/…"]`. Each crate
+    still gets its own distinct types, so the independence rule holds, and the
+    server already includes test-support files this way. Cost: a file outside
+    the crate directory (unpackageable, not an issue for unpublished crates),
+    and the CI planner must count a change to those protocol files as a
+    simulation change. The guard is then removed.
+  - **A shared leaf crate (for example `tor-item-syntax`).** Both crates depend
+    on it and re-export the types. This is the cleanest dependency graph, but
+    protocol and simulation then share one type. A future encoding change to
+    it would change wire and save formats together, which is the coupling the
+    independence rule exists to prevent. It also adds a workspace member,
+    architecture-map entries and planner ownership.
+  - **Move them into `tor-world`.** Not recommended: `tor-protocol` would gain
+    its first internal dependency, on a crate it otherwise has no reason to
+    know.
+
+  The recommended option is the single source file, if removing the copy is
+  worth a planner change. It removes the duplicate without coupling the two
+  formats.
+
 ### CH-019: Checkpoint representation and journal durability at the capacity bound
 
 - **Category/status:** robustness and representation cost; resolved by

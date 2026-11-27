@@ -148,6 +148,7 @@ fn a_new_stream_or_branch_drops_abandoned_ui_intentions_and_state_cues() {
     );
 }
 
+#[allow(clippy::too_many_arguments)] // A Bevy test system takes its queries as parameters.
 fn project(
     mut commands: Commands,
     mut game: ResMut<Game>,
@@ -1073,8 +1074,12 @@ fn mixed_disclosed_gear_refits_the_boots_when_only_plate_is_removed() {
         }
         assert_eq!(
             body.appearance_key,
-            Look::of(CreatureModel::Human, creatures::individual(body.appearance_seed))
-                .equipped(equipment).key,
+            Look::of(
+                CreatureModel::Human,
+                creatures::individual(body.appearance_seed)
+            )
+            .equipped(equipment)
+            .key,
             "live visible identity must match the same selected gear"
         );
         let rig = world.get::<creatures::Rig>(entity).expect("live actor rig");
@@ -1085,11 +1090,17 @@ fn mixed_disclosed_gear_refits_the_boots_when_only_plate_is_removed() {
             let mut ymin = f32::INFINITY;
             let mut ymax = f32::NEG_INFINITY;
             for child in world.get::<Children>(shin).unwrap().iter() {
-                if world.get::<MeshMaterial3d<StandardMaterial>>(child).map(|m| m.0.id()) != Some(material) {
+                if world
+                    .get::<MeshMaterial3d<StandardMaterial>>(child)
+                    .map(|m| m.0.id())
+                    != Some(material)
+                {
                     continue;
                 }
                 let mesh = meshes.get(&world.get::<Mesh3d>(child).unwrap().0).unwrap();
-                let Some(VertexAttributeValues::Float32x3(points)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else {
+                let Some(VertexAttributeValues::Float32x3(points)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
                     panic!("emitted mesh positions");
                 };
                 let local = world.get::<Transform>(child).unwrap().compute_affine();
@@ -1104,8 +1115,14 @@ fn mixed_disclosed_gear_refits_the_boots_when_only_plate_is_removed() {
         (entity, bounds(mats.metal().id()), bounds(mats.satin().id()))
     };
 
-    let shirt = Wearing { shirt_look: Some(WearableLook::HawaiianShirt), ..Wearing::default() };
-    let plate = Wearing { body: Some(ItemModel::PlateMail), ..shirt };
+    let shirt = Wearing {
+        shirt_look: Some(WearableLook::HawaiianShirt),
+        ..Wearing::default()
+    };
+    let plate = Wearing {
+        body: Some(ItemModel::PlateMail),
+        ..shirt
+    };
     let both = Wearing {
         feet: Some(ItemModel::RingMail),
         feet_look: Some(WearableLook::RidingBoots),
@@ -1118,14 +1135,21 @@ fn mixed_disclosed_gear_refits_the_boots_when_only_plate_is_removed() {
     let (mixed_rig, knee, shaft) = apply(&mut app, both, choices);
     assert_ne!(plate_rig, mixed_rig);
     assert!(knee.0.is_finite() && shaft.1.is_finite() && shaft.1 < knee.0);
-    assert_eq!(apply(&mut app, both, choices).0, mixed_rig, "unchanged view reuses the rig");
+    assert_eq!(
+        apply(&mut app, both, choices).0,
+        mixed_rig,
+        "unchanged view reuses the rig"
+    );
 
     let unarmored = Wearing { body: None, ..both };
     let choices = &["hawaiian-shirt", "riding-boots"];
     let (new_rig, no_knee, tall) = apply(&mut app, unarmored, choices);
     assert_ne!(new_rig, mixed_rig);
     assert!(no_knee.0.is_infinite());
-    assert!(tall.1 > shaft.1 + 0.010, "shaft regains its height without armor");
+    assert!(
+        tall.1 > shaft.1 + 0.010,
+        "shaft regains its height without armor"
+    );
     assert!((tall.0 - shaft.0).abs() < 1e-6, "ankle stays seated");
     assert_eq!(apply(&mut app, unarmored, choices).0, new_rig);
 }

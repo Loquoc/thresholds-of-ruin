@@ -478,7 +478,7 @@ fn ground_capture_rejects_bad_names_quantities_and_live_ignored_fields() {
     value["ground_labels"] = json!(true);
     assert!(parse(value.clone()).is_ok());
     for name in [
-        "".to_owned(),
+        String::new(),
         " ".to_owned(),
         "ring\nsecret".to_owned(),
         "r".repeat(121),

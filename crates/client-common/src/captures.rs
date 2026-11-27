@@ -47,10 +47,7 @@ impl CapturedAttachment {
         let metadata = AttachmentMetadata {
             media_type,
             byte_len: bytes.len() as u32,
-            sha256: Sha256::digest(&bytes)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
+            sha256: tor_protocol::lower_hex(&Sha256::digest(&bytes)),
         };
         Ok(Self {
             context,

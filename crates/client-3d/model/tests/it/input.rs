@@ -25,7 +25,7 @@ fn a_command_keeps_the_disclosed_input_boundary_instead_of_acquiring_current_aut
     let mut value = current.clone();
     value.cursor.sequence += 1;
     cases.push(("cursor", value));
-    let mut value = current.clone();
+    let mut value = current;
     value.actor.0 += 1;
     cases.push(("actor", value));
     let accepted: Vec<_> = cases

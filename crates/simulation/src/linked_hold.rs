@@ -1061,7 +1061,7 @@ mod tests {
             missing.as_object_mut().unwrap().remove(field);
             assert!(serde_json::from_value::<HoldBook>(missing).is_err());
         }
-        let mut positional = value.clone();
+        let mut positional = value;
         positional["incoming"][0]["link"]["policy"] = serde_json::json!(["magical", 100, 100, 400]);
         assert!(serde_json::from_value::<HoldBook>(positional).is_err());
         let mut shared = crate::checkpoint::SharedState::default();

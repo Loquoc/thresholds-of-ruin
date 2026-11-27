@@ -166,10 +166,7 @@ mod tests {
         let metadata = AttachmentMetadata {
             media_type: AttachmentMediaType::Text,
             byte_len: 3,
-            sha256: Sha256::digest(&bytes)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
+            sha256: tor_protocol::lower_hex(&Sha256::digest(&bytes)),
         };
         let snapshot = SnapshotId("capture-test".into());
         let anchor = crate::journal::RecordedAnchor::State {

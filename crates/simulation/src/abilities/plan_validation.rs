@@ -272,7 +272,14 @@ impl AbilityPlan {
         {
             return false;
         }
-        let reach = match (&definition.reach, &self.reach) {
+        self.reach_matches(definition)
+            && self.strike_source_matches(definition)
+            && self.token_claims_valid(definition, rules)
+    }
+
+    /// The captured reach is the definition's reach shape, within bounds.
+    fn reach_matches(&self, definition: &crate::rules::AbilityDef) -> bool {
+        match (&definition.reach, &self.reach) {
             (Reach::SelfOnly, Reach::SelfOnly) => self.actor == self.target,
             (
                 Reach::SelfOrAlly {
@@ -296,60 +303,66 @@ impl AbilityPlan {
                 self.actor != self.target && (1..=crate::limits::SIGHT_RANGE).contains(range)
             }
             _ => false,
-        };
-        if !reach {
-            return false;
         }
-        let source = match &definition.strikes {
-            StrikeSource::Projectile { .. } => false,
-            StrikeSource::Authored { strikes } => {
-                self.strikes
-                    .iter()
-                    .all(|strike| matches!(strike.origin, StrikeOrigin::Ability { .. }))
-                    && source_matches(strikes, &self.strikes, false)
+    }
+
+    /// Every captured strike comes from the definition's strike source.
+    fn strike_source_matches(&self, definition: &crate::rules::AbilityDef) -> bool {
+        match &definition.strikes {
+        StrikeSource::Projectile { .. } => false,
+        StrikeSource::Authored { strikes } => {
+            self.strikes
+                .iter()
+                .all(|strike| matches!(strike.origin, StrikeOrigin::Ability { .. }))
+                && source_matches(strikes, &self.strikes, false)
+        }
+        StrikeSource::NaturalMelee { additional_riders } => match &self.strikes[0].origin {
+            StrikeOrigin::NaturalMelee { species, natural_riders, .. } => {
+                let Some(canonical) = self.strikes[0].riders.get(usize::from(*natural_riders)..) else {
+                    return false;
+                };
+                self.strikes.iter().all(|strike| match &strike.origin {
+                    StrikeOrigin::NaturalMelee { species: other, natural_riders, .. }
+                        if other == species && usize::from(*natural_riders) + additional_riders.len() == strike.riders.len() => {
+                            strike.riders[usize::from(*natural_riders)..].iter()
+                                .zip(canonical).all(|(copy, first)| first.same_copied_operands(copy))
+                        },
+                    _ => false,
+                })
+            },
+            _ => false,
+        },
+        StrikeSource::SelectedMelee => match &self.strikes[0].origin {
+            StrikeOrigin::Natural { species, .. } => self.strikes.iter().all(|strike| {
+                matches!(&strike.origin, StrikeOrigin::Natural { species: other, .. } if other == species)
+            }),
+            StrikeOrigin::Weapon { item } => {
+                let first = &self.strikes[0];
+                self.strikes.len() == 1
+                    && item.0 > 0
+                    && item.0 != u64::MAX
+                    && first.riders.is_empty()
+                    && first.on_failure.is_empty()
+                    && first.descriptors.is_empty()
+                    && matches!(first.on_success.as_slice(), [PlannedEffect::Damage { .. }])
+                    && matches!(first.check, Some(PlannedCheck {
+                        actor: CheckActor::User,
+                        target_participates: true,
+                        threshold: CheckThreshold::Fixed { .. },
+                        ..
+                    }))
             }
-            StrikeSource::NaturalMelee { additional_riders } => match &self.strikes[0].origin {
-                StrikeOrigin::NaturalMelee { species, natural_riders, .. } => {
-                    let Some(canonical) = self.strikes[0].riders.get(usize::from(*natural_riders)..) else {
-                        return false;
-                    };
-                    self.strikes.iter().all(|strike| match &strike.origin {
-                        StrikeOrigin::NaturalMelee { species: other, natural_riders, .. }
-                            if other == species && usize::from(*natural_riders) + additional_riders.len() == strike.riders.len() => {
-                                strike.riders[usize::from(*natural_riders)..].iter()
-                                    .zip(canonical).all(|(copy, first)| first.same_copied_operands(copy))
-                            },
-                        _ => false,
-                    })
-                },
-                _ => false,
-            },
-            StrikeSource::SelectedMelee => match &self.strikes[0].origin {
-                StrikeOrigin::Natural { species, .. } => self.strikes.iter().all(|strike| {
-                    matches!(&strike.origin, StrikeOrigin::Natural { species: other, .. } if other == species)
-                }),
-                StrikeOrigin::Weapon { item } => {
-                    let first = &self.strikes[0];
-                    self.strikes.len() == 1
-                        && item.0 > 0
-                        && item.0 != u64::MAX
-                        && first.riders.is_empty()
-                        && first.on_failure.is_empty()
-                        && first.descriptors.is_empty()
-                        && matches!(first.on_success.as_slice(), [PlannedEffect::Damage { .. }])
-                        && matches!(first.check, Some(PlannedCheck {
-                            actor: CheckActor::User,
-                            target_participates: true,
-                            threshold: CheckThreshold::Fixed { .. },
-                            ..
-                        }))
-                }
-                StrikeOrigin::Ability { .. } | StrikeOrigin::NaturalMelee { .. } => false,
-            },
-        };
-        if !source {
-            return false;
-        }
+            StrikeOrigin::Ability { .. } | StrikeOrigin::NaturalMelee { .. } => false,
+        },
+    }
+    }
+
+    /// Each claimed check token fits a real check site of the first strike.
+    fn token_claims_valid(
+        &self,
+        definition: &crate::rules::AbilityDef,
+        rules: &crate::rules::Ruleset,
+    ) -> bool {
         let first = &self.strikes[0];
         let mut sites = Vec::new();
         for side in [CheckSide::Initiating, CheckSide::Opposing] {

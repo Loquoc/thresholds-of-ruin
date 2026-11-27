@@ -859,7 +859,7 @@ mod tests {
                 "{field}"
             );
         }
-        let mut unknown = raw.clone();
+        let mut unknown = raw;
         unknown["extra"] = serde_json::json!(0);
         assert!(serde_json::from_value::<ItemCondition>(unknown).is_err());
         assert!(serde_json::from_value::<ItemCondition>(serde_json::json!([

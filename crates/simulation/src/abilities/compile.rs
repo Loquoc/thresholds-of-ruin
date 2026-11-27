@@ -638,27 +638,35 @@ impl Game {
             selected_attack: &weapon.attack,
         };
         let mut strikes = Vec::new();
+        // Compile each strike the caster's talents unlock, in authored order.
+        let mut compile_unlocked = |authored: &[StrikeDef],
+                                    natural: bool,
+                                    origin: &dyn Fn(usize) -> StrikeOrigin|
+         -> Result<(), GameError> {
+            for (ordinal, strike) in authored.iter().enumerate() {
+                if strike
+                    .unlock
+                    .as_ref()
+                    .is_some_and(|id| !caster.derived().active_talents.contains(id))
+                {
+                    continue;
+                }
+                strikes.push(compiler.strike(
+                    strike,
+                    strikes.len() as u16,
+                    origin(ordinal),
+                    natural,
+                    definition.timing.scaled_by,
+                )?);
+            }
+            Ok(())
+        };
         match &definition.strikes {
             StrikeSource::Projectile { .. } => return Err(invalid()),
             StrikeSource::Authored { strikes: authored } => {
-                for (ordinal, strike) in authored.iter().enumerate() {
-                    if strike
-                        .unlock
-                        .as_ref()
-                        .is_some_and(|id| !caster.derived().active_talents.contains(id))
-                    {
-                        continue;
-                    }
-                    strikes.push(compiler.strike(
-                        strike,
-                        strikes.len() as u16,
-                        StrikeOrigin::Ability {
-                            ordinal: ordinal as u16,
-                        },
-                        false,
-                        definition.timing.scaled_by,
-                    )?);
-                }
+                compile_unlocked(authored, false, &|ordinal| StrikeOrigin::Ability {
+                    ordinal: ordinal as u16,
+                })?;
             }
             StrikeSource::NaturalMelee { additional_riders } => {
                 let crate::attacks::SelectedMeleeAttack::Natural(natural) =
@@ -674,51 +682,21 @@ impl Game {
                 let authored =
                     crate::rules::append_natural_riders(natural.strikes(), additional_riders)
                         .map_err(|_| invalid())?;
-                for (ordinal, strike) in authored.iter().enumerate() {
-                    if strike
-                        .unlock
-                        .as_ref()
-                        .is_some_and(|id| !caster.derived().active_talents.contains(id))
-                    {
-                        continue;
-                    }
-                    strikes.push(compiler.strike(
-                        strike,
-                        strikes.len() as u16,
-                        StrikeOrigin::NaturalMelee {
-                            species: species.clone(),
-                            ordinal: ordinal as u16,
-                            natural_riders: natural.strikes()[ordinal].riders.len() as u16,
-                        },
-                        true,
-                        definition.timing.scaled_by,
-                    )?);
-                }
+                compile_unlocked(&authored, true, &|ordinal| StrikeOrigin::NaturalMelee {
+                    species: species.clone(),
+                    ordinal: ordinal as u16,
+                    natural_riders: natural.strikes()[ordinal].riders.len() as u16,
+                })?;
             }
             StrikeSource::SelectedMelee => match &weapon.attack.attack {
                 crate::attacks::SelectedMeleeAttack::Natural(natural) => {
                     let crate::creatures::SourceId::Species(species) = &weapon.attack.source else {
                         return Err(invalid());
                     };
-                    for (ordinal, strike) in natural.strikes().iter().enumerate() {
-                        if strike
-                            .unlock
-                            .as_ref()
-                            .is_some_and(|id| !caster.derived().active_talents.contains(id))
-                        {
-                            continue;
-                        }
-                        strikes.push(compiler.strike(
-                            strike,
-                            strikes.len() as u16,
-                            StrikeOrigin::Natural {
-                                species: species.clone(),
-                                ordinal: ordinal as u16,
-                            },
-                            true,
-                            definition.timing.scaled_by,
-                        )?);
-                    }
+                    compile_unlocked(natural.strikes(), true, &|ordinal| StrikeOrigin::Natural {
+                        species: species.clone(),
+                        ordinal: ordinal as u16,
+                    })?;
                 }
                 crate::attacks::SelectedMeleeAttack::Weapon(_) => {
                     let crate::creatures::SourceId::Equipment(item) = &weapon.attack.source else {

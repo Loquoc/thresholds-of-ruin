@@ -273,7 +273,7 @@ impl Wire {
             let message = decode_response(&frame.text).unwrap();
             if actor == OWNER {
                 self.owner_frames
-                    .push((message.clone(), frame.text.to_string()));
+                    .push((message.clone(), frame.text.clone()));
             }
             messages.push(message);
         }

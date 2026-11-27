@@ -1,6 +1,10 @@
 //! Canonical item identity hierarchy, separate from public appearance and names.
 //! This validates syntax only. Authoring/observation owners decide which known
 //! identity may be disclosed and reject reserved unknown leaves as true IDs.
+//!
+//! This file is mirrored byte-for-byte in `tor-protocol` and `tor-simulation`,
+//! which may not depend on each other; `scripts/check_architecture.py` rejects
+//! drift. Edit both copies together.
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::{fmt, str::FromStr};
 

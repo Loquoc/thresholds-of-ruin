@@ -542,16 +542,22 @@ fn sync_model_surface_table(
         None
     };
     table.by_standard.clear();
-    library
-        .materials
-        .register_model_surfaces(&mut table, &mut model_materials, noise, detail_enabled);
+    library.materials.register_model_surfaces(
+        &mut table,
+        &mut model_materials,
+        noise,
+        detail_enabled,
+    );
 }
 
 #[allow(clippy::type_complexity)]
 fn upgrade_model_materials(
     mut commands: Commands,
     table: Res<ModelSurfaceTable>,
-    added: Query<(Entity, &MeshMaterial3d<StandardMaterial>), Added<MeshMaterial3d<StandardMaterial>>>,
+    added: Query<
+        (Entity, &MeshMaterial3d<StandardMaterial>),
+        Added<MeshMaterial3d<StandardMaterial>>,
+    >,
     all: Query<(Entity, &MeshMaterial3d<StandardMaterial>)>,
 ) {
     if table.by_standard.is_empty() {
@@ -620,14 +626,20 @@ mod tests {
         let sheer = SurfaceRecipe::SHEER.to_model_material(None, true);
         assert_eq!(sheer.base.alpha_mode, AlphaMode::Blend);
         assert!(sheer.base.double_sided);
-        assert_eq!(sheer.extension.params.kind_and_flags.x, SurfaceKind::Cloth.as_u32());
+        assert_eq!(
+            sheer.extension.params.kind_and_flags.x,
+            SurfaceKind::Cloth.as_u32()
+        );
         assert_eq!(sheer.extension.params.kind_and_flags.y, 1);
         assert_eq!(sheer.extension.params.kind_and_flags.z, 0);
 
         let iron = SurfaceRecipe::FORGED_IRON.to_model_material(None, false);
         assert_eq!(iron.base.alpha_mode, AlphaMode::Opaque);
         assert!(!iron.base.double_sided);
-        assert_eq!(iron.extension.params.kind_and_flags.x, SurfaceKind::Metal.as_u32());
+        assert_eq!(
+            iron.extension.params.kind_and_flags.x,
+            SurfaceKind::Metal.as_u32()
+        );
         assert_eq!(iron.extension.params.kind_and_flags.y, 0);
     }
 

@@ -583,11 +583,19 @@ class ProjectileProcesses(ProcessTestCase):
         after = self.settle()
         self.assertEqual(self.sockets(after)[dagger], 0)
         self.assertIsNone(self.sockets(after)[bow])
-        shown = self.ascii_frame(window, lambda f: "it is cursed" in f["messages"]["turn"])
+        # Refusal and readiness may arrive in the same frame; a second wait
+        # would look only at later frames, which an idle client need not emit.
+        shown = self.ascii_frame(window, lambda f: (
+            "it is cursed" in f["messages"]["turn"]
+            and not f["busy"] and f["observation_current"] and f["character_ready"]
+            and f["can_admit_intention"] and not f["intentions"]
+            and self.sockets(f).get(dagger) == 0
+        ))
         self.assertIn("dagger", shown["messages"]["turn"])
         inventory = self.key(window, "inventory")
-        self.assertTrue(any("shortbow" in row and "secondary weapon" in row
-                            for row in inventory["inventory_rows"]))
+        rows = inventory["inventory_rows"]
+        self.assertIsNotNone(rows, "the ready client must open the inventory")
+        self.assertTrue(any("shortbow" in row and "secondary weapon" in row for row in rows))
 
     def test_ascii_wield_one_command_replaces_the_primary_weapon(self):
         window, before, dagger, bow = self.ascii_primary_weapon()

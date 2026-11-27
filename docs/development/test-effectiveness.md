@@ -407,6 +407,120 @@ causal prefix, while rejecting future events beyond the batch. A successful
 render is still not visual acceptance. Keep the batching/schema witnesses
 separate from the model and image-review evidence.
 
+### Unregistered tooling test owner, 27 November
+
+A full local Python run on branch `claude/code-docs-refactor-ovqedk` caught a
+tooling defect introduced on that branch: a new architecture-check test class,
+`test_check_architecture.MirroredSourceTests`, had no reviewed planner owner, so
+the CI planner reported "unreviewed owner" and required full coverage. One root
+cause produced six distinct failing methods in `test_ci_test_plan.PlanTests`,
+with eight failed executions counting subtests. The class is now registered in
+`ci_test_contracts.py` after a usage review, and all 23 planner tests pass.
+Classification: production (tooling) defect, caught during development, after
+it was pushed to the branch but before any merge. The same run's four errors
+in arena-search owners were harness/environment failures (the isolated `optuna`
+environment was not installed), not evidence about this change; all
+four passed when rerun in a venv built from the hash-pinned requirements.
+A later full run on the same branch failed one long earned-route process test,
+`test_fixed_seed42_earned_hd_reexecutes_with_exact_source_free_restore_and_gross_flows`,
+with `OSError: No space left on device`. Local build caches had filled the
+session disk, and fail-fast left 3,334 tests unstarted. Classification:
+harness/infrastructure, not a product or test defect. After the caches were
+cleared, the full 3,553-test run had no failures on the same commit.
+A second exhaustion happened later the same day: Cargo's incremental cache grew
+by about 23 GB across repeated clippy, test and binary builds and filled the disk
+during a selected process-test run. That run's log was truncated, so it counts
+as neither a pass nor a failure. After the cache was removed, the same selection
+was rerun; later builds in the session disabled incremental compilation.
+Classification: harness/infrastructure. The full run on `0472df4` had
+already finished before the disk filled. It ran 3,553 tests, and its only
+errors were the same four arena-search owners, which failed with
+`PackageNotFoundError: optuna`. All 17 tests in those three modules passed in
+the pinned environment.
+
+A selected six-module process run after the `advance_preparation` extraction
+failed one method,
+`test_projectile_process.ProjectileProcesses.test_ascii_secondary_weapon_stays_designated_when_swap_is_blocked`.
+The inventory key returned no `inventory_rows`. The cursed swap is refused before
+equip resolves, so the extracted equip step never runs on that path. The method
+then passed six isolated runs on the same binaries.
+
+A first diagnosis was wrong. It blamed the test for opening the inventory before
+the window could accept a key, and it added the ready-frame wait that its
+successful-swap sibling gained on 25 November (`1ad84e0`). With that wait in
+place, hosted run 230 failed the same method again on `37c7e52`, in both the
+Linux release Python partition and Windows release Python shard 2.
+
+Root cause: a production defect in the ASCII client. The server publishes a
+command's updates before its receipt. The Wield shortcut learns its removal's
+intention only from that receipt, so it ignores a `Resolved`, `Failed` or other
+terminal update that arrives first. `note_admission` also ignored the phase the
+receipt carries. The swap then never advanced or ended, and its input stage
+swallowed every key except Escape. A curse refusal can resolve in the admitting
+commit, so the blocked-swap test hit this race; a removal that takes time does
+not.
+
+Classification: production defect (one root cause, one distinct method, three
+failing executions: one local, two hosted; the platform repeats are not further
+causes). The fix applies the
+receipt's phase when it first names the intention. Three model tests in
+`weapon_swap_admission_tests` cover a resolved removal, every ending phase and
+still-running controls. Before the fix, the resolved and ending cases failed at
+their receipt-phase assertions and the running controls passed. The readiness check
+stays as an ordinary precondition, not as the fix.
+
+A later run on `cda7ce01` exposed a separate driver error in the same method.
+The final ASCII frame both reported the cursed dagger and satisfied every
+readiness check; the first wait consumed it, and the second timed out waiting
+for another frame. Wait for the refusal and readiness together before pressing
+the inventory key. Keep the inventory designation and unchanged equipment
+assertions. This is one harness cause, not another Wield defect. That second wait
+was added on this branch, in `afcc2f0`.
+
+### Headless fight wait read a compact frame, 27 November
+
+A local run of CI debug Python shard 2 errored
+`test_rogue_perception_process.RoguePerceptionProcesses.test_exploration_medusa_does_not_gaze_through_opaque_partition`
+with `KeyError: 'state'`. The method passed three isolated reruns. The headless
+client's stdout showed the cause. In compact background mode it writes a
+`waiting` message without the derived state, marked `"state_omitted": true`.
+`headless_fight_completion` indexed `frame["state"]` without checking that
+marker, so a waiting message during a loaded run ended the wait with an error
+instead of letting it read the next full frame. Other harness waits already
+skipped compact frames.
+
+Classification: harness defect (one root cause, one distinct method, one failing
+execution). The predicate now returns false for compact frames. Its new unit
+test failed with the same `KeyError` before the fix. Four other process-test
+modules use the predicate and share the fix.
+
+### Pre-existing 3D library failures, 27 November
+
+A local `cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d --lib`
+on Linux (rustc 1.97.0) failed 20 methods on base `68bff10`, identically in
+debug and release; 1,411 others passed. Bisecting the merge history:
+
+- **11 stale tests, now corrected:** introduced by PR #87 (procedural model
+  materials). That PR deliberately moved bracelets, armlets, earrings and
+  necklaces from the `metal` builder to the new `gold` builder ("Adopt gold,
+  glass, wood, steel, and chitin on necklaces..."), but bracelet, bracelet
+  support, forearm plan, necklace and composition tests still read `metal`.
+  They now read `gold`, and the layer snapshots they compare cover every
+  bucket through `Parts::all_builders`. Three further tests were passing only
+  vacuously, because their no-mutation and rejection checks never saw the gold
+  layer. They now check it.
+- **1 unresolved, from PR #86:**
+  `garment_tests::breastplate_clears_emitted_underlayers_and_cloak_clears_plate_through_swing`
+  passes at `8a083b1` and fails from `4ad85fd`.
+- **8 unresolved, older than PR #86:** six `cloak::tests` and two
+  `mantle_head_contact_tests` methods fail already at `8a083b1`. Production
+  cloak fitting reports an infeasible radial fit by small margins (for example
+  a 0.00018 collar deficit).
+
+These nine are genuine fitting failures in independently maintained art
+geometry, not stale expectations, and need that geometry's owner. Their tests
+were not changed. Hosted CI runs only the 3D smoke check, not this suite.
+
 ### Documentation is tested behavior too
 
 The documentation suite caught a renamed historical anchor still linked by a

@@ -199,7 +199,7 @@ fn device_aim_is_closed_named_and_rejects_legacy_or_foreign_operands() {
 #[test]
 fn paid_refusal_is_required_closed_and_preserves_captured_zap() {
     let refusal = json!({"action":{"type":"zap","item":item(),"aim":{"kind":"direction","direction":"east"}},"reason":"too_weak"});
-    let valid = json!({"identification":null,"completed":[],"refused":[refusal.clone()],"curse_blocked":[],"slots":[],"preparation":null,"inventory":[]});
+    let valid = json!({"identification":null,"completed":[],"refused":[refusal],"curse_blocked":[],"slots":[],"preparation":null,"inventory":[]});
     let parsed: InteractionView = serde_json::from_value(valid.clone()).unwrap();
     assert_eq!(serde_json::to_value(parsed).unwrap(), valid);
     let mut empty = valid.clone();

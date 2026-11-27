@@ -265,6 +265,109 @@ pub fn magic_input(line: &str, state: &StateView) -> Option<Result<Input, String
     })())
 }
 
+/// A typed ability command, named by the ability itself: `None` when the line
+/// names no available ability.
+fn ability_input(line: &str, state: &StateView) -> Result<Option<Input>, String> {
+    let act = |action| Ok(Some(Input::Command(Command::Act { action })));
+    let Some((ability, noun)) =
+        tor_client_common::abilities::match_command(&state.observation, line)?
+    else {
+        return Ok(None);
+    };
+    if ability.target_kind == AbilityTargetKind::DirectionalProjectile {
+        if !noun.is_empty() {
+            return Err(
+                "Start with the projectile ability name alone; choose a source, then a direction."
+                    .into(),
+            );
+        }
+        return Ok(Some(Input::Projectile(ability.id.clone())));
+    }
+    let (noun, supplies) = tor_client_common::abilities::split_supply_clause(noun)?;
+    let (noun, weapon) = tor_client_common::weapons::split_clause(noun)?;
+    let weapon = weapon.map_or(Ok(WeaponSelection::Default), |text| {
+        tor_client_common::weapons::selection_from_text(&state.observation, text)
+    })?;
+    let supplies = supplies.map_or(Ok(SupplySelection::Carried), |text| {
+        tor_client_common::abilities::selection_from_text(&state.observation, ability, text)
+    })?;
+    if matches!(
+        ability.target_kind,
+        AbilityTargetKind::SelfStep | AbilityTargetKind::DirectionalRay
+    ) {
+        if ability.target_kind == AbilityTargetKind::DirectionalRay {
+            if let Some(offset) = tor_client_common::abilities::parse_cell_aim(noun) {
+                return act(tor_client_common::abilities::invocation_action(
+                    &state.observation,
+                    &ability.id,
+                    tor_protocol::AbilityInvocation {
+                        aim: tor_protocol::AbilityAim::CellRay { offset: offset? },
+                        weapon,
+                    },
+                    supplies,
+                )?);
+            }
+        }
+        let direction = crate::parser::lexicon::parse_direction(&noun.to_ascii_lowercase())
+            .ok_or("Choose a direction for that ability.")?;
+        return act(tor_client_common::abilities::invocation_action(
+            &state.observation,
+            &ability.id,
+            if ability.target_kind == AbilityTargetKind::DirectionalRay {
+                tor_protocol::AbilityInvocation {
+                    aim: tor_protocol::AbilityAim::DirectionalRay { direction },
+                    weapon,
+                }
+            } else {
+                tor_protocol::AbilityInvocation {
+                    aim: tor_protocol::AbilityAim::SelfStep { direction },
+                    weapon,
+                }
+            },
+            supplies,
+        )?);
+    }
+    let allows_self = matches!(
+        ability.target_kind,
+        AbilityTargetKind::SelfOnly | AbilityTargetKind::SelfOrAlly
+    );
+    let opaque = noun
+        .strip_prefix('#')
+        .and_then(|value| value.parse::<ActorTarget>().ok());
+    let target = if allows_self
+        && (noun.is_empty()
+            || matches!(noun.to_ascii_lowercase().as_str(), "me" | "self" | "myself")
+            || opaque == Some(state.observation.self_target))
+    {
+        state.observation.self_target
+    } else {
+        let matches: Vec<_> = state
+            .observation
+            .visible_actors
+            .iter()
+            .filter(|a| {
+                tor_client_common::abilities::target_eligible(&state.observation, ability, a.id)
+                    && (a.name.to_lowercase().contains(&noun.to_lowercase())
+                        || opaque == Some(a.id))
+            })
+            .collect();
+        match matches.as_slice() {
+            [actor] => actor.id,
+            [] => return Err("No matching actor is visible.".into()),
+            _ => return Err("Which actor? Use the ability name followed by #id.".into()),
+        }
+    };
+    act(tor_client_common::abilities::invocation_action(
+        &state.observation,
+        &ability.id,
+        AbilityInvocation {
+            aim: AbilityAim::ActorTarget { target },
+            weapon,
+        },
+        supplies,
+    )?)
+}
+
 pub fn parse(line: &str, state: &StateView) -> Result<Input, String> {
     if let Some(input) = magic_input(line, state) {
         return input;
@@ -287,98 +390,8 @@ pub fn parse(line: &str, state: &StateView) -> Result<Input, String> {
     let (verb, rest) = word(line.trim());
     let verb = verb.to_ascii_lowercase();
     let action = |action| Ok(Input::Command(Command::Act { action }));
-    if let Some((ability, noun)) =
-        tor_client_common::abilities::match_command(&state.observation, line)?
-    {
-        if ability.target_kind == AbilityTargetKind::DirectionalProjectile {
-            if !noun.is_empty() {
-                return Err("Start with the projectile ability name alone; choose a source, then a direction.".into());
-            }
-            return Ok(Input::Projectile(ability.id.clone()));
-        }
-        let (noun, supplies) = tor_client_common::abilities::split_supply_clause(noun)?;
-        let (noun, weapon) = tor_client_common::weapons::split_clause(noun)?;
-        let weapon = weapon.map_or(Ok(WeaponSelection::Default), |text| {
-            tor_client_common::weapons::selection_from_text(&state.observation, text)
-        })?;
-        let supplies = supplies.map_or(Ok(SupplySelection::Carried), |text| {
-            tor_client_common::abilities::selection_from_text(&state.observation, ability, text)
-        })?;
-        if matches!(
-            ability.target_kind,
-            AbilityTargetKind::SelfStep | AbilityTargetKind::DirectionalRay
-        ) {
-            if ability.target_kind == AbilityTargetKind::DirectionalRay {
-                if let Some(offset) = tor_client_common::abilities::parse_cell_aim(noun) {
-                    return action(tor_client_common::abilities::invocation_action(
-                        &state.observation,
-                        &ability.id,
-                        tor_protocol::AbilityInvocation {
-                            aim: tor_protocol::AbilityAim::CellRay { offset: offset? },
-                            weapon,
-                        },
-                        supplies,
-                    )?);
-                }
-            }
-            let direction = crate::parser::lexicon::parse_direction(&noun.to_ascii_lowercase())
-                .ok_or("Choose a direction for that ability.")?;
-            return action(tor_client_common::abilities::invocation_action(
-                &state.observation,
-                &ability.id,
-                if ability.target_kind == AbilityTargetKind::DirectionalRay {
-                    tor_protocol::AbilityInvocation {
-                        aim: tor_protocol::AbilityAim::DirectionalRay { direction },
-                        weapon,
-                    }
-                } else {
-                    tor_protocol::AbilityInvocation {
-                        aim: tor_protocol::AbilityAim::SelfStep { direction },
-                        weapon,
-                    }
-                },
-                supplies,
-            )?);
-        }
-        let allows_self = matches!(
-            ability.target_kind,
-            AbilityTargetKind::SelfOnly | AbilityTargetKind::SelfOrAlly
-        );
-        let opaque = noun
-            .strip_prefix('#')
-            .and_then(|value| value.parse::<ActorTarget>().ok());
-        let target = if allows_self
-            && (noun.is_empty()
-                || matches!(noun.to_ascii_lowercase().as_str(), "me" | "self" | "myself")
-                || opaque == Some(state.observation.self_target))
-        {
-            state.observation.self_target
-        } else {
-            let matches: Vec<_> = state
-                .observation
-                .visible_actors
-                .iter()
-                .filter(|a| {
-                    tor_client_common::abilities::target_eligible(&state.observation, ability, a.id)
-                        && (a.name.to_lowercase().contains(&noun.to_lowercase())
-                            || opaque == Some(a.id))
-                })
-                .collect();
-            match matches.as_slice() {
-                [actor] => actor.id,
-                [] => return Err("No matching actor is visible.".into()),
-                _ => return Err("Which actor? Use the ability name followed by #id.".into()),
-            }
-        };
-        return action(tor_client_common::abilities::invocation_action(
-            &state.observation,
-            &ability.id,
-            AbilityInvocation {
-                aim: AbilityAim::ActorTarget { target },
-                weapon,
-            },
-            supplies,
-        )?);
+    if let Some(input) = ability_input(line, state)? {
+        return Ok(input);
     }
     match (verb.as_str(), rest) {
         (

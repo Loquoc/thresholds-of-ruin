@@ -554,7 +554,7 @@ fn failed_sequence_rider_journal_admission_preserves_prefix_and_replays_the_same
         Scenario::two_room(99),
         SavePolicy {
             max_pending_bytes: 1,
-            ..policy.clone()
+            ..policy
         },
     )
     .unwrap();
