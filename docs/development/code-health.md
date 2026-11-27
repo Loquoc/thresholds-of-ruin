@@ -262,8 +262,35 @@ broader performance and scaling work is finished.
 - **Correction:** [`check_architecture.py`](../../scripts/check_architecture.py)
   `MIRRORED_SOURCES` now rejects any difference or missing copy, with first-red
   tests in `test_check_architecture.py`. Both files say they are mirrored.
-- **Open question:** whether to replace the copies with one shared crate is a
-  dependency-policy decision for the maintainer, not part of this guard.
+- **Open question:** how to remove the duplicate is a dependency-policy decision
+  for the maintainer, not part of this guard. The constraint is the
+  [architecture overview](../architecture/overview.md)'s rule that protocol and
+  simulation types stay independent, so a wire change cannot silently change
+  simulation or save data. The 644 mirrored lines depend only on `serde` (and
+  `serde_json` in their tests). Options:
+  - **Keep both copies and the guard (current).** No dependency change, but
+    every edit is made twice; the check catches a forgotten copy, not a wrong
+    shared edit.
+  - **One source file compiled into both crates.** `tor-simulation` would
+    include the protocol file with `#[path = "../../protocol/src/…"]`. Each crate
+    still gets its own distinct types, so the independence rule holds, and the
+    server already includes test-support files this way. Cost: a file outside
+    the crate directory (unpackageable, not an issue for unpublished crates),
+    and the CI planner must count a change to those protocol files as a
+    simulation change. The guard is then removed.
+  - **A shared leaf crate (for example `tor-item-syntax`).** Both crates depend
+    on it and re-export the types. This is the cleanest dependency graph, but
+    protocol and simulation then share one type. A future encoding change to
+    it would change wire and save formats together, which is the coupling the
+    independence rule exists to prevent. It also adds a workspace member,
+    architecture-map entries and planner ownership.
+  - **Move them into `tor-world`.** Not recommended: `tor-protocol` would gain
+    its first internal dependency, on a crate it otherwise has no reason to
+    know.
+
+  The recommended option is the single source file, if removing the copy is
+  worth a planner change. It removes the duplicate without coupling the two
+  formats.
 
 ### CH-019: Checkpoint representation and journal durability at the capacity bound
 
