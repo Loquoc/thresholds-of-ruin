@@ -1100,6 +1100,88 @@ impl Game {
         Ok((view, snapshot.shared_cells()))
     }
 
+    /// The carried item's disclosed interactions, as its holder knows them.
+    fn project_item_interaction(
+        &self,
+        id: ActorId,
+        actor: &crate::Actor,
+        item_id: ItemId,
+        item: &crate::Item,
+        identified: bool,
+    ) -> Result<crate::interactions::ItemInteractionView, GameError> {
+        let profile = if identified && item.spec.equipment.is_some() {
+            self.projectile_item_profile(id, item_id)
+        } else {
+            None
+        };
+        Ok(crate::interactions::ItemInteractionView {
+            identifies: if identified {
+                item.spec
+                    .readable
+                    .as_ref()
+                    .and_then(|spec| spec.identify.clone())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            },
+            throw_range: profile.as_ref().and_then(|p| p.thrown()),
+            launch_range: profile
+                .as_ref()
+                .and_then(|p| p.launcher())
+                .map(|launcher| launcher.range),
+            portable_light: self.portable_light_view(id, item_id),
+            item: item_id,
+            slot: item
+                .spec
+                .equipment
+                .as_ref()
+                .map(|equipment| {
+                    self.content
+                        .rules
+                        .equipment_slot(&equipment.slot)
+                        .map(crate::EquipmentSlotView::from)
+                        .ok_or(GameError::Rule(
+                            crate::abilities::RuleError::InvalidDefinition,
+                        ))
+                })
+                .transpose()?,
+            equipped_slot: actor
+                .equipment
+                .iter()
+                .find_map(|(slot, item)| (*item == item_id).then_some(*slot)),
+            known_equipment: self.known_equipment_view(id, item_id),
+            known_projectile_bonus: self.known_projectile_bonus_view(id, item_id),
+            known_cursed: actor.known_equipment.curse(item_id),
+            known_protected: actor.known_equipment.protection(item_id),
+            drinkable: item.spec.consumable.is_some(),
+            readable: item.spec.readable.is_some(),
+            zappable: item.spec.device.is_some(),
+            device_activation: item.spec.device.as_ref().map(|device| {
+                if identified
+                    && self
+                        .content
+                        .rules
+                        .ability(&device.ability)
+                        .is_some_and(crate::abilities::self_device_definition_valid)
+                {
+                    crate::DeviceActivation::SelfTarget
+                } else if identified
+                    && self
+                        .content
+                        .rules
+                        .ability(&device.ability)
+                        .is_some_and(crate::abilities::self_polymorph_device_definition_valid)
+                {
+                    crate::DeviceActivation::DirectionOrSelf
+                } else {
+                    crate::DeviceActivation::Direction
+                }
+            }),
+            charges: actor.known_charges.observed(item_id, item.charges),
+            edible: item.spec.edible.is_some(),
+        })
+    }
+
     fn observe_in_snapshot(
         &self,
         id: ActorId,
@@ -1135,75 +1217,9 @@ impl Game {
                         || item.spec.readable.is_some()
                         || item.spec.device.is_some()
                     {
-                        let profile = if identified && item.spec.equipment.is_some() {
-                            self.projectile_item_profile(id, item_id)
-                        } else {
-                            None
-                        };
-                        item_interactions.push(crate::interactions::ItemInteractionView {
-                            identifies: if identified {
-                                item.spec
-                                    .readable
-                                    .as_ref()
-                                    .and_then(|spec| spec.identify.clone())
-                                    .unwrap_or_default()
-                            } else {
-                                Vec::new()
-                            },
-                            throw_range: profile.as_ref().and_then(|p| p.thrown()),
-                            launch_range: profile
-                                .as_ref()
-                                .and_then(|p| p.launcher())
-                                .map(|launcher| launcher.range),
-                            portable_light: self.portable_light_view(id, item_id),
-                            item: item_id,
-                            slot: item
-                                .spec
-                                .equipment
-                                .as_ref()
-                                .map(|equipment| {
-                                    self.content
-                                        .rules
-                                        .equipment_slot(&equipment.slot)
-                                        .map(crate::EquipmentSlotView::from)
-                                        .ok_or(GameError::Rule(
-                                            crate::abilities::RuleError::InvalidDefinition,
-                                        ))
-                                })
-                                .transpose()?,
-                            equipped_slot: actor
-                                .equipment
-                                .iter()
-                                .find_map(|(slot, item)| (*item == item_id).then_some(*slot)),
-                            known_equipment: self.known_equipment_view(id, item_id),
-                            known_projectile_bonus: self.known_projectile_bonus_view(id, item_id),
-                            known_cursed: actor.known_equipment.curse(item_id),
-                            known_protected: actor.known_equipment.protection(item_id),
-                            drinkable: item.spec.consumable.is_some(),
-                            readable: item.spec.readable.is_some(),
-                            zappable: item.spec.device.is_some(),
-                            device_activation: item.spec.device.as_ref().map(|device| {
-                                if identified
-                                    && self
-                                        .content
-                                        .rules
-                                        .ability(&device.ability)
-                                        .is_some_and(crate::abilities::self_device_definition_valid)
-                                {
-                                    crate::DeviceActivation::SelfTarget
-                                } else if identified
-                                    && self.content.rules.ability(&device.ability).is_some_and(
-                                        crate::abilities::self_polymorph_device_definition_valid,
-                                    )
-                                {
-                                    crate::DeviceActivation::DirectionOrSelf
-                                } else {
-                                    crate::DeviceActivation::Direction
-                                }
-                            }),
-                            charges: actor.known_charges.observed(item_id, item.charges),
-                            edible: item.spec.edible.is_some(),
-                        });
+                        item_interactions.push(
+                            self.project_item_interaction(id, actor, item_id, item, identified)?,
+                        );
                     }
                     inventory.push(ItemView {
                         identity: if identified {
