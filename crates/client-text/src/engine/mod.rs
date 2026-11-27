@@ -492,6 +492,70 @@ impl Engine {
         self.chronicler.learn(link.client().state(), link.palette());
     }
 
+    /// Continue an open projectile selection with this line. Returns whether
+    /// the line was consumed; a new command instead cancels the selection.
+    async fn projectile_menu_input(
+        &mut self,
+        link: &mut impl Link,
+        mut menu: tor_client_common::projectiles::ProjectileMenu,
+        line: &str,
+        record: &mut Record,
+    ) -> Result<bool, Error> {
+        if !menu.current(link.client()) {
+            record.say("Projectile choices changed. Choose the ability again.");
+            return Ok(true);
+        }
+        let mut handled = true;
+        match crate::projectiles::input(&mut menu, link.client(), line) {
+            Ok(Some(crate::projectiles::Progress::Cancel)) => record.say("All right."),
+            Ok(Some(crate::projectiles::Progress::Query)) => {
+                if turn::projectile_choices(link, &mut self.chronicler, record, &mut menu).await? {
+                    self.projectile_selection = Some(menu);
+                }
+            }
+            Ok(Some(crate::projectiles::Progress::Direction)) => {
+                record.say(crate::projectiles::lines(&menu).join("\n"));
+                self.projectile_selection = Some(menu);
+            }
+            Ok(Some(crate::projectiles::Progress::Action(Action::UseAbility {
+                id,
+                invocation,
+                supplies,
+            }))) => {
+                let start = self.place_key(link);
+                self.carry_out(
+                    link,
+                    record,
+                    Interpretation::Goals(vec![verbs::Goal::UseAbility {
+                        ability: id,
+                        invocation,
+                        supplies,
+                    }]),
+                    &mut VecDeque::new(),
+                )
+                .await?;
+                self.finish(link, record, start.as_deref());
+            }
+            Ok(Some(crate::projectiles::Progress::Action(_))) => {
+                unreachable!("projectile ability action")
+            }
+            Err(reason) => {
+                record.say(reason);
+                self.projectile_selection = Some(menu);
+            }
+            Ok(None) if !commands(line, &link.client().state().observation) => {
+                record.say(crate::projectiles::lines(&menu).join("\n"));
+                self.projectile_selection = Some(menu);
+            }
+            Ok(None) => {
+                // A new command cancels the old selection. Never reinterpret
+                // its source number against another ability or observation.
+                handled = false;
+            }
+        }
+        Ok(handled)
+    }
+
     /// Play one line of input to the end of its turn.
     pub async fn play(&mut self, link: &mut impl Link, line: &str) -> Result<Outcome, Error> {
         // Embedders may start with play rather than welcome. Establish the
@@ -503,62 +567,11 @@ impl Engine {
         if line.is_empty() {
             return Ok(Outcome::Passage(String::new()));
         }
-        if let Some(mut menu) = self.projectile_selection.take() {
-            if !menu.current(link.client()) {
-                record.say("Projectile choices changed. Choose the ability again.");
-                return Ok(Outcome::Passage(narrate::compose(&record)));
-            }
-            let mut handled = true;
-            match crate::projectiles::input(&mut menu, link.client(), &line) {
-                Ok(Some(crate::projectiles::Progress::Cancel)) => record.say("All right."),
-                Ok(Some(crate::projectiles::Progress::Query)) => {
-                    if turn::projectile_choices(link, &mut self.chronicler, &mut record, &mut menu)
-                        .await?
-                    {
-                        self.projectile_selection = Some(menu);
-                    }
-                }
-                Ok(Some(crate::projectiles::Progress::Direction)) => {
-                    record.say(crate::projectiles::lines(&menu).join("\n"));
-                    self.projectile_selection = Some(menu);
-                }
-                Ok(Some(crate::projectiles::Progress::Action(Action::UseAbility {
-                    id,
-                    invocation,
-                    supplies,
-                }))) => {
-                    let start = self.place_key(link);
-                    self.carry_out(
-                        link,
-                        &mut record,
-                        Interpretation::Goals(vec![verbs::Goal::UseAbility {
-                            ability: id,
-                            invocation,
-                            supplies,
-                        }]),
-                        &mut VecDeque::new(),
-                    )
-                    .await?;
-                    self.finish(link, &mut record, start.as_deref());
-                }
-                Ok(Some(crate::projectiles::Progress::Action(_))) => {
-                    unreachable!("projectile ability action")
-                }
-                Err(reason) => {
-                    record.say(reason);
-                    self.projectile_selection = Some(menu);
-                }
-                Ok(None) if !commands(&line, &link.client().state().observation) => {
-                    record.say(crate::projectiles::lines(&menu).join("\n"));
-                    self.projectile_selection = Some(menu);
-                }
-                Ok(None) => {
-                    // A new command cancels the old selection. Never reinterpret
-                    // its source number against another ability or observation.
-                    handled = false;
-                }
-            }
-            if handled {
+        if let Some(menu) = self.projectile_selection.take() {
+            if self
+                .projectile_menu_input(link, menu, &line, &mut record)
+                .await?
+            {
                 return Ok(Outcome::Passage(narrate::compose(&record)));
             }
         }
