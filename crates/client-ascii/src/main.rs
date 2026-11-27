@@ -346,6 +346,281 @@ fn automation_input() -> mpsc::Receiver<Result<Input, String>> {
     rx
 }
 
+/// Show a reply, or report why it no longer applies.
+fn refuse_on_error(app: &mut App, shown: Result<(), String>) {
+    if let Err(error) = shown {
+        app.refused(error);
+    }
+}
+
+/// Apply one connection-worker event to the presentation state. Returns
+/// whether the connection failed.
+fn apply_network_event(app: &mut App, event: Event) -> Result<bool, Error> {
+    match event {
+        Event::Role(role) => app.role = role,
+        Event::Palette(palette) => app.palette = palette,
+        Event::Snapshot(snapshot) => app
+            .replace_snapshot(*snapshot)
+            .map_err(|e| format!("Invalid presentation snapshot: {e:?}"))?,
+        Event::Update(update) => app
+            .update(*update)
+            .map_err(|e| format!("Invalid presentation update: {e:?}"))?,
+        Event::MapMemory(update) => {
+            if let Some(state) = app.state.as_mut() {
+                state
+                    .apply_map_memory_update(*update)
+                    .map_err(|e| format!("Invalid presentation map: {e:?}"))?;
+            }
+        }
+        Event::ChartCancelled(query) => app.chart_cancelled(&query),
+        Event::ChartPresentation(update) => {
+            if app.charts_open {
+                if let Some(state) = &app.state {
+                    let _ = app.charts.install(update, state);
+                }
+            }
+        }
+        Event::CreatureInspection(report) => app.show_inspection(&report)?,
+        Event::Discoveries(rows) => {
+            app.discovery_scroll = 0;
+            app.discovery_rows = Some(
+                rows.into_iter()
+                    .map(|row| format!("{} -> {}", row.appearance, row.name))
+                    .collect(),
+            );
+            app.status.clear();
+        }
+        Event::CreatureCatalog(page) => app.show_creature_catalog(&page)?,
+        Event::WizardReport(report) => app.show_wizard_report(&report)?,
+        Event::ProjectileChoicesSent(id) => {
+            let shown = app.bind_projectile_request(&id);
+            refuse_on_error(app, shown);
+        }
+        Event::ProjectileChoices {
+            context,
+            request_id,
+            page,
+        } => {
+            let shown = app.show_projectile_choices(&context, &request_id, &page);
+            refuse_on_error(app, shown);
+        }
+        Event::WeaponPreviewSent(id) => {
+            if app.weapon_confirmation.is_some() {
+                {
+                    let shown = app.bind_weapon_preview(&id);
+                    refuse_on_error(app, shown);
+                }
+            }
+        }
+        Event::AbilityWeaponPreview {
+            context,
+            request_id,
+            preview,
+        } => {
+            let shown = app.show_weapon_preview(&context, &request_id, &preview);
+            refuse_on_error(app, shown);
+        }
+        Event::StrikeQuerySent(id) => app.bind_strike_request(&id),
+        Event::OverviewPrepared(revision) => {
+            let shown = app.prepare_overview(revision);
+            refuse_on_error(app, shown);
+        }
+        Event::AdvancementQuerySent(id) => {
+            let shown = app.bind_advancement_request(&id);
+            refuse_on_error(app, shown);
+        }
+        Event::AdvancementPage {
+            context,
+            request_id,
+            page,
+        } => {
+            let shown = app.show_advancement_page(&context, &request_id, &page);
+            refuse_on_error(app, shown);
+        }
+        Event::CreatureStrikePage {
+            context,
+            request_id,
+            page,
+        } => {
+            let shown = app.show_strike_page(&context, &request_id, &page);
+            refuse_on_error(app, shown);
+        }
+        Event::CombatDiagnostics(report) => app.show_combat_diagnostics(&report)?,
+        Event::Status(status) => app.status = status,
+        Event::Admission(receipt) => app.note_admission(&receipt),
+        Event::InputYield => app.input_yielded(),
+        Event::Refused(status) => app.refused(status),
+        Event::Ready => app.ready(),
+        Event::History(page) => {
+            // Open at the newest entries, as the message log does.
+            app.history_scroll = tor_client_ascii::history_lines(&page.entries)
+                .len()
+                .saturating_sub(tor_client_ascii::HISTORY_ROWS);
+            app.history_page = Some(page);
+        }
+        Event::Fatal(error) => {
+            app.disconnect(error);
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Queue a PNG of the frame just presented, bound to its displayed authority.
+/// Returns false, after telling the player, when nothing was queued.
+fn queue_screenshot(app: &mut App, canvas: &Canvas, network: &Network) -> bool {
+    let capture = capture::png_frame(canvas).and_then(|bytes| {
+        let state = app.state.as_ref().ok_or("No presented state to capture")?;
+        tor_client_common::captures::CapturedAttachment::new(
+            state.input_context(),
+            state.branch().clone(),
+            state.state().snapshot.clone(),
+            tor_protocol::AttachmentMediaType::Png,
+            bytes,
+        )
+        .map_err(Into::into)
+    });
+    let refusal = match capture {
+        Ok(capture) => match network.commands.try_send(Command::Capture(capture)) {
+            Ok(()) => return true,
+            Err(_) => "Screenshot was not queued; try again when connected.".to_owned(),
+        },
+        Err(error) => format!("Screenshot was not captured: {error}"),
+    };
+    app.refused(refusal);
+    app.ready();
+    false
+}
+
+/// Per-frame facts the frame report records beside the presentation state.
+struct FrameFacts {
+    frame: u64,
+    presented_unix_ns: u128,
+    profile: serde_json::Value,
+    window_open: bool,
+    input_done: Option<Key>,
+    native_input_sequence: Option<u64>,
+}
+
+/// The diagnostic report of one presented frame, for process tests and drivers.
+fn frame_report(app: &App, facts: FrameFacts) -> serde_json::Value {
+    let state = app.state.as_ref();
+    let mut report = serde_json::json!({"type":"frame","frame":facts.frame,
+                "presented_unix_ns":facts.presented_unix_ns,
+                "profile":facts.profile,"window_open":facts.window_open,
+                "state":state.map(|s|s.state()),"branch":state.map(|s|s.branch()),"history":state.map(|s|s.history()),
+                "map_tiles":state.map(|s|tor_client_ascii::render::map_tiles(s, &app.palette)),
+                "palette":{"revision":app.palette.revision(),"stale":app.palette.stale()},
+                "role":app.role,"travel":state.and_then(|s|s.travel()),"travel_cursor":app.travel_cursor,"door_direction":app.door_direction,
+                "has_control":state.is_some_and(|s|s.has_control()),"can_admit_intention":state.is_some_and(|s|s.can_admit_intention()),"connected":app.connected,"busy":app.busy,"observation_current":state.map(|s|s.observation_current()),"character_ready":state.map(|s|s.character_ready()),
+                "intentions":state.map(|s|s.intentions()),"action_hint":app.intention_hint(),
+                "places_open":app.places_open,"place_selected":app.place_selected,"place_name":app.place_name,
+                "narration":state.map(|s|s.narration())});
+    let serde_json::Value::Object(screen_fields) = serde_json::json!({
+                "messages":{"shown":app.messages.shown(app.role!=tor_protocol::AccessRole::Spectator),"more":app.messages.more(),"turn":app.messages.text(),"log":app.messages.log().collect::<Vec<_>>()},
+                "screen":{"pickup":!app.pickup.is_empty(),"inventory":app.inventory_open,"charts":app.charts_open,"help":app.help_page.is_some(),"help_page":app.help_page.map(|page| page.title()),"stats":app.stats_open,"stats_scroll":app.stats_scroll,"message_log":app.message_log,"look_cursor":app.look_cursor,"running":app.running},
+                "inventory_rows":if app.inventory_open { state.map(|s|tor_client_ascii::inventory_entries(app,&s.state().observation).iter().take(26).map(|entry|entry.long()).collect::<Vec<_>>()) } else { None },
+                "discovery_rows":app.discovery_rows,
+                "chart_rows":if app.charts_open { Some(app.chart_lines()) } else { None },
+                "stats_rows":if app.stats_open { Some(app.stats_rows()) } else { None },
+                "advancement_open":app.advancement_open,"advancement_rows":app.advancement_rows(),"advancement_command":app.advancement_command,
+                "ability_choices":app.ability_choices,"selected_ability":app.selected_ability,
+                "item_rows":app.item_rows(),"zap_item":app.zap_item(),
+                "identification":app.identification_choice(),"identification_rows":app.identification_rows(),"identification_empty_message":app.identification_empty_message(),
+                "hold_choices":app.hold_choice_offers(),"hold_rows":app.hold_rows(),
+                "supply_selection":app.supply_selection,"supply_rows":app.supply_rows(),
+                "projectile_prompt":app.projectile_prompt(),"weapon_preview":app.weapon_confirmation,"weapon_preview_rows":app.weapon_preview_rows(),
+                "projectile_selection":app.projectile_selection,"projectile_rows":app.projectile_rows(),"projectile_cursor":app.projectile_cursor(),
+                "selected_weapon":app.selected_weapon,"weapon_selection":app.weapon_selection,"weapon_rows":app.weapon_rows(),
+                "status_lines":state.map(|s|tor_client_ascii::status_lines(app,s)),
+                "rendered_status_lines":state.map(|s|tor_client_ascii::status_lines_at_width(app,s,(tor_client_ascii::render::WIDTH-48)/16)),
+                "status":app.status,"input_done":facts.input_done,"native_input_sequence":facts.native_input_sequence,
+                "wizard_command":app.wizard_command,"command_line":app.command_line,
+                "command_rows":app.command_rows(),"note":app.note.as_ref().map(|d|&d.text)})
+    else {
+        unreachable!("the screen report is an object literal");
+    };
+    report
+        .as_object_mut()
+        .expect("the frame report is an object literal")
+        .extend(screen_fields);
+    report
+}
+
+/// Native keyboard and mouse state carried between presentation turns.
+struct NativeInput {
+    mouse_down: bool,
+    /// A letter that typed text already delivered, ignored as a key press.
+    pending_menu_key: Option<NativeKey>,
+    reports: native_report::NativeReport,
+    /// The diagnostic sequence of the last reported key press.
+    pending_sequence: Option<u64>,
+}
+
+impl NativeInput {
+    /// This turn's native inputs, routed by which screen is open.
+    fn inputs(&mut self, window: &Window, app: &App, typed: &str, report: bool) -> Vec<Input> {
+        let mut inputs = Vec::new();
+        if app.accepts_text() && !typed.is_empty() {
+            inputs.push(Input::Text {
+                text: typed.to_owned(),
+            });
+        }
+        if app.accepts_typed_travel() && typed.contains('_') {
+            inputs.push(Input::Key { key: Key::Travel });
+        }
+        let pressed = window.get_mouse_down(minifb::MouseButton::Left);
+        if pressed && !self.mouse_down {
+            if let Some((x, y)) = window.get_unscaled_mouse_pos(minifb::MouseMode::Discard) {
+                let (w, h) = window.get_size();
+                if let Some((x, y)) = tor_client_ascii::render::logical_mouse(x, y, w, h) {
+                    inputs.push(Input::Click { x, y });
+                }
+            }
+        }
+        self.mouse_down = pressed;
+        // In a menu, letters choose items (sent as text above) rather
+        // than acting as commands.
+        let menu = !app.pickup.is_empty() || app.identification_choice().is_some();
+        let pressed = window.get_keys_pressed(KeyRepeat::No);
+        let previous_menu_key = self.pending_menu_key.take();
+        if menu {
+            self.pending_menu_key =
+                deferred_menu_key(typed, &pressed, |key| window.is_key_down(key));
+        }
+        inputs.extend(
+            pressed
+                .into_iter()
+                .filter(|key| previous_menu_key != Some(*key))
+                .filter(|key| !(menu && LETTER_KEYS.contains(key)))
+                .filter(|key| {
+                    *key == NativeKey::F1 || app.command_line.is_none() || command_editor_key(*key)
+                })
+                .filter(|key| {
+                    !app.advancement_open || advancement_key(*key, app.supply_selection.is_some())
+                })
+                .filter_map(|key| {
+                    let mapped = native_input_key(
+                        key,
+                        window.is_key_down(NativeKey::LeftShift)
+                            || window.is_key_down(NativeKey::RightShift),
+                        window.is_key_down(NativeKey::LeftCtrl)
+                            || window.is_key_down(NativeKey::RightCtrl),
+                        window.is_key_down(NativeKey::LeftAlt)
+                            || window.is_key_down(NativeKey::RightAlt),
+                        app.strike_detail_open(),
+                    );
+                    if report && mapped.is_some() {
+                        self.pending_sequence = self.reports.pressed(key);
+                    }
+                    mapped
+                })
+                .map(|key| Input::Key { key }),
+        );
+        inputs
+    }
+}
+
 /// Native keys an open advancement screen accepts; everything else is
 /// typed text for its command line. Space also toggles a supply selection.
 fn advancement_key(key: NativeKey, supplies_open: bool) -> bool {
@@ -446,12 +721,14 @@ fn window_loop(
     let mut frame = 0u64;
     let mut redraw = false;
     let mut pending_input = None;
-    let mut pending_native_input = None;
     let report = matches!(reporting, Reporting::Frames);
-    let mut native_reports = native_report::NativeReport::new(report && input.is_none());
+    let mut native = NativeInput {
+        mouse_down: false,
+        pending_menu_key: None,
+        reports: native_report::NativeReport::new(report && input.is_none()),
+        pending_sequence: None,
+    };
     let mut failed = false;
-    let mut mouse_down = false;
-    let mut pending_menu_key = None;
     let mut previous_report_ms = 0.;
     let mut previous_report_encode_ms = 0.;
     let mut previous_report_write_ms = 0.;
@@ -473,125 +750,7 @@ fn window_loop(
                 Ok(event) => {
                     network_events += 1;
                     dirty = true;
-                    match event {
-                        Event::Role(role) => app.role = role,
-                        Event::Palette(palette) => app.palette = palette,
-                        Event::Snapshot(snapshot) => app
-                            .replace_snapshot(*snapshot)
-                            .map_err(|e| format!("Invalid presentation snapshot: {e:?}"))?,
-                        Event::Update(update) => app
-                            .update(*update)
-                            .map_err(|e| format!("Invalid presentation update: {e:?}"))?,
-                        Event::MapMemory(update) => {
-                            if let Some(state) = app.state.as_mut() {
-                                state
-                                    .apply_map_memory_update(*update)
-                                    .map_err(|e| format!("Invalid presentation map: {e:?}"))?;
-                            }
-                        }
-                        Event::ChartCancelled(query) => app.chart_cancelled(&query),
-                        Event::ChartPresentation(update) => {
-                            if app.charts_open {
-                                if let Some(state) = &app.state {
-                                    let _ = app.charts.install(update, state);
-                                }
-                            }
-                        }
-                        Event::CreatureInspection(report) => app.show_inspection(&report)?,
-                        Event::Discoveries(rows) => {
-                            app.discovery_scroll = 0;
-                            app.discovery_rows = Some(
-                                rows.into_iter()
-                                    .map(|row| format!("{} -> {}", row.appearance, row.name))
-                                    .collect(),
-                            );
-                            app.status.clear();
-                        }
-                        Event::CreatureCatalog(page) => app.show_creature_catalog(&page)?,
-                        Event::WizardReport(report) => app.show_wizard_report(&report)?,
-                        Event::ProjectileChoicesSent(id) => {
-                            if let Err(error) = app.bind_projectile_request(&id) {
-                                app.refused(error);
-                            }
-                        }
-                        Event::ProjectileChoices {
-                            context,
-                            request_id,
-                            page,
-                        } => {
-                            if let Err(error) =
-                                app.show_projectile_choices(&context, &request_id, &page)
-                            {
-                                app.refused(error);
-                            }
-                        }
-                        Event::WeaponPreviewSent(id) => {
-                            if app.weapon_confirmation.is_some() {
-                                if let Err(error) = app.bind_weapon_preview(&id) {
-                                    app.refused(error);
-                                }
-                            }
-                        }
-                        Event::AbilityWeaponPreview {
-                            context,
-                            request_id,
-                            preview,
-                        } => {
-                            if let Err(error) =
-                                app.show_weapon_preview(&context, &request_id, &preview)
-                            {
-                                app.refused(error);
-                            }
-                        }
-                        Event::StrikeQuerySent(id) => app.bind_strike_request(&id),
-                        Event::OverviewPrepared(revision) => {
-                            if let Err(error) = app.prepare_overview(revision) {
-                                app.refused(error);
-                            }
-                        }
-                        Event::AdvancementQuerySent(id) => {
-                            if let Err(error) = app.bind_advancement_request(&id) {
-                                app.refused(error);
-                            }
-                        }
-                        Event::AdvancementPage {
-                            context,
-                            request_id,
-                            page,
-                        } => {
-                            if let Err(error) =
-                                app.show_advancement_page(&context, &request_id, &page)
-                            {
-                                app.refused(error);
-                            }
-                        }
-                        Event::CreatureStrikePage {
-                            context,
-                            request_id,
-                            page,
-                        } => {
-                            if let Err(error) = app.show_strike_page(&context, &request_id, &page) {
-                                app.refused(error);
-                            }
-                        }
-                        Event::CombatDiagnostics(report) => app.show_combat_diagnostics(&report)?,
-                        Event::Status(status) => app.status = status,
-                        Event::Admission(receipt) => app.note_admission(&receipt),
-                        Event::InputYield => app.input_yielded(),
-                        Event::Refused(status) => app.refused(status),
-                        Event::Ready => app.ready(),
-                        Event::History(page) => {
-                            // Open at the newest entries, as the message log does.
-                            app.history_scroll = tor_client_ascii::history_lines(&page.entries)
-                                .len()
-                                .saturating_sub(tor_client_ascii::HISTORY_ROWS);
-                            app.history_page = Some(page);
-                        }
-                        Event::Fatal(error) => {
-                            app.disconnect(error);
-                            failed = true;
-                        }
-                    }
+                    failed |= apply_network_event(&mut app, event)?;
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
@@ -608,66 +767,7 @@ fn window_loop(
         let mut inputs = Vec::new();
         let typed = std::mem::take(&mut *text.borrow_mut());
         if input.is_none() {
-            // Send text only to an already-open editor.
-            if app.accepts_text() && !typed.is_empty() {
-                inputs.push(Input::Text {
-                    text: typed.clone(),
-                });
-            }
-            if app.accepts_typed_travel() && typed.contains('_') {
-                inputs.push(Input::Key { key: Key::Travel });
-            }
-            let pressed = window.get_mouse_down(minifb::MouseButton::Left);
-            if pressed && !mouse_down {
-                if let Some((x, y)) = window.get_unscaled_mouse_pos(minifb::MouseMode::Discard) {
-                    let (w, h) = window.get_size();
-                    if let Some((x, y)) = tor_client_ascii::render::logical_mouse(x, y, w, h) {
-                        inputs.push(Input::Click { x, y });
-                    }
-                }
-            }
-            mouse_down = pressed;
-            // In a menu, letters choose items (sent as text above) rather
-            // than acting as commands.
-            let menu = !app.pickup.is_empty() || app.identification_choice().is_some();
-            let pressed = window.get_keys_pressed(KeyRepeat::No);
-            let previous_menu_key = pending_menu_key.take();
-            if menu {
-                pending_menu_key =
-                    deferred_menu_key(&typed, &pressed, |key| window.is_key_down(key));
-            }
-            inputs.extend(
-                pressed
-                    .into_iter()
-                    .filter(|key| previous_menu_key != Some(*key))
-                    .filter(|key| !(menu && LETTER_KEYS.contains(key)))
-                    .filter(|key| {
-                        *key == NativeKey::F1
-                            || app.command_line.is_none()
-                            || command_editor_key(*key)
-                    })
-                    .filter(|key| {
-                        !app.advancement_open
-                            || advancement_key(*key, app.supply_selection.is_some())
-                    })
-                    .filter_map(|key| {
-                        let mapped = native_input_key(
-                            key,
-                            window.is_key_down(NativeKey::LeftShift)
-                                || window.is_key_down(NativeKey::RightShift),
-                            window.is_key_down(NativeKey::LeftCtrl)
-                                || window.is_key_down(NativeKey::RightCtrl),
-                            window.is_key_down(NativeKey::LeftAlt)
-                                || window.is_key_down(NativeKey::RightAlt),
-                            app.strike_detail_open(),
-                        );
-                        if report && mapped.is_some() {
-                            pending_native_input = native_reports.pressed(key);
-                        }
-                        mapped
-                    })
-                    .map(|key| Input::Key { key }),
-            );
+            inputs = native.inputs(window, &app, &typed, report);
         } else if let Some(input) = input.as_ref().filter(|_| !app.busy) {
             match input.try_recv() {
                 Ok(event) => {
@@ -764,35 +864,7 @@ fn window_loop(
         // Freeze bytes and authority from the frame just presented, before any
         // further network observation can replace the displayed snapshot.
         if screenshot {
-            let capture = capture::png_frame(&canvas).and_then(|bytes| {
-                let state = app.state.as_ref().ok_or("No presented state to capture")?;
-                tor_client_common::captures::CapturedAttachment::new(
-                    state.input_context(),
-                    state.branch().clone(),
-                    state.state().snapshot.clone(),
-                    tor_protocol::AttachmentMediaType::Png,
-                    bytes,
-                )
-                .map_err(Into::into)
-            });
-            match capture {
-                Ok(capture) => {
-                    if network
-                        .commands
-                        .try_send(Command::Capture(capture))
-                        .is_err()
-                    {
-                        redraw = true;
-                        app.refused("Screenshot was not queued; try again when connected.".into());
-                        app.ready();
-                    }
-                }
-                Err(error) => {
-                    redraw = true;
-                    app.refused(format!("Screenshot was not captured: {error}"));
-                    app.ready();
-                }
-            }
+            redraw |= !queue_screenshot(&mut app, &canvas, network);
         }
         // This is intentionally after real native presentation. There is no
         // headless fallback; CI must supply a functioning display environment.
@@ -807,8 +879,7 @@ fn window_loop(
             } else {
                 None
             };
-            let native_input_sequence = done.and_then(|_| pending_native_input.take());
-            let state = app.state.as_ref();
+            let native_input_sequence = done.and_then(|_| native.pending_sequence.take());
             let capture_started = Instant::now();
             if let Some(path) = &capture {
                 capture::save_frame(path, &canvas)?;
@@ -823,45 +894,17 @@ fn window_loop(
                 "native_ms": native_ms, "capture_ms": capture_ms,
                 "previous_report_ms": previous_report_ms, "turn_interval_ms": turn_interval_ms
             });
-            let mut frame_report = serde_json::json!({"type":"frame","frame":frame,
-                "presented_unix_ns":presented_unix_ns,
-                "profile":profile,"window_open":window.is_open(),
-                "state":state.map(|s|s.state()),"branch":state.map(|s|s.branch()),"history":state.map(|s|s.history()),
-                "map_tiles":state.map(|s|tor_client_ascii::render::map_tiles(s, &app.palette)),
-                "palette":{"revision":app.palette.revision(),"stale":app.palette.stale()},
-                "role":app.role,"travel":state.and_then(|s|s.travel()),"travel_cursor":app.travel_cursor,"door_direction":app.door_direction,
-                "has_control":state.is_some_and(|s|s.has_control()),"can_admit_intention":state.is_some_and(|s|s.can_admit_intention()),"connected":app.connected,"busy":app.busy,"observation_current":state.map(|s|s.observation_current()),"character_ready":state.map(|s|s.character_ready()),
-                "intentions":state.map(|s|s.intentions()),"action_hint":app.intention_hint(),
-                "places_open":app.places_open,"place_selected":app.place_selected,"place_name":app.place_name,
-                "narration":state.map(|s|s.narration())});
-            let screen_report = serde_json::json!({
-                "messages":{"shown":app.messages.shown(app.role!=tor_protocol::AccessRole::Spectator),"more":app.messages.more(),"turn":app.messages.text(),"log":app.messages.log().collect::<Vec<_>>()},
-                "screen":{"pickup":!app.pickup.is_empty(),"inventory":app.inventory_open,"charts":app.charts_open,"help":app.help_page.is_some(),"help_page":app.help_page.map(|page| page.title()),"stats":app.stats_open,"stats_scroll":app.stats_scroll,"message_log":app.message_log,"look_cursor":app.look_cursor,"running":app.running},
-                "inventory_rows":if app.inventory_open { state.map(|s|tor_client_ascii::inventory_entries(&app,&s.state().observation).iter().take(26).map(|entry|entry.long()).collect::<Vec<_>>()) } else { None },
-                "discovery_rows":app.discovery_rows,
-                "chart_rows":if app.charts_open { Some(app.chart_lines()) } else { None },
-                "stats_rows":if app.stats_open { Some(app.stats_rows()) } else { None },
-                "advancement_open":app.advancement_open,"advancement_rows":app.advancement_rows(),"advancement_command":app.advancement_command,
-                "ability_choices":app.ability_choices,"selected_ability":app.selected_ability,
-                "item_rows":app.item_rows(),"zap_item":app.zap_item(),
-                "identification":app.identification_choice(),"identification_rows":app.identification_rows(),"identification_empty_message":app.identification_empty_message(),
-                "hold_choices":app.hold_choice_offers(),"hold_rows":app.hold_rows(),
-                "supply_selection":app.supply_selection,"supply_rows":app.supply_rows(),
-                "projectile_prompt":app.projectile_prompt(),"weapon_preview":app.weapon_confirmation,"weapon_preview_rows":app.weapon_preview_rows(),
-                "projectile_selection":app.projectile_selection,"projectile_rows":app.projectile_rows(),"projectile_cursor":app.projectile_cursor(),
-                "selected_weapon":app.selected_weapon,"weapon_selection":app.weapon_selection,"weapon_rows":app.weapon_rows(),
-                "status_lines":state.map(|s|tor_client_ascii::status_lines(&app,s)),
-                "rendered_status_lines":state.map(|s|tor_client_ascii::status_lines_at_width(&app,s,(tor_client_ascii::render::WIDTH-48)/16)),
-                "status":app.status,"input_done":done,"native_input_sequence":native_input_sequence,
-                "wizard_command":app.wizard_command,"command_line":app.command_line,
-                "command_rows":app.command_rows(),"note":app.note.as_ref().map(|d|&d.text)});
-            let serde_json::Value::Object(screen_fields) = screen_report else {
-                unreachable!("the screen report is an object literal");
-            };
-            frame_report
-                .as_object_mut()
-                .expect("the frame report is an object literal")
-                .extend(screen_fields);
+            let frame_report = frame_report(
+                &app,
+                FrameFacts {
+                    frame,
+                    presented_unix_ns,
+                    profile,
+                    window_open: window.is_open(),
+                    input_done: done,
+                    native_input_sequence,
+                },
+            );
             let encoded = frame_report.to_string();
             previous_report_encode_ms = encode_started.elapsed().as_secs_f64() * 1000.;
             let write_started = Instant::now();
@@ -873,7 +916,7 @@ fn window_loop(
         if report {
             // Release is a native event-pump boundary, not a newly drawn frame.
             // Emit once per observed press and never repaint or report idle turns.
-            for sequence in native_reports.after_pump(|key| window.is_key_down(key)) {
+            for sequence in native.reports.after_pump(|key| window.is_key_down(key)) {
                 println!(
                     "{}",
                     serde_json::json!({"type":"native_release","sequence":sequence})
