@@ -777,293 +777,24 @@ impl OutcomeFacts {
         legacy_combat_changed: bool,
     ) -> Self {
         let mut facts = Vec::new();
-        fn abilities(view: &OutcomeObservation) -> Option<&[OutcomeAbility]> {
-            view.combat
-                .as_ref()
-                .map(|combat| combat.abilities.as_slice())
-        }
-        let basic = |ability: &ContentRef| {
-            abilities(after)
-                .into_iter()
-                .flatten()
-                .chain(abilities(before).into_iter().flatten())
-                .find(|candidate| candidate.id == ability.id)
-                .is_some_and(|candidate| candidate.basic_attack)
-        };
         if let Some(event) = event {
             facts.push(OutcomeFact::OwnAction { event:event.clone(), name:compact_action_name(event, after),
                 underfoot: matches!(event, Event::Moved { .. }).then(|| after.underfoot.clone()),
-                basic_attack:matches!(event, Event::AbilityStarted { ability, .. } if basic(ability)) });
+                basic_attack:matches!(event, Event::AbilityStarted { ability, .. } if basic_attack(before, after, ability)) });
         }
-        let traps = |view: &OutcomeObservation| -> BTreeMap<TrapTarget, Option<TrapFamily>> {
-            view.visible_cells
-                .iter()
-                .filter_map(|cell| cell.trap.as_ref())
-                .map(|trap| (trap.id, trap.family))
-                .collect()
-        };
-        let old = traps(before);
-        for (id, family) in traps(after) {
-            if matches!(
-                (old.get(&id), family),
-                (None, None) | (None | Some(None), Some(_))
-            ) {
-                facts.push(OutcomeFact::TrapDiscovered { family });
-            }
-        }
-        let old: BTreeMap<_, _> = before
-            .visible_cells
-            .iter()
-            .map(|cell| (&cell.key, cell))
-            .collect();
-        let mut discovered = BTreeSet::new();
-        for cell in &after.visible_cells {
-            if let Some(door) = &cell.door {
-                if old
-                    .get(&cell.key)
-                    .is_some_and(|old| old.wall && old.door.is_none())
-                    && discovered.insert(door.id)
-                {
-                    facts.push(OutcomeFact::DoorDiscovered);
-                }
-            }
-        }
-        if receipts.map_or(
-            before.tick != after.tick && after.motion.as_ref().is_some_and(|m| m.displaced),
-            |r| r.displaced,
-        ) {
-            facts.push(OutcomeFact::Displaced);
-        }
-        if receipts.map_or(
-            before.tick != after.tick && after.motion.as_ref().is_some_and(|m| m.impacted),
-            |r| r.impacted,
-        ) {
-            facts.push(OutcomeFact::Impacted);
-        }
-        let actors = |view: &OutcomeObservation| {
-            let mut actors: BTreeMap<ActorTarget, (String, Position, Option<String>)> =
-                BTreeMap::new();
-            // Match the scene's single referent for a multi-cell/portal body:
-            // lowest cell, then nearest, preserving disclosure order on ties.
-            let rank = |p: Position| {
-                (
-                    p.z,
-                    u64::from(p.x.unsigned_abs())
-                        + u64::from(p.y.unsigned_abs())
-                        + u64::from(p.z.unsigned_abs()),
-                )
-            };
-            for actor in view
-                .visible_actors
-                .iter()
-                .filter(|a| a.id != view.self_target)
-            {
-                let entry = actors
-                    .entry(actor.id)
-                    .or_insert_with(|| (actor.name.clone(), actor.position, actor.asset.clone()));
-                if rank(actor.position) < rank(entry.1) {
-                    *entry = (actor.name.clone(), actor.position, actor.asset.clone());
-                }
-            }
-            actors
-        };
-        let old = actors(before);
-        let new = actors(after);
-        for (actor, (name, position, asset)) in &new {
-            if !old.contains_key(actor) {
-                facts.push(OutcomeFact::Noticed {
-                    actor: *actor,
-                    name: name.clone(),
-                    asset: asset.clone(),
-                    position: *position,
-                });
-            }
-        }
-        for (actor, (name, _, asset)) in &old {
-            if !new.contains_key(actor) {
-                facts.push(OutcomeFact::LostSight {
-                    actor: *actor,
-                    name: name.clone(),
-                    asset: asset.clone(),
-                });
-            }
-        }
-        let doors = |view: &OutcomeObservation| -> BTreeMap<DoorTarget, (bool, String, Position)> {
-            view.visible_cells
-                .iter()
-                .filter_map(|cell| cell.door.as_ref())
-                .map(|door| (door.id, (door.open, door.name.clone(), door.position)))
-                .collect()
-        };
-        let acted = match event {
-            Some(Event::DoorChanged { door, .. }) => Some(*door),
-            _ => None,
-        };
-        let old = doors(before);
-        for (id, (open, name, position)) in doors(after) {
-            if Some(id) != acted && old.get(&id).is_some_and(|(was, _, _)| *was != open) {
-                facts.push(OutcomeFact::DoorChanged {
-                    name,
-                    open,
-                    position,
-                });
-            }
-        }
+        discovery_facts(before, after, &mut facts);
+        motion_facts(before, after, receipts, &mut facts);
+        let old = sightings(before);
+        let new = sightings(after);
+        sighting_facts(&old, &new, &mut facts);
+        door_change_facts(before, after, event, &mut facts);
         if before.ready != after.ready && after.combat.as_ref().is_none_or(|c| !c.status.terminal) {
             facts.push(OutcomeFact::Pacing { ready: after.ready });
         }
-        if let Some(interactions) = &after.interactions {
-            if receipts.is_some()
-                || !(before.tick == after.tick
-                    && before.interactions.as_ref().is_some_and(|old| {
-                        old.completed == interactions.completed
-                            && old.refused == interactions.refused
-                            && old.curse_blocked == interactions.curse_blocked
-                    }))
-            {
-                let name = |id| {
-                    before
-                        .inventory
-                        .iter()
-                        .chain(&after.inventory)
-                        .find(|item| item.id == id)
-                        .map(|item| item.name.clone())
-                };
-                for action in interactions
-                    .completed
-                    .iter()
-                    .skip(receipts.map_or(0, |r| r.completed))
-                {
-                    if let Some((work, item)) = ItemWorkKind::from_action(action) {
-                        facts.push(OutcomeFact::ItemCompleted {
-                            work,
-                            name: name(item),
-                        });
-                    }
-                }
-                for refusal in interactions
-                    .refused
-                    .iter()
-                    .skip(receipts.map_or(0, |r| r.refused))
-                {
-                    facts.push(OutcomeFact::ItemRefused {
-                        reason: refusal.reason,
-                    });
-                }
-                for item in interactions
-                    .curse_blocked
-                    .iter()
-                    .skip(receipts.map_or(0, |r| r.curse))
-                {
-                    facts.push(OutcomeFact::CurseBlocked { name: name(*item) });
-                }
-            }
-        }
-        let mut referenced = BTreeSet::new();
-        if let Some(combat) = &after.combat {
-            if let Some(record) = combat.public_plan.as_ref().filter(|record| {
-                before
-                    .combat
-                    .as_ref()
-                    .and_then(|old| old.public_plan.as_ref())
-                    != Some(*record)
-            }) {
-                facts.push(OutcomeFact::PublicPlan {
-                    record: record.clone(),
-                });
-            }
-            if receipts.is_some() || before.tick != after.tick || legacy_combat_changed {
-                for event in combat.events.iter().skip(receipts.map_or(0, |r| r.combat)) {
-                    let basic_attack = matches!(event, CombatEventView::Ability { caster:Some(caster), ability,.. }
-                        if *caster == after.self_target && basic(ability));
-                    referenced.extend(event_subjects(event));
-                    facts.push(OutcomeFact::Combat {
-                        event: event.clone(),
-                        basic_attack,
-                    });
-                }
-                if let Some(old) = &before.combat {
-                    let dying: BTreeSet<_> = combat
-                        .events
-                        .iter()
-                        .filter_map(|event| match event {
-                            CombatEventView::Died { actor, .. } => Some(*actor),
-                            _ => None,
-                        })
-                        .collect();
-                    for now in &combat.actors {
-                        if old
-                            .actors
-                            .iter()
-                            .find(|was| was.actor == now.actor)
-                            .is_some_and(|was| was.injury != now.injury)
-                            && now.actor != after.self_target
-                            && !dying.contains(&now.actor)
-                        {
-                            referenced.insert(now.actor);
-                            facts.push(OutcomeFact::Injured {
-                                actor: now.actor,
-                                injury: now.injury,
-                            });
-                        }
-                    }
-                }
-                if before.combat.as_ref().is_none_or(|old| {
-                    old.status.hp != combat.status.hp
-                        || old.status.victory != combat.status.victory
-                        || old.status.dead != combat.status.dead
-                        || old.status.sequence != combat.status.sequence
-                        || (combat.status.sequence.is_some()
-                            && old.status.preparation_active != combat.status.preparation_active)
-                }) {
-                    facts.push(OutcomeFact::Status {
-                        status: combat.status.clone(),
-                    });
-                }
-            }
-        }
-        // A new or changed goal is told once; its cell alone changing is not.
-        if let Some(goal) = after
-            .combat
-            .as_ref()
-            .and_then(|combat| combat.goal.as_ref())
-        {
-            let before_goal = before.combat.as_ref().and_then(|old| old.goal.as_ref());
-            if before_goal != Some(goal) {
-                facts.push(OutcomeFact::Goal {
-                    segments: goal.clone(),
-                });
-            }
-        }
-        let actor_names = referenced
-            .into_iter()
-            .filter(|id| *id != after.self_target)
-            .filter_map(|id| {
-                after
-                    .visible_actors
-                    .iter()
-                    .chain(&before.visible_actors)
-                    .find(|actor| actor.id == id && !actor.name.trim().is_empty())
-                    .or_else(|| {
-                        after
-                            .visible_actors
-                            .iter()
-                            .chain(&before.visible_actors)
-                            .find(|actor| actor.id == id)
-                    })
-                    .map(|actor| DisclosedActorName {
-                        actor: id,
-                        name: actor.name.clone(),
-                        asset: actor.asset.clone(),
-                        current_disclosed_appearance: new.get(&id).map(|(name, _, asset)| {
-                            DisclosedActorAppearance {
-                                name: name.clone(),
-                                asset: asset.clone(),
-                            }
-                        }),
-                    })
-            })
-            .collect();
+        interaction_facts(before, after, receipts, &mut facts);
+        let referenced = combat_facts(before, after, receipts, legacy_combat_changed, &mut facts);
+        goal_facts(before, after, &mut facts);
+        let actor_names = disclosed_actor_names(before, after, referenced, &new);
         Self {
             self_target: after.self_target,
             status: after.combat.as_ref().map(|combat| combat.status.clone()),
@@ -1239,6 +970,359 @@ impl OutcomeFacts {
         Ok(())
     }
 }
+/// What a visible actor looks like to the observer: name, position, asset.
+type Sightings = BTreeMap<ActorTarget, (String, Position, Option<String>)>;
+
+/// Whether `ability` is a basic attack in either observation's ability list.
+fn basic_attack(
+    before: &OutcomeObservation,
+    after: &OutcomeObservation,
+    ability: &ContentRef,
+) -> bool {
+    fn abilities(view: &OutcomeObservation) -> Option<&[OutcomeAbility]> {
+        view.combat
+            .as_ref()
+            .map(|combat| combat.abilities.as_slice())
+    }
+    abilities(after)
+        .into_iter()
+        .flatten()
+        .chain(abilities(before).into_iter().flatten())
+        .find(|candidate| candidate.id == ability.id)
+        .is_some_and(|candidate| candidate.basic_attack)
+}
+
+/// Traps and doors that were not visible as such before.
+fn discovery_facts(
+    before: &OutcomeObservation,
+    after: &OutcomeObservation,
+    facts: &mut Vec<OutcomeFact>,
+) {
+    let traps = |view: &OutcomeObservation| -> BTreeMap<TrapTarget, Option<TrapFamily>> {
+        view.visible_cells
+            .iter()
+            .filter_map(|cell| cell.trap.as_ref())
+            .map(|trap| (trap.id, trap.family))
+            .collect()
+    };
+    let old = traps(before);
+    for (id, family) in traps(after) {
+        if matches!(
+            (old.get(&id), family),
+            (None, None) | (None | Some(None), Some(_))
+        ) {
+            facts.push(OutcomeFact::TrapDiscovered { family });
+        }
+    }
+    let old: BTreeMap<_, _> = before
+        .visible_cells
+        .iter()
+        .map(|cell| (&cell.key, cell))
+        .collect();
+    let mut discovered = BTreeSet::new();
+    for cell in &after.visible_cells {
+        if let Some(door) = &cell.door {
+            if old
+                .get(&cell.key)
+                .is_some_and(|old| old.wall && old.door.is_none())
+                && discovered.insert(door.id)
+            {
+                facts.push(OutcomeFact::DoorDiscovered);
+            }
+        }
+    }
+}
+
+/// The observer was displaced or impacted.
+fn motion_facts(
+    before: &OutcomeObservation,
+    after: &OutcomeObservation,
+    receipts: Option<ReceiptSelection>,
+    facts: &mut Vec<OutcomeFact>,
+) {
+    if receipts.map_or(
+        before.tick != after.tick && after.motion.as_ref().is_some_and(|m| m.displaced),
+        |r| r.displaced,
+    ) {
+        facts.push(OutcomeFact::Displaced);
+    }
+    if receipts.map_or(
+        before.tick != after.tick && after.motion.as_ref().is_some_and(|m| m.impacted),
+        |r| r.impacted,
+    ) {
+        facts.push(OutcomeFact::Impacted);
+    }
+}
+
+/// Each visible actor other than the observer, at the cell the scene names it by.
+fn sightings(view: &OutcomeObservation) -> Sightings {
+    let mut actors = Sightings::new();
+    // Match the scene's single referent for a multi-cell/portal body:
+    // lowest cell, then nearest, preserving disclosure order on ties.
+    let rank = |p: Position| {
+        (
+            p.z,
+            u64::from(p.x.unsigned_abs())
+                + u64::from(p.y.unsigned_abs())
+                + u64::from(p.z.unsigned_abs()),
+        )
+    };
+    for actor in view
+        .visible_actors
+        .iter()
+        .filter(|a| a.id != view.self_target)
+    {
+        let entry = actors
+            .entry(actor.id)
+            .or_insert_with(|| (actor.name.clone(), actor.position, actor.asset.clone()));
+        if rank(actor.position) < rank(entry.1) {
+            *entry = (actor.name.clone(), actor.position, actor.asset.clone());
+        }
+    }
+    actors
+}
+
+/// Actors that came into or left view.
+fn sighting_facts(old: &Sightings, new: &Sightings, facts: &mut Vec<OutcomeFact>) {
+    for (actor, (name, position, asset)) in new {
+        if !old.contains_key(actor) {
+            facts.push(OutcomeFact::Noticed {
+                actor: *actor,
+                name: name.clone(),
+                asset: asset.clone(),
+                position: *position,
+            });
+        }
+    }
+    for (actor, (name, _, asset)) in old {
+        if !new.contains_key(actor) {
+            facts.push(OutcomeFact::LostSight {
+                actor: *actor,
+                name: name.clone(),
+                asset: asset.clone(),
+            });
+        }
+    }
+}
+
+/// Doors that opened or closed other than by the observer's own action.
+fn door_change_facts(
+    before: &OutcomeObservation,
+    after: &OutcomeObservation,
+    event: Option<&Event>,
+    facts: &mut Vec<OutcomeFact>,
+) {
+    let doors = |view: &OutcomeObservation| -> BTreeMap<DoorTarget, (bool, String, Position)> {
+        view.visible_cells
+            .iter()
+            .filter_map(|cell| cell.door.as_ref())
+            .map(|door| (door.id, (door.open, door.name.clone(), door.position)))
+            .collect()
+    };
+    let acted = match event {
+        Some(Event::DoorChanged { door, .. }) => Some(*door),
+        _ => None,
+    };
+    let old = doors(before);
+    for (id, (open, name, position)) in doors(after) {
+        if Some(id) != acted && old.get(&id).is_some_and(|(was, _, _)| *was != open) {
+            facts.push(OutcomeFact::DoorChanged {
+                name,
+                open,
+                position,
+            });
+        }
+    }
+}
+
+/// Newly completed, refused and curse-blocked item work.
+fn interaction_facts(
+    before: &OutcomeObservation,
+    after: &OutcomeObservation,
+    receipts: Option<ReceiptSelection>,
+    facts: &mut Vec<OutcomeFact>,
+) {
+    if let Some(interactions) = &after.interactions {
+        if receipts.is_some()
+            || !(before.tick == after.tick
+                && before.interactions.as_ref().is_some_and(|old| {
+                    old.completed == interactions.completed
+                        && old.refused == interactions.refused
+                        && old.curse_blocked == interactions.curse_blocked
+                }))
+        {
+            let name = |id| {
+                before
+                    .inventory
+                    .iter()
+                    .chain(&after.inventory)
+                    .find(|item| item.id == id)
+                    .map(|item| item.name.clone())
+            };
+            for action in interactions
+                .completed
+                .iter()
+                .skip(receipts.map_or(0, |r| r.completed))
+            {
+                if let Some((work, item)) = ItemWorkKind::from_action(action) {
+                    facts.push(OutcomeFact::ItemCompleted {
+                        work,
+                        name: name(item),
+                    });
+                }
+            }
+            for refusal in interactions
+                .refused
+                .iter()
+                .skip(receipts.map_or(0, |r| r.refused))
+            {
+                facts.push(OutcomeFact::ItemRefused {
+                    reason: refusal.reason,
+                });
+            }
+            for item in interactions
+                .curse_blocked
+                .iter()
+                .skip(receipts.map_or(0, |r| r.curse))
+            {
+                facts.push(OutcomeFact::CurseBlocked { name: name(*item) });
+            }
+        }
+    }
+}
+
+/// Combat plan, events, injuries and status; returns the actors they name.
+fn combat_facts(
+    before: &OutcomeObservation,
+    after: &OutcomeObservation,
+    receipts: Option<ReceiptSelection>,
+    legacy_combat_changed: bool,
+    facts: &mut Vec<OutcomeFact>,
+) -> BTreeSet<ActorTarget> {
+    let mut referenced = BTreeSet::new();
+    if let Some(combat) = &after.combat {
+        if let Some(record) = combat.public_plan.as_ref().filter(|record| {
+            before
+                .combat
+                .as_ref()
+                .and_then(|old| old.public_plan.as_ref())
+                != Some(*record)
+        }) {
+            facts.push(OutcomeFact::PublicPlan {
+                record: record.clone(),
+            });
+        }
+        if receipts.is_some() || before.tick != after.tick || legacy_combat_changed {
+            for event in combat.events.iter().skip(receipts.map_or(0, |r| r.combat)) {
+                let basic_attack = matches!(event, CombatEventView::Ability { caster:Some(caster), ability,.. }
+                    if *caster == after.self_target && basic_attack(before, after, ability));
+                referenced.extend(event_subjects(event));
+                facts.push(OutcomeFact::Combat {
+                    event: event.clone(),
+                    basic_attack,
+                });
+            }
+            if let Some(old) = &before.combat {
+                let dying: BTreeSet<_> = combat
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        CombatEventView::Died { actor, .. } => Some(*actor),
+                        _ => None,
+                    })
+                    .collect();
+                for now in &combat.actors {
+                    if old
+                        .actors
+                        .iter()
+                        .find(|was| was.actor == now.actor)
+                        .is_some_and(|was| was.injury != now.injury)
+                        && now.actor != after.self_target
+                        && !dying.contains(&now.actor)
+                    {
+                        referenced.insert(now.actor);
+                        facts.push(OutcomeFact::Injured {
+                            actor: now.actor,
+                            injury: now.injury,
+                        });
+                    }
+                }
+            }
+            if before.combat.as_ref().is_none_or(|old| {
+                old.status.hp != combat.status.hp
+                    || old.status.victory != combat.status.victory
+                    || old.status.dead != combat.status.dead
+                    || old.status.sequence != combat.status.sequence
+                    || (combat.status.sequence.is_some()
+                        && old.status.preparation_active != combat.status.preparation_active)
+            }) {
+                facts.push(OutcomeFact::Status {
+                    status: combat.status.clone(),
+                });
+            }
+        }
+    }
+    referenced
+}
+
+fn goal_facts(
+    before: &OutcomeObservation,
+    after: &OutcomeObservation,
+    facts: &mut Vec<OutcomeFact>,
+) {
+    // A new or changed goal is told once; its cell alone changing is not.
+    if let Some(goal) = after
+        .combat
+        .as_ref()
+        .and_then(|combat| combat.goal.as_ref())
+    {
+        let before_goal = before.combat.as_ref().and_then(|old| old.goal.as_ref());
+        if before_goal != Some(goal) {
+            facts.push(OutcomeFact::Goal {
+                segments: goal.clone(),
+            });
+        }
+    }
+}
+
+/// Names for referenced actors, preferring a non-empty disclosed name.
+fn disclosed_actor_names(
+    before: &OutcomeObservation,
+    after: &OutcomeObservation,
+    referenced: BTreeSet<ActorTarget>,
+    new: &Sightings,
+) -> Vec<DisclosedActorName> {
+    referenced
+        .into_iter()
+        .filter(|id| *id != after.self_target)
+        .filter_map(|id| {
+            after
+                .visible_actors
+                .iter()
+                .chain(&before.visible_actors)
+                .find(|actor| actor.id == id && !actor.name.trim().is_empty())
+                .or_else(|| {
+                    after
+                        .visible_actors
+                        .iter()
+                        .chain(&before.visible_actors)
+                        .find(|actor| actor.id == id)
+                })
+                .map(|actor| DisclosedActorName {
+                    actor: id,
+                    name: actor.name.clone(),
+                    asset: actor.asset.clone(),
+                    current_disclosed_appearance: new.get(&id).map(|(name, _, asset)| {
+                        DisclosedActorAppearance {
+                            name: name.clone(),
+                            asset: asset.clone(),
+                        }
+                    }),
+                })
+        })
+        .collect()
+}
+
 fn event_subjects(event: &CombatEventView) -> Vec<ActorTarget> {
     match event {
         CombatEventView::Effect { caster, .. } => caster.iter().copied().collect(),
@@ -1670,7 +1754,7 @@ mod tests {
     #[test]
     fn anonymous_combat_never_acquires_assets_from_unreferenced_visible_figures() {
         let before = OutcomeObservation::from(&observation());
-        let mut after = before.clone();
+        let mut after = before;
         after.visible_actors.push(OutcomeActorName {
             id: ActorTarget::from_digest([93; 32]),
             name: String::new(),

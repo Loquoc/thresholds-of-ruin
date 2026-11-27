@@ -6,7 +6,8 @@ fn torso_necklaces_use_native_outer_layers_without_equipped_plate() {
     use crate::creatures::outfit::Neck;
     let point_key = |p: Vec3| p.to_array().map(f32::to_bits);
     let triangles = |p: &Parts| {
-        [&p.metal, &p.satin, &p.matte].map(|b| {
+        // Every material layer: jewelry may use gold, glass or metal.
+        p.all_builders().map(|b| {
             let mut m = std::collections::BTreeMap::new();
             for triangle in b.surface_triangles() {
                 *m.entry(triangle.map(point_key)).or_insert(0usize) += 1;
@@ -71,8 +72,11 @@ fn torso_necklaces_use_native_outer_layers_without_equipped_plate() {
             let mut expected = Parts::default();
             accessory_parts::neck_collar(&mut expected, neck, body, &support, &look);
             assert!(
-                expected.metal.surface_triangles().count()
-                    + expected.satin.surface_triangles().count()
+                expected
+                    .all_builders()
+                    .iter()
+                    .map(|b| b.surface_triangles().count())
+                    .sum::<usize>()
                     > 0
             );
             let mut actual = Parts::default();
@@ -97,7 +101,7 @@ fn torso_necklaces_use_native_outer_layers_without_equipped_plate() {
                 triangles(&expected),
                 "actual torso caller must pass its native outer support"
             );
-            for b in [&expected.metal, &expected.satin, &expected.matte] {
+            for b in expected.all_builders() {
                 for t in b.surface_triangles() {
                     for p in [t[0], t[1], t[2], (t[0] + t[1] + t[2]) / 3.0] {
                         assert!(

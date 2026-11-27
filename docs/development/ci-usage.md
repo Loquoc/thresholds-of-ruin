@@ -307,3 +307,36 @@ Rogue-o-matic policy or session modules change. It also recognizes
 `RogueReferencePolicyTests`, which checks the pre-refactor policy against
 in-memory observations and session fixtures. Both changes use the existing
 test jobs, runner limits, dependencies, and artifact retention.
+
+## November 27 mirrored-source test registration
+
+The architecture check gains one planner owner class in
+`scripts/ci_test_contracts.py`: `MirroredSourceTests` in the existing
+`test_check_architecture` module. Reviewed its source: it compares two pairs of
+checked-in Rust files byte-for-byte and writes small fixture files into
+temporary directories. It starts no process, server, renderer or benchmark,
+reaches no network destination and produces no artifact. No workflow commands,
+runners, triggers, permissions, dependencies, caches, retention or budgets
+change. Updated only the reviewed `ci_test_contracts.py` hash after this source
+review.
+
+## November 27 failure details in the job log
+
+`scripts/verify.py` now prints a bounded excerpt of each failed unittest after
+its summary: the failure header and the last 40 traceback lines of at most five
+tests, with runs of identical lines collapsed. Reviewed the change: it reads
+the failed step's log that the same run already wrote, and writes only to
+stdout, so the excerpt appears in the hosted job log. It starts no process,
+reaches no network destination, and adds no artifact, upload, cache, runner,
+trigger, permission or dependency. `summary.json` receipts keep their schema.
+Updated only the reviewed `verify.py` hash after this source review.
+
+## November 27 disk guards
+
+`scripts/verify.py` adds a `No space left on device` environment hint and, before
+any build, prints a warning when the repository's disk has less than 10 GB free.
+Reviewed the change: the check calls `shutil.disk_usage` on the checkout and
+writes only to stdout. The hint matches text already in the failed step's log.
+Neither changes a command, exit status, artifact, upload, runner, trigger,
+permission, dependency or receipt. Updated only the reviewed `verify.py` hash
+after this source review.

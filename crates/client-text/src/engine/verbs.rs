@@ -1136,6 +1136,172 @@ fn transitive(
     }
 }
 
+/// "Take": bind ground items, and say what "take all" leaves behind, or ask
+/// before taking only what it would leave.
+fn take_meaning(
+    direct: &NounPhrase,
+    quantity: Option<u64>,
+    scene: &Scene,
+    referents: &mut Referents,
+) -> Interpretation {
+    let left = left_behind(direct, scene, Domain::Ground);
+    let taken = bind(direct, scene, referents, Domain::Ground, &|r| {
+        take(r, quantity)
+    });
+    let names: Vec<String> = left
+        .iter()
+        .filter_map(|k| scene.get(*k))
+        .map(Referent::the)
+        .collect();
+    if names.is_empty() {
+        return taken;
+    }
+    let them = if left.len() > 1 { "them" } else { "it" };
+    match taken {
+        // Say what was left, so nothing is skipped silently.
+        Interpretation::Goals(_) => Interpretation::Sequence(vec![
+            taken,
+            say(format!(
+                "You leave {} where {} {}.",
+                prose::and_list(&names),
+                if left.len() > 1 { "they" } else { "it" },
+                if left.len() > 1 { "lie" } else { "lies" }
+            )),
+        ]),
+        // Only what's left is here: ask before taking it.
+        Interpretation::Refuse(_) => {
+            let goals: Vec<Goal> = left
+                .iter()
+                .filter_map(|k| match k {
+                    Key::Item(item) => Some(Goal::Take {
+                        item: *item,
+                        quantity: None,
+                    }),
+                    _ => None,
+                })
+                .collect();
+            let mut kinds: Vec<String> = Vec::new();
+            for class in left.iter().filter_map(|k| scene.get(*k)?.class) {
+                let kind = super::settings::class_name(class).to_owned();
+                if !kinds.contains(&kind) {
+                    kinds.push(kind);
+                }
+            }
+            Interpretation::Confirm {
+                prompt: format!(
+                    "There's only {} here, and take all leaves {} alone. Take {them} anyway?",
+                    prose::and_list(&names),
+                    prose::and_list(&kinds)
+                ),
+                then: Box::new(Interpretation::Goals(goals)),
+            }
+        }
+        other => other,
+    }
+}
+
+/// Wear, wield, remove, drink, eat, light or extinguish one carried item,
+/// picking up a suitable item first when it is on the ground.
+fn use_item_meaning(
+    verb: Verb,
+    direct: &NounPhrase,
+    quantity: Option<u64>,
+    scene: &Scene,
+    referents: &mut Referents,
+) -> Interpretation {
+    let operation = match verb {
+        Verb::Remove => ItemOperation::Unequip,
+        Verb::Drink => ItemOperation::Drink,
+        Verb::Eat => ItemOperation::Eat,
+        Verb::Light => ItemOperation::Ignite,
+        Verb::Extinguish => ItemOperation::Extinguish,
+        _ => ItemOperation::Equip,
+    };
+    bind(direct, scene, referents, Domain::Carried, &|r| {
+        if quantity.is_some_and(|q| q > 1) {
+            return refuse("Use one item at a time.");
+        }
+        match r.key {
+            // Picked up first, then used, when it's the kind of thing
+            // the verb is for.
+            Key::Item(item)
+                if !r.carried
+                    && operation != ItemOperation::Unequip
+                    && r.class.is_some_and(|c| suits(operation, c)) =>
+            {
+                Interpretation::Sequence(vec![
+                    goal(Goal::Take {
+                        item,
+                        quantity: (r.quantity > 1).then_some(1),
+                    }),
+                    Interpretation::Reread(format!("{} my {}", verb.as_str(), phrase(direct))),
+                ])
+            }
+            Key::Item(item) => match item_action(&scene.state.observation, item, operation) {
+                Ok(_) => goal(Goal::UseItem { item, operation }),
+                Err(reason) => refuse(reason),
+            },
+            _ => refuse(format!("You can't {} {}.", verb.as_str(), r.the())),
+        }
+    })
+}
+
+/// Attack a figure, optionally "with" a named weapon.
+fn attack_meaning(
+    direct: &NounPhrase,
+    weapon: Option<(Preposition, &NounPhrase)>,
+    scene: &Scene,
+    referents: &mut Referents,
+) -> Interpretation {
+    let selected = if let Some((Preposition::With, weapon)) = weapon {
+        match tor_client_common::weapons::selection_from_text(&scene.state.observation, &weapon.raw)
+        {
+            Ok(selected) => Some(selected),
+            Err(reason) => return refuse(reason),
+        }
+    } else {
+        None
+    };
+    bind(
+        direct,
+        scene,
+        referents,
+        Domain::Figures,
+        &|r| match r.key {
+            Key::Actor(target) => match selected {
+                None => goal(Goal::Attack { target }),
+                Some(weapon) => {
+                    match tor_client_common::abilities::basic_action_with_weapon(
+                        &scene.state.observation,
+                        target,
+                        weapon,
+                    ) {
+                        Ok(Action::UseAbility {
+                            id,
+                            invocation,
+                            supplies,
+                        }) => goal(Goal::UseAbility {
+                            ability: id,
+                            invocation,
+                            supplies,
+                        }),
+                        Ok(_) => unreachable!("basic attack is an ability"),
+                        Err(reason) => refuse(reason),
+                    }
+                }
+            },
+            Key::Me => refuse("You'd rather not hurt yourself."),
+            _ if r.class == Some(ItemClass::Corpse) || r.name.ends_with(" corpse") => {
+                refuse(format!(
+                    "The {} is already dead.",
+                    r.name.trim_end_matches(" corpse")
+                ))
+            }
+            _ => refuse(format!("Attacking {} would achieve nothing.", r.the())),
+        },
+    )
+}
+
 fn transitive_meaning(
     verb: Verb,
     direct: &NounPhrase,
@@ -1251,60 +1417,7 @@ fn transitive_meaning(
             })
         }),
         (Verb::Take, None | Some((Preposition::From | Preposition::Off, _))) => {
-            let left = left_behind(direct, scene, Domain::Ground);
-            let taken = bind(direct, scene, referents, Domain::Ground, &|r| {
-                take(r, quantity)
-            });
-            let names: Vec<String> = left
-                .iter()
-                .filter_map(|k| scene.get(*k))
-                .map(Referent::the)
-                .collect();
-            if names.is_empty() {
-                return taken;
-            }
-            let them = if left.len() > 1 { "them" } else { "it" };
-            match taken {
-                // Say what was left, so nothing is skipped silently.
-                Interpretation::Goals(_) => Interpretation::Sequence(vec![
-                    taken,
-                    say(format!(
-                        "You leave {} where {} {}.",
-                        prose::and_list(&names),
-                        if left.len() > 1 { "they" } else { "it" },
-                        if left.len() > 1 { "lie" } else { "lies" }
-                    )),
-                ]),
-                // Only what's left is here: ask before taking it.
-                Interpretation::Refuse(_) => {
-                    let goals: Vec<Goal> = left
-                        .iter()
-                        .filter_map(|k| match k {
-                            Key::Item(item) => Some(Goal::Take {
-                                item: *item,
-                                quantity: None,
-                            }),
-                            _ => None,
-                        })
-                        .collect();
-                    let mut kinds: Vec<String> = Vec::new();
-                    for class in left.iter().filter_map(|k| scene.get(*k)?.class) {
-                        let kind = super::settings::class_name(class).to_owned();
-                        if !kinds.contains(&kind) {
-                            kinds.push(kind);
-                        }
-                    }
-                    Interpretation::Confirm {
-                        prompt: format!(
-                            "There's only {} here, and take all leaves {} alone. Take {them} anyway?",
-                            prose::and_list(&names),
-                            prose::and_list(&kinds)
-                        ),
-                        then: Box::new(Interpretation::Goals(goals)),
-                    }
-                }
-                other => other,
-            }
+            take_meaning(direct, quantity, scene, referents)
         }
         (Verb::Drop, None | Some((Preposition::On | Preposition::In, _))) => {
             bind(direct, scene, referents, Domain::Carried, &|r| {
@@ -1320,48 +1433,7 @@ fn transitive_meaning(
             | Verb::Light
             | Verb::Extinguish,
             _,
-        ) => {
-            let operation = match verb {
-                Verb::Remove => ItemOperation::Unequip,
-                Verb::Drink => ItemOperation::Drink,
-                Verb::Eat => ItemOperation::Eat,
-                Verb::Light => ItemOperation::Ignite,
-                Verb::Extinguish => ItemOperation::Extinguish,
-                _ => ItemOperation::Equip,
-            };
-            bind(direct, scene, referents, Domain::Carried, &|r| {
-                if quantity.is_some_and(|q| q > 1) {
-                    return refuse("Use one item at a time.");
-                }
-                match r.key {
-                    // Picked up first, then used, when it's the kind of thing
-                    // the verb is for.
-                    Key::Item(item)
-                        if !r.carried
-                            && operation != ItemOperation::Unequip
-                            && r.class.is_some_and(|c| suits(operation, c)) =>
-                    {
-                        Interpretation::Sequence(vec![
-                            goal(Goal::Take {
-                                item,
-                                quantity: (r.quantity > 1).then_some(1),
-                            }),
-                            Interpretation::Reread(format!(
-                                "{} my {}",
-                                verb.as_str(),
-                                phrase(direct)
-                            )),
-                        ])
-                    }
-                    Key::Item(item) => match item_action(&scene.state.observation, item, operation)
-                    {
-                        Ok(_) => goal(Goal::UseItem { item, operation }),
-                        Err(reason) => refuse(reason),
-                    },
-                    _ => refuse(format!("You can't {} {}.", verb.as_str(), r.the())),
-                }
-            })
-        }
+        ) => use_item_meaning(verb, direct, quantity, scene, referents),
         (Verb::Put, Some((Preposition::On | Preposition::In, place)))
             if place
                 .head
@@ -1379,57 +1451,7 @@ fn transitive_meaning(
             let open = verb == Verb::Open;
             bind(direct, scene, referents, Domain::Doors, &|r| door(r, open))
         }
-        (Verb::Attack, weapon) => {
-            let selected = if let Some((Preposition::With, weapon)) = weapon {
-                match tor_client_common::weapons::selection_from_text(
-                    &scene.state.observation,
-                    &weapon.raw,
-                ) {
-                    Ok(selected) => Some(selected),
-                    Err(reason) => return refuse(reason),
-                }
-            } else {
-                None
-            };
-            bind(
-                direct,
-                scene,
-                referents,
-                Domain::Figures,
-                &|r| match r.key {
-                    Key::Actor(target) => match selected {
-                        None => goal(Goal::Attack { target }),
-                        Some(weapon) => {
-                            match tor_client_common::abilities::basic_action_with_weapon(
-                                &scene.state.observation,
-                                target,
-                                weapon,
-                            ) {
-                                Ok(Action::UseAbility {
-                                    id,
-                                    invocation,
-                                    supplies,
-                                }) => goal(Goal::UseAbility {
-                                    ability: id,
-                                    invocation,
-                                    supplies,
-                                }),
-                                Ok(_) => unreachable!("basic attack is an ability"),
-                                Err(reason) => refuse(reason),
-                            }
-                        }
-                    },
-                    Key::Me => refuse("You'd rather not hurt yourself."),
-                    _ if r.class == Some(ItemClass::Corpse) || r.name.ends_with(" corpse") => {
-                        refuse(format!(
-                            "The {} is already dead.",
-                            r.name.trim_end_matches(" corpse")
-                        ))
-                    }
-                    _ => refuse(format!("Attacking {} would achieve nothing.", r.the())),
-                },
-            )
-        }
+        (Verb::Attack, weapon) => attack_meaning(direct, weapon, scene, referents),
         (Verb::Go, _) if exit(direct, scene).is_some() => {
             let key = exit(direct, scene).expect("checked");
             if crate::narrative::here_key(scene.state) == Some(key) {

@@ -322,7 +322,7 @@ fn map_pages_enforce_record_counts_ordinals_and_exact_continuations() {
     last.cells = vec![cell(512)];
     last.next = None;
     assert!(last.validate().is_ok());
-    let mut too_many = first.clone();
+    let mut too_many = first;
     too_many.cells.push(cell(512));
     too_many.next = None;
     assert!(too_many.validate().is_err());

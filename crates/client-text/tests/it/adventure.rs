@@ -584,7 +584,7 @@ fn many_verbs_share_an_action_and_the_executor_decides_whether_to_walk() {
     );
     assert_eq!(said("read tablet", &s), "A weathered slab of stone.");
     // A portal's second view of the same thing is not a second thing.
-    let mut twice = s.clone();
+    let mut twice = s;
     let mut repeated = twice.observation.ground_items[1].clone();
     repeated.position.x = -4;
     twice.observation.ground_items.push(repeated);
@@ -971,7 +971,7 @@ fn session_commands_and_naming_are_tools() {
         meaning("pace 100", &s),
         Interpretation::Tool(Input::Pace(Some(100)))
     );
-    let mut named = s.clone();
+    let mut named = s;
     named.observation.places.push(PlaceView {
         key: "cell-1".into(),
         name: "Hallowed Crypt".into(),

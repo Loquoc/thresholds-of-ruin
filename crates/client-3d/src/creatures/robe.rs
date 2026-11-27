@@ -628,7 +628,7 @@ mod art_contract_tests {
             VertexAttributeValues::Float32x4(values) => values.clone(),
             _ => panic!("robe pigments"),
         };
-        let mut copied = native.clone();
+        let mut copied = native;
         copied.outfit = Some(recipe);
         let (_, copied_rig, _, copied_meshes) = super::super::rogue_tests::spawn_one(&copied);
         let copied_robe = copied_rig

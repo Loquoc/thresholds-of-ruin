@@ -208,7 +208,7 @@ fn valid_world_bounds_and_chamber_changes_reject_but_lawful_solidity_is_not_sour
         .register_archive_checked(changed_scope)
         .unwrap();
     reject(&package, &world, &changed_registry);
-    let mut wall = world.clone();
+    let mut wall = world;
     assert!(!wall.is_wall(loc(1, [0, 0, 0])));
     wall.set_wall(loc(1, [0, 0, 0]), true).unwrap();
     check(&package, &wall, &registry)
@@ -258,7 +258,7 @@ fn lawful_added_missing_rotated_exits_and_foreign_wall_do_not_invent_source_even
         )
         .unwrap();
     check(&package, &added, &registry).expect("structurally valid captured World is authoritative");
-    let mut foreign_wall = world.clone();
+    let mut foreign_wall = world;
     foreign_wall.set_wall(loc(2, [0, 2, 0]), true).unwrap();
     check(&package, &foreign_wall, &registry)
         .expect("structurally valid captured World is authoritative");

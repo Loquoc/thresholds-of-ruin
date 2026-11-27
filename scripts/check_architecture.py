@@ -1,4 +1,5 @@
-"""Enforce reviewed workspace edges, including optional/build/dev dependencies."""
+"""Enforce reviewed workspace edges, including optional/build/dev dependencies,
+and keep deliberately mirrored sources identical."""
 
 import argparse
 import json
@@ -28,6 +29,14 @@ ALLOWED = {
 
 ALLOWED_DEV = {"tor-server": {"tor-client-common", "tor-client-ascii", "tor-test-support"}}
 
+# The wire and simulation crates may not depend on each other, yet both validate
+# the same item identity and knowledge syntax. Each keeps its own types from one
+# shared text: edit both copies together.
+MIRRORED_SOURCES = (
+    ("crates/protocol/src/item_identity.rs", "crates/simulation/src/item_identity.rs"),
+    ("crates/protocol/src/item_knowledge.rs", "crates/simulation/src/item_knowledge.rs"),
+)
+
 
 def violations(metadata):
     members = set(metadata["workspace_members"])
@@ -51,6 +60,19 @@ def violations(metadata):
     return sorted(set(errors))
 
 
+def mirror_violations(root, pairs=MIRRORED_SOURCES):
+    errors = []
+    for original, mirror in pairs:
+        source, copy = Path(root) / original, Path(root) / mirror
+        if not copy.is_file():
+            errors.append(f"{mirror} is missing; it mirrors {original}")
+        elif not source.is_file():
+            errors.append(f"{original} is missing; it mirrors {mirror}")
+        elif source.read_bytes() != copy.read_bytes():
+            errors.append(f"{mirror} differs from its mirror {original}")
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cargo", default="cargo", help="Path to the Cargo executable")
@@ -68,6 +90,11 @@ def main():
     if errors:
         print("Dependency boundary violations:\n" + "\n".join(errors), file=sys.stderr)
         return 1
+    if not args.manifest_path:
+        drift = mirror_violations(root)
+        if drift:
+            print("Mirrored source drift:\n" + "\n".join(drift), file=sys.stderr)
+            return 1
     print("Workspace dependency boundaries passed.")
     return 0
 

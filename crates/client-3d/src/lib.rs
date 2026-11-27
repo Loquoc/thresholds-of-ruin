@@ -133,7 +133,10 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     let mut touch_controls = cfg!(target_os = "android");
     let mut args = arguments.into_iter();
     while let Some(arg) = args.next() {
-        let mut value = || args.next().ok_or(format!("Missing value for {arg}"));
+        let mut value = || {
+            args.next()
+                .ok_or_else(|| format!("Missing value for {arg}"))
+        };
         match arg.as_str() {
             "--connect" => connect = Some(value()?.parse()?),
             "--actor" => actor = ActorId(value()?.parse()?),

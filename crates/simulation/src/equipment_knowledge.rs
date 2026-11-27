@@ -456,10 +456,10 @@ mod tests {
             serde_json::from_value::<EquipmentFact>(serde_json::json!([1, null, true, null]))
                 .is_err()
         );
-        assert!(serde_json::from_value::<Record>(
-            serde_json::json!({"facts":[fact.clone(),fact.clone()]})
-        )
-        .is_err());
+        assert!(
+            serde_json::from_value::<Record>(serde_json::json!({"facts":[fact.clone(),fact]}))
+                .is_err()
+        );
         let round: Record = serde_json::from_value(serde_json::json!({"facts":[fact]})).unwrap();
         assert_eq!(round.facts.curse(ItemId(1)), Some(true));
         assert_eq!(round.facts.remembered_condition(ItemId(1)), None);

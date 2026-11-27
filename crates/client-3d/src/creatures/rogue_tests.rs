@@ -1878,7 +1878,12 @@ fn check_generated_composition(case: composition_cases::Case) {
     if dressed.style.ghostly() {
         return;
     }
-    let metal = library.materials.metal().clone();
+    // Fittings render as metal, or as gold since jewellery gained its own
+    // material; either counts as metallic here.
+    let metallic = [
+        library.materials.metal().clone(),
+        library.materials.gold().clone(),
+    ];
     let steel_on = |joint: J| {
         let e = rig.joint(joint).expect("limb");
         world
@@ -1888,7 +1893,7 @@ fn check_generated_composition(case: composition_cases::Case) {
             .any(|child| {
                 world
                     .get::<MeshMaterial3d<StandardMaterial>>(child)
-                    .is_some_and(|m| m.0 == metal)
+                    .is_some_and(|m| metallic.contains(&m.0))
             })
     };
     if case.equipment.body.is_some() {
@@ -2776,7 +2781,7 @@ fn redressing_reuses_the_head_and_hair_the_outfit_leaves_alone() {
             ..Default::default()
         }),
     );
-    let mut current = base.clone();
+    let mut current = base;
     let mut dress = |wardrobe: Wardrobe| {
         current = current.clone().dressed(wardrobe);
         let parent = world.spawn(Transform::default()).id();

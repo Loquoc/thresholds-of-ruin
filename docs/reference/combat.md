@@ -185,7 +185,7 @@ Breath attacks still specify their own reach, checks, effects and costs.
 
 Sources: [check arithmetic](../../crates/simulation/src/attributes.rs#L321-L347),
 [dice kernel](../../crates/simulation/src/dice.rs),
-[defense derivation](../../crates/simulation/src/creatures/derive.rs#L2351-L2376).
+[defense derivation](../../crates/simulation/src/creatures/derive.rs#L2227-L2252).
 
 ## Primary, exposure and effect ordering
 
@@ -217,7 +217,7 @@ persistent state according to their effect contract rather than performing a
 second generic condition admission.
 
 Sources: [branch and resistance kernel](../../crates/simulation/src/abilities/resolve.rs#L1265-L1382),
-[ordered effects](../../crates/simulation/src/abilities/resolve.rs#L1537-L1685),
+[ordered effects](../../crates/simulation/src/abilities/resolve.rs#L1502-L1801),
 [payload resistance tests](../../crates/simulation/src/abilities/payload_resistance_tests.rs).
 
 ## Damage composition and protection
@@ -451,7 +451,7 @@ remain [creature-rule contracts](creature-rules.md#health-recovery).
 Sources: [duration derivation](../../crates/simulation/src/creatures/derive.rs#L1912-L1928),
 [action-duration scaling](../../crates/simulation/src/action_duration.rs),
 [cost lifecycle](../../crates/simulation/src/costs.rs#L244-L355),
-[interruption](../../crates/simulation/src/lifecycle.rs#L124-L205),
+[interruption](../../crates/simulation/src/lifecycle.rs#L143-L224),
 [completion debt](../../crates/simulation/src/sequence.rs#L390-L421),
 [default resources](../../crates/simulation/data/default-ruleset.toml).
 
@@ -487,7 +487,7 @@ base return, with persisted pending return if a living actor cannot fit or retai
 blocking package-HD losses. Future
 temporary-form snapshot/reversion rules must not be substituted for this behavior.
 
-Sources: [death publication](../../crates/simulation/src/lifecycle.rs#L1638-L1726),
+Sources: [death publication](../../crates/simulation/src/lifecycle.rs#L1695-L1783),
 [earned growth](../../crates/simulation/src/earned_growth.rs),
 [fall attribution witnesses](../../crates/simulation/src/abilities/movement_tests/fall_credit.rs),
 [Polymorph transition](../../crates/simulation/src/polymorph.rs),

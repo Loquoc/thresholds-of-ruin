@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn saved_descriptors_have_required_named_fields_numeric_lengths_and_one_row() {
         let row = serde_json::json!({"media_type":"text","byte_len":3,"sha256":"a".repeat(64)});
-        let json = serde_json::json!([row.clone()]);
+        let json = serde_json::json!([row]);
         let decoded: Stored = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(decoded.0[0].byte_len, 3);
         assert_eq!(serde_json::to_value(decoded).unwrap(), json);

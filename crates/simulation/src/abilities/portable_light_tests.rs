@@ -321,7 +321,7 @@ fn torch_strict_item_policy_and_runtime_fuel_reject_missing_and_invalid_shapes()
         bad["fuel"] = fuel;
         assert!(serde_json::from_value::<crate::Item>(bad).is_err());
     }
-    let mut bad = encoded.clone();
+    let mut bad = encoded;
     bad["fuel"] = serde_json::json!({"remaining":1001,"lit":false});
     let bad: crate::Item = serde_json::from_value(bad).unwrap();
     assert!(!game.item_state_valid(item, &bad));

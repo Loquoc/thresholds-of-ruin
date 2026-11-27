@@ -654,7 +654,7 @@ fn script_state_survives_checkpoint_and_rebuilds_its_index() {
         game.next_script_timer_tick()
     );
     // The restored game needs its host again; then it behaves identically.
-    restored.set_hook_host(HookPort::new(fake.clone()));
+    restored.set_hook_host(HookPort::new(fake));
     game.act(actor, Action::Wait).unwrap();
     restored.act(actor, Action::Wait).unwrap();
     assert_eq!(restored, game);

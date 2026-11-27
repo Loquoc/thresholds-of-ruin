@@ -456,11 +456,7 @@ mod tests {
         assert!(app.world().get::<RenderLayers>(ready).is_none());
         let second = app
             .world_mut()
-            .spawn((
-                Mesh3d(mesh.clone()),
-                RenderLayers::layer(4),
-                ChildOf(outside),
-            ))
+            .spawn((Mesh3d(mesh), RenderLayers::layer(4), ChildOf(outside)))
             .id();
         app.world_mut().resource_mut::<Selection>().0 = Some(outside);
         app.update();

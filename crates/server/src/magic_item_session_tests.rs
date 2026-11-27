@@ -678,7 +678,7 @@ fn encoded_equipment_curse_identify_enchant_retry_and_reopen_preserve_exact_fact
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("equipment.db");
     let fixture = equipment_scenario();
-    let mut wire = Wire::new(Engine::open(&path, fixture.clone()).unwrap());
+    let mut wire = Wire::new(Engine::open(&path, fixture).unwrap());
     let initial = wire.snapshot(OWNER);
     let interactions = initial.state.observation.interactions.as_ref().unwrap();
     let worn = interactions

@@ -72,7 +72,10 @@ impl ShirtAppearance {
     /// This replaces the costume's inner torso/sleeves, not its legs, hair,
     /// cloak or independent armor. Armor composition happens afterwards.
     pub fn compose(self, mut base: Outfit, woman: bool) -> Outfit {
-        super::slots::apply_preset_conflicts(&mut base, super::slots::GearPiece::Shirt(self).claims());
+        super::slots::apply_preset_conflicts(
+            &mut base,
+            super::slots::GearPiece::Shirt(self).claims(),
+        );
         let color = self.color(woman);
         base.tunic = color;
         base.collar_edge = color * 0.85;

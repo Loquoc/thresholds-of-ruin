@@ -331,8 +331,8 @@ fn discovery_records_and_operands_reject_aliases_duplicates_and_impossible_flags
         let mut de = serde_json::Deserializer::from_str(&text);
         read_discovery(&mut de).is_ok()
     };
-    assert!(read(serde_json::json!([valid.clone()])));
-    assert!(!read(serde_json::json!([valid.clone(), valid.clone()])));
+    assert!(read(serde_json::json!([valid])));
+    assert!(!read(serde_json::json!([valid.clone(), valid])));
     for (key, value) in [
         ("attempted", serde_json::json!(false)),
         ("family", serde_json::json!(true)),

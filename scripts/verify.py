@@ -32,6 +32,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -114,7 +115,12 @@ ENVIRONMENT_HINTS = {
     "SetCursorPos": "native input was denied: rerun with interactive desktop access",
     "Native click must hit the game window": "another window covered the game window during a native click",
     "A native Windows desktop is required": "no interactive desktop",
+    "No space left on device": "the disk is full: remove stale build caches such as target/*/incremental and rerun",
 }
+
+# Below this much free space a debug build plus process-test saves can fill the
+# disk mid-run, which then fails as unrelated test errors.
+LOW_DISK_GB = 10
 
 
 def workspace(metadata):
@@ -274,6 +280,14 @@ def jobs_for_memory(free_gb, cpus):
     return max(1, min(jobs, cpus or 1))
 
 
+def low_disk_warning(free_gb):
+    """A preflight warning when the build disk is nearly full, else None."""
+    if free_gb >= LOW_DISK_GB:
+        return None
+    return (f"warning: only {free_gb:.1f} GB free on the build disk; a full disk fails builds and "
+            "process tests mid-run. Free space first, for example stale target/*/incremental caches.")
+
+
 def free_memory_gb():
     if os.name == "nt":
         out = subprocess.run(
@@ -302,6 +316,46 @@ def running_builds():
 def python_failures(log):
     """unittest ids of failed or errored tests, for a targeted rerun."""
     return sorted(set(re.findall(r"^(?:FAIL|ERROR): \S+ \(([\w.]+)\)", log, re.MULTILINE)))
+
+
+FAILURE_DETAIL_TESTS = 5
+FAILURE_DETAIL_LINES = 40
+_FAILURE_HEADER = re.compile(r"^(?:FAIL|ERROR): \S+ \([\w.]+\)$")
+_SEPARATOR = re.compile(r"^(?:={20,}|-{20,})$")
+
+
+def python_failure_excerpts(log, *, tests=FAILURE_DETAIL_TESTS, lines=FAILURE_DETAIL_LINES):
+    """The traceback tail of each failed or errored unittest, bounded for a job log.
+
+    A CI job log shows only the step summary; the full log is an uploaded
+    artifact. Each excerpt keeps the failure header and the last `lines` lines
+    of its traceback, where the assertion is. A run of identical lines, such as
+    X server warnings interleaved from native processes, prints once with its
+    count.
+    """
+    rows = log.splitlines()
+    starts = [index for index, row in enumerate(rows) if _FAILURE_HEADER.match(row)]
+    excerpts = []
+    for index in starts[:tests]:
+        body = []
+        for row in rows[index + 1:]:
+            if _SEPARATOR.match(row):
+                if body:
+                    break
+                continue  # The rule directly under the header.
+            if body and body[-1][0] == row:
+                body[-1][1] += 1
+            else:
+                body.append([row, 1])
+        text = [row if count == 1 else f"{row}  [repeated {count} times]" for row, count in body]
+        while text and not text[-1].strip():
+            text.pop()
+        omitted = len(text) - lines
+        excerpt = [rows[index]] + ([f"  ... {omitted} lines omitted"] if omitted > 0 else []) + text[-lines:]
+        excerpts.append("\n".join(excerpt))
+    if len(starts) > tests:
+        excerpts.append(f"... {len(starts) - tests} more failed tests; see the step log")
+    return excerpts
 
 
 def environment_hint(log):
@@ -847,6 +901,9 @@ def main(argv=None):
                  for name, command, env in steps]
     selection = "complete workspace" if args.ci_profile else f"{len(paths)} changed paths since {args.base}"
     print(f"tier {label}; {selection}; jobs {jobs}; test workers {workers} ({free:.1f} GB free)")
+    disk = low_disk_warning(shutil.disk_usage(ROOT).free / 1024 ** 3)
+    if disk:
+        print(disk, flush=True)
     if unknown:
         print("unmapped paths select everything: " + ", ".join(unknown[:5]) + (" ..." if len(unknown) > 5 else ""))
     print("packages: " + (", ".join(sorted(affected)) or "none"))
@@ -945,6 +1002,13 @@ def main(argv=None):
     evidence["evidence_origin"] = "fresh"
     (logs / "summary.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     print(summary)
+    for result in results:
+        if result["code"] in (0, None) or result["log"] is None \
+                or python_test_prefix(commands[result["step"]]) is None:
+            continue
+        for excerpt in python_failure_excerpts(
+                Path(result["log"]).read_text(encoding="utf-8", errors="replace")):
+            print(f"--- {result['step']} failure detail ---\n{excerpt}")
     return 1 if failed else 0
 
 

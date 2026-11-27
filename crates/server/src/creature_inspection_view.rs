@@ -723,7 +723,7 @@ pub(crate) fn inspect(
                 attack: attack_view(attack, Some(rules)),
             },
             s::attacks::SelectedMeleeAttack::Natural(attack) => p::SelectedMeleeView::Natural {
-                attack: natural_attack_view(attack, selected_source.clone(), rules),
+                attack: natural_attack_view(attack, selected_source, rules),
             },
         },
         attribute: attribute(selected.attribute),

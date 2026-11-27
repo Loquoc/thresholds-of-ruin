@@ -362,6 +362,181 @@ mod saved_boundaries {
     }
 }
 
+/// A rewind boundary's record must follow exactly from the previous boundary,
+/// after replaying the private-only records between them.
+fn check_boundary_transition(
+    record: &Record,
+    previous: &Boundary,
+    gap: &[Record],
+    game: &Game,
+    records_by_id: &BTreeMap<EntryId, &Record>,
+) -> Result<(), Failure> {
+    let recovered = if !gap.is_empty() {
+        let mut preceding = previous.game.clone();
+        for hidden in gap {
+            replay_private_boundary(&mut preceding, hidden)?;
+        }
+        Some(preceding)
+    } else {
+        None
+    };
+    let preceding = recovered.as_ref().unwrap_or(&previous.game);
+    if !record.valid_action_resolution_at(preceding)
+        || record.before_tick != preceding.tick()
+        || record.after_tick != game.tick()
+    {
+        return Err(invalid_archive());
+    }
+    if !record.entry.content.rewindable() {
+        let mut expected = preceding.clone();
+        replay_private_boundary(&mut expected, record)?;
+        if expected != *game {
+            return Err(invalid_archive());
+        }
+    }
+    let same_branch = previous
+        .id
+        .as_ref()
+        .and_then(|id| records_by_id.get(id))
+        .is_none_or(|before| before.entry.branch == record.entry.branch);
+    let changes =
+        super::intention::derive_intention_changes(preceding, game, &record.entry, same_branch);
+    if changes.suspensions != record.entry.intention_suspensions {
+        return Err(invalid_archive());
+    }
+    if changes.ends != record.entry.intention_ends {
+        return Err(invalid_archive());
+    }
+    Ok(())
+}
+
+/// A boundary that resolves an intention leaves none pending, and one that
+/// admits an intention holds exactly that queued work.
+fn check_boundary_intentions(record: &Record, game: &Game) -> Result<(), Failure> {
+    if record.resolution().is_some()
+        && game
+            .pending_intention(SimActor(record.entry.actor.0))
+            .is_some()
+    {
+        return Err(invalid_archive());
+    }
+    if let Some((intention, work)) = record.entry.content.admission() {
+        if game
+            .pending_intention(SimActor(record.entry.actor.0))
+            .is_none_or(|queued| {
+                queued.id != intention
+                    || queued.origin != work.origin()
+                    || !work.matches(queued.work.clone())
+                    || match &record.entry.content {
+                        JournalContent::IntentionAdmitted { human_operands, .. } => {
+                            queued.human_operands.as_ref() != Some(human_operands)
+                        }
+                        _ => queued.human_operands.is_some(),
+                    }
+                    || queued.state != tor_simulation::IntentionState::Queued
+            })
+        {
+            return Err(invalid_archive());
+        }
+    }
+    Ok(())
+}
+
+/// Journal records indexed while checking each against the prefix before it.
+struct JournalIndex<'a> {
+    /// Accepted request receipts by (user, request ID), to their record index.
+    receipts: BTreeMap<(String, String), usize>,
+    records_by_id: BTreeMap<EntryId, &'a Record>,
+    lifecycle: super::intention_lifecycle::JournalLifecycle<'a>,
+}
+
+/// Check every journal record's identity, anchors and receipt in order, as
+/// live admission and full replay would, and index them for restore.
+fn index_journal(archive: &Archive) -> Result<JournalIndex<'_>, Failure> {
+    let mut receipts = BTreeMap::new();
+    let mut records_by_id: BTreeMap<EntryId, &Record> = BTreeMap::new();
+    let mut lifecycle = super::intention_lifecycle::JournalLifecycle::new(archive.branch.clone());
+    for (index, record) in archive.records.iter().enumerate() {
+        // A restored checkpoint does not replay every annotation. Bind its
+        // private normalized anchor to the already-validated journal prefix,
+        // never to a future entry, itself, or another branch's snapshot.
+        if let JournalContent::Annotation {
+            anchor: crate::journal::RecordedAnchor::State { snapshot, boundary },
+            ..
+        } = &record.entry.content
+        {
+            if !snapshot.is_valid()
+                || match boundary {
+                    Some(id) => records_by_id
+                        .get(id)
+                        .is_none_or(|previous| previous.entry.branch != record.entry.branch),
+                    None => record.entry.branch != archive.branch,
+                }
+            {
+                return Err(invalid_archive());
+            }
+        }
+        // Captures may pin an entry before upload. A checkpoint must enforce
+        // the same earlier, visible, same-branch entry contract as live
+        // admission and full replay; it cannot trust a forged stored anchor.
+        if let JournalContent::Annotation {
+            anchor: crate::journal::RecordedAnchor::Entry { id },
+            attachments,
+            ..
+        } = &record.entry.content
+        {
+            if !attachments.is_empty() {
+                let receipt = record.receipt.as_ref().ok_or_else(invalid_archive)?;
+                let previous = records_by_id.get(id).ok_or_else(invalid_archive)?;
+                if previous.entry.branch != record.entry.branch
+                    || !previous.entry.visible_to(record.entry.actor, &receipt.user)
+                {
+                    return Err(invalid_archive());
+                }
+            }
+        }
+        if !record.valid_admission()
+            || Uuid::parse_str(&record.entry.id.0).is_err()
+            || Uuid::parse_str(&record.entry.branch.0).is_err()
+            || records_by_id
+                .insert(record.entry.id.clone(), record)
+                .is_some()
+        {
+            return Err(invalid_archive());
+        }
+        lifecycle.observe(record)?;
+        if let Some(receipt) = &record.receipt {
+            if !valid_label(&receipt.user)
+                || !valid_label(&receipt.frontend)
+                || !valid_label(&receipt.request_id)
+                || receipt.actor != record.entry.actor
+                || Uuid::parse_str(&receipt.branch.0).is_err()
+                || receipts
+                    .insert((receipt.user.clone(), receipt.request_id.clone()), index)
+                    .is_some()
+            {
+                return Err(invalid_archive());
+            }
+        } else if record.resolution().is_none()
+            && record.change_source().is_none()
+            && (!matches!(record.entry.author, Author::Backend { .. })
+                || !matches!(
+                    record.entry.content,
+                    JournalContent::Annotation { .. }
+                        | JournalContent::AutonomousIntentionAdmitted { .. }
+                        | JournalContent::TravelIntentionAdmitted { .. }
+                ))
+        {
+            return Err(invalid_archive());
+        }
+    }
+    Ok(JournalIndex {
+        receipts,
+        records_by_id,
+        lifecycle,
+    })
+}
+
 impl DiskCheckpoint {
     pub(super) fn restore(self, archive: Archive) -> Result<Engine, Failure> {
         if self.version != ARCHIVE_VERSION
@@ -385,84 +560,11 @@ impl DiskCheckpoint {
         {
             return Err(invalid_archive());
         }
-        let mut receipts = BTreeMap::new();
-        let mut records_by_id: BTreeMap<EntryId, &Record> = BTreeMap::new();
-        let mut lifecycle =
-            super::intention_lifecycle::JournalLifecycle::new(archive.branch.clone());
-        for (index, record) in archive.records.iter().enumerate() {
-            // A restored checkpoint does not replay every annotation. Bind its
-            // private normalized anchor to the already-validated journal prefix,
-            // never to a future entry, itself, or another branch's snapshot.
-            if let JournalContent::Annotation {
-                anchor: crate::journal::RecordedAnchor::State { snapshot, boundary },
-                ..
-            } = &record.entry.content
-            {
-                if !snapshot.is_valid()
-                    || match boundary {
-                        Some(id) => records_by_id
-                            .get(id)
-                            .is_none_or(|previous| previous.entry.branch != record.entry.branch),
-                        None => record.entry.branch != archive.branch,
-                    }
-                {
-                    return Err(invalid_archive());
-                }
-            }
-            // Captures may pin an entry before upload. A checkpoint must enforce
-            // the same earlier, visible, same-branch entry contract as live
-            // admission and full replay; it cannot trust a forged stored anchor.
-            if let JournalContent::Annotation {
-                anchor: crate::journal::RecordedAnchor::Entry { id },
-                attachments,
-                ..
-            } = &record.entry.content
-            {
-                if !attachments.is_empty() {
-                    let receipt = record.receipt.as_ref().ok_or_else(invalid_archive)?;
-                    let previous = records_by_id.get(id).ok_or_else(invalid_archive)?;
-                    if previous.entry.branch != record.entry.branch
-                        || !previous.entry.visible_to(record.entry.actor, &receipt.user)
-                    {
-                        return Err(invalid_archive());
-                    }
-                }
-            }
-            if !record.valid_admission()
-                || Uuid::parse_str(&record.entry.id.0).is_err()
-                || Uuid::parse_str(&record.entry.branch.0).is_err()
-                || records_by_id
-                    .insert(record.entry.id.clone(), record)
-                    .is_some()
-            {
-                return Err(invalid_archive());
-            }
-            lifecycle.observe(record)?;
-            if let Some(receipt) = &record.receipt {
-                if !valid_label(&receipt.user)
-                    || !valid_label(&receipt.frontend)
-                    || !valid_label(&receipt.request_id)
-                    || receipt.actor != record.entry.actor
-                    || Uuid::parse_str(&receipt.branch.0).is_err()
-                    || receipts
-                        .insert((receipt.user.clone(), receipt.request_id.clone()), index)
-                        .is_some()
-                {
-                    return Err(invalid_archive());
-                }
-            } else if record.resolution().is_none()
-                && record.change_source().is_none()
-                && (!matches!(record.entry.author, Author::Backend { .. })
-                    || !matches!(
-                        record.entry.content,
-                        JournalContent::Annotation { .. }
-                            | JournalContent::AutonomousIntentionAdmitted { .. }
-                            | JournalContent::TravelIntentionAdmitted { .. }
-                    ))
-            {
-                return Err(invalid_archive());
-            }
-        }
+        let JournalIndex {
+            receipts,
+            records_by_id,
+            lifecycle,
+        } = index_journal(&archive)?;
         let population = archive
             .scenario
             .package
@@ -654,73 +756,10 @@ impl DiskCheckpoint {
                     // gameplay transaction is invalid, not an approximate proof.
                     let start = previous_record_index.map_or(0, |index| index + 1);
                     let end = record_index.ok_or_else(invalid_archive)?;
-                    let recovered = if start < end {
-                        let mut preceding = previous.game.clone();
-                        for hidden in &archive.records[start..end] {
-                            replay_private_boundary(&mut preceding, hidden)?;
-                        }
-                        Some(preceding)
-                    } else {
-                        None
-                    };
-                    let preceding = recovered.as_ref().unwrap_or(&previous.game);
-                    if !record.valid_action_resolution_at(preceding)
-                        || record.before_tick != preceding.tick()
-                        || record.after_tick != game.tick()
-                    {
-                        return Err(invalid_archive());
-                    }
-                    if !record.entry.content.rewindable() {
-                        let mut expected = preceding.clone();
-                        replay_private_boundary(&mut expected, record)?;
-                        if expected != game {
-                            return Err(invalid_archive());
-                        }
-                    }
-                    let same_branch = previous
-                        .id
-                        .as_ref()
-                        .and_then(|id| records_by_id.get(id))
-                        .is_none_or(|before| before.entry.branch == record.entry.branch);
-                    let changes = super::intention::derive_intention_changes(
-                        preceding,
-                        &game,
-                        &record.entry,
-                        same_branch,
-                    );
-                    if changes.suspensions != record.entry.intention_suspensions {
-                        return Err(invalid_archive());
-                    }
-                    if changes.ends != record.entry.intention_ends {
-                        return Err(invalid_archive());
-                    }
+                    let gap = archive.records.get(start..end).unwrap_or_default();
+                    check_boundary_transition(record, previous, gap, &game, &records_by_id)?;
                 }
-                if record.resolution().is_some()
-                    && game
-                        .pending_intention(SimActor(record.entry.actor.0))
-                        .is_some()
-                {
-                    return Err(invalid_archive());
-                }
-                if let Some((intention, work)) = record.entry.content.admission() {
-                    if game
-                        .pending_intention(SimActor(record.entry.actor.0))
-                        .is_none_or(|queued| {
-                            queued.id != intention
-                                || queued.origin != work.origin()
-                                || !work.matches(queued.work.clone())
-                                || match &record.entry.content {
-                                    JournalContent::IntentionAdmitted {
-                                        human_operands, ..
-                                    } => queued.human_operands.as_ref() != Some(human_operands),
-                                    _ => queued.human_operands.is_some(),
-                                }
-                                || queued.state != tor_simulation::IntentionState::Queued
-                        })
-                    {
-                        return Err(invalid_archive());
-                    }
-                }
+                check_boundary_intentions(record, &game)?;
             }
             boundaries.push_back(Arc::new(Boundary {
                 id: boundary.id,
@@ -943,7 +982,7 @@ mod tests {
         assert_eq!(valid.boundaries.len(), 1);
         let boundary = value["boundaries"][0].clone();
         assert!(boundary.is_object());
-        let mut exact = value.clone();
+        let mut exact = value;
         exact["boundaries"] =
             serde_json::Value::Array(vec![boundary.clone(); MAX_RETAINED_BOUNDARIES]);
         let exact_bytes = serde_json::to_vec(&exact).unwrap();
@@ -1141,7 +1180,7 @@ mod tests {
             }
         }
         let disk: DiskCheckpoint = serde_json::from_value(saved).unwrap();
-        assert!(disk.restore(engine.archive.clone()).is_err());
+        assert!(disk.restore(engine.archive).is_err());
     }
 
     #[test]

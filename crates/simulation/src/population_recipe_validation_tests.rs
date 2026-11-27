@@ -145,7 +145,7 @@ fn population_recipe_validation_memory_is_bounded_for_diverse_recipes() {
     }
     assert_eq!(validation.successful.len(), MAX_CHOICES);
     assert_eq!(validation.actor_checks, MAX_CHOICES + 1);
-    let mut uncached = original.clone();
+    let mut uncached = original;
     uncached.content = format!("recipe-{MAX_CHOICES}");
     assert!(validation.valid(&uncached));
     assert_eq!(validation.actor_checks, MAX_CHOICES + 2);

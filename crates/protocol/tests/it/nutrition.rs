@@ -48,7 +48,7 @@ fn nutrition_and_eat_wire_shapes_are_strict_and_personal() {
     let item = ItemTarget::from_digest([7; 32]);
     let action = json!({"type":"eat","item":item});
     assert_eq!(
-        serde_json::from_value::<Action>(action.clone()).unwrap(),
+        serde_json::from_value::<Action>(action).unwrap(),
         Action::Eat { item }
     );
     for bad in [

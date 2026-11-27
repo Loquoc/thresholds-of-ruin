@@ -6635,7 +6635,7 @@ mod tests {
             cached.hits > 0 && cached.queries < uncached.queries,
             "unchanged face domains still reuse exact results"
         );
-        let mut fitted = reference.clone();
+        let mut fitted = reference;
         let mut trace = None;
         fit_radial_supports_traced(&mut fitted, Quat::IDENTITY, support, &mut trace).unwrap();
         let trace = trace.expect("growing arm domain has a controlling face");
@@ -9266,7 +9266,7 @@ mod tests {
                 .unwrap()
                 .ragged
         );
-        let mut copied = native.clone();
+        let mut copied = native;
         copied.outfit = Some(recipe);
         let (_, rig, _, meshes) = super::super::rogue_tests::spawn_one(&copied);
         assert_eq!(rig.cloaks.len(), 1, "copied recipe lost its cloak");

@@ -72,7 +72,7 @@ fn authored_item_birth(by_recipe: bool, relative: bool) {
     let known = engine
         .game
         .knows_item_identity(SimActor(1), &expected.identity);
-    let result = wizard(&mut engine, op.clone());
+    let result = wizard(&mut engine, op);
     let JournalContent::Wizard {
         result: WizardResult::ItemPlaced { item },
         ..

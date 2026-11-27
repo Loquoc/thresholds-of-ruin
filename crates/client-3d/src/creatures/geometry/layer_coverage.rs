@@ -182,7 +182,7 @@ mod tests {
             !budget.hides_components(&solid, [a.as_slice(), b.as_slice()]),
             "one shared budget, not per-component reset"
         );
-        let mut hole = solid.clone();
+        let mut hole = solid;
         hole.carve(
             Shape::Capsule(a[0] - Vec3::Z, a[0] + Vec3::Z, 0.0001, 0.0001),
             0.0,

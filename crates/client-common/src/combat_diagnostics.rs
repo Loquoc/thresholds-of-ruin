@@ -410,7 +410,7 @@ pub(crate) mod tests {
         ]);
         let rows = lines(&report).unwrap();
         assert!(rows.contains(&"  Actor 2: 18446744073709551615 direct health loss".to_owned()));
-        let mut forged = report.clone();
+        let mut forged = report;
         forged.records[0].outcome.effects = vec![DiagnosticEffect::DrainLife {
             target: ActorId(2),
             changed: true,

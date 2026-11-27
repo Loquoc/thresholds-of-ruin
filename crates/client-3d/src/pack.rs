@@ -222,7 +222,7 @@ mod tests {
             device: Some(DeviceActivation::Direction),
             ..carried(2, "oak wand")
         };
-        view.inventory = vec![scroll.clone(), wand.clone()];
+        view.inventory = vec![scroll, wand.clone()];
         let listed = actions(&plan(&view, None));
         let labels: Vec<_> = listed.iter().map(|(label, _)| label.as_str()).collect();
         assert_eq!(

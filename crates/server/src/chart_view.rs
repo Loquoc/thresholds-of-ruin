@@ -114,10 +114,7 @@ fn token(
         chart::Kind::Magic => 2,
         chart::Kind::Mapping => 3,
     }]);
-    hash.finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    tor_protocol::lower_hex(&hash.finalize())
 }
 
 pub(crate) fn record(chart: &chart::Chart, ordinal: usize) -> Option<ChartRecord> {

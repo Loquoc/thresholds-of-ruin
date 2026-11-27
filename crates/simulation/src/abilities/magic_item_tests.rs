@@ -1772,7 +1772,7 @@ fn magic_capabilities_charge_state_and_choice_have_strict_named_current_shapes()
             "{missing}"
         );
     }
-    let mut bad = value.clone();
+    let mut bad = value;
     bad["charges"] = serde_json::json!(65536);
     assert!(serde_json::from_value::<crate::Item>(bad).is_err());
     let mut spec = (*game.items[&item].spec).clone();
@@ -2937,7 +2937,7 @@ fn self_device_capture_is_named_bounded_and_distinct_from_requested_direction() 
     let mut wrong_delivery = encoded.clone();
     wrong_delivery["delivery"]["kind"] = serde_json::json!("ray");
     assert!(serde_json::from_value::<Plan>(wrong_delivery).is_err());
-    let mut forged = encoded.clone();
+    let mut forged = encoded;
     forged["delivery"]["plan"]["ability"] = serde_json::json!("unknown_ability");
     let forged: Plan = serde_json::from_value(forged).unwrap();
     assert!(!forged.valid(&game.content.rules));
@@ -2956,7 +2956,7 @@ fn self_device_capture_is_named_bounded_and_distinct_from_requested_direction() 
         )
         .unwrap();
     assert!(ray.valid(&ray_game.content.rules));
-    let mut wrong_aim = ray.clone();
+    let mut wrong_aim = ray;
     let Plan::Zap { aim, .. } = &mut wrong_aim else {
         unreachable!()
     };

@@ -562,7 +562,7 @@ mod tests {
         assert!(original.outfit.torso_ornament.is_some());
         let mut equipment = Equipment::default();
         equipment.select("breastplate").unwrap();
-        let equipped = base.clone().equipped(equipment);
+        let equipped = base.equipped(equipment);
         let resolved = Composition::resolve(&equipped);
         assert_eq!(resolved.body, Some(BodyItem::SteelBreastplate));
         assert!(resolved.outfit.torso_ornament.is_none());
@@ -600,13 +600,11 @@ mod tests {
             let mut equipment = Equipment::default();
             equipment.select("helm").unwrap();
             let helmed = native.clone().equipped(equipment);
-            assert!(
-                Composition::resolve(&helmed)
-                    .outfit
-                    .trimmings
-                    .earrings
-                    .is_none()
-            );
+            assert!(Composition::resolve(&helmed)
+                .outfit
+                .trimmings
+                .earrings
+                .is_none());
             assert_eq!(
                 Composition::resolve(&helmed.equipped(Equipment::default()))
                     .outfit
@@ -801,12 +799,11 @@ mod look_tests {
             Wardrobe::RoyalPrincess,
             Wardrobe::SylvanDuelist,
         ] {
-            assert!(
-                man.clone()
-                    .composed(wardrobe, empty)
-                    .unwrap_err()
-                    .contains("female body")
-            );
+            assert!(man
+                .clone()
+                .composed(wardrobe, empty)
+                .unwrap_err()
+                .contains("female body"));
         }
         let woman = Look::with_choice(
             CreatureModel::Human,

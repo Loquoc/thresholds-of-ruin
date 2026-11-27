@@ -29,6 +29,18 @@ impl<'de> serde::Deserialize<'de> for AttachmentMetadata {
         Ok(value)
     }
 }
+/// Bytes as lower-case hexadecimal, two digits per byte, as digests such as
+/// an attachment's `sha256` are written.
+pub fn lower_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        text.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        text.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+    }
+    text
+}
+
 fn read_sha256<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
     struct Sha;
     impl serde::de::Visitor<'_> for Sha {
@@ -125,6 +137,15 @@ pub fn attachment_base64_decode(text: &str) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     #[test]
+    fn lower_hex_writes_two_lower_case_digits_per_byte() {
+        assert_eq!(lower_hex(&[]), "");
+        assert_eq!(lower_hex(&[0x00, 0x0f, 0xa0, 0xff]), "000fa0ff");
+        let all: Vec<u8> = (0..=255).collect();
+        #[allow(clippy::format_collect)]
+        let independent: String = all.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(lower_hex(&all), independent);
+    }
+    #[test]
     fn canonical_chunks() {
         for (raw, encoded) in [("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v")] {
             assert_eq!(attachment_base64_encode(raw.as_bytes()), encoded);
@@ -168,7 +189,7 @@ mod tests {
             ]))
             .is_err()
         );
-        let mut note = serde_json::json!({"type":"annotation","anchor":{"type":"entry","id":"entry"},"category":"note","text":"Text capture","attachments":[descriptor.clone()]});
+        let mut note = serde_json::json!({"type":"annotation","anchor":{"type":"entry","id":"entry"},"category":"note","text":"Text capture","attachments":[descriptor]});
         assert!(serde_json::from_value::<crate::HistoryContent>(note.clone()).is_ok());
         note["attachments"] = serde_json::json!([descriptor.clone(), descriptor]);
         assert!(serde_json::from_value::<crate::HistoryContent>(note).is_err());

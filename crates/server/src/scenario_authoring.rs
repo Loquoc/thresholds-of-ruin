@@ -1844,7 +1844,7 @@ mod tests {
             Some(vec![tor_simulation::ItemClass::Potion])
         );
         assert_eq!(compiled.discovery, tor_simulation::ItemDiscovery::OnUse);
-        let mut invalid = identify.clone();
+        let mut invalid = identify;
         invalid.effects = effects.effects;
         assert!(invalid.compile(&rules()).is_err());
         invalid.effects.clear();
@@ -1967,7 +1967,7 @@ mod tests {
             unsupported.compile(&valid).is_err(),
             "damage rays do not own Polymorph discovery"
         );
-        let mut polymorph = ability.clone();
+        let mut polymorph = ability;
         polymorph.invocation = tor_simulation::abilities::InvocationKind::DirectionalContactRay;
         polymorph.reach = tor_simulation::rules::Reach::UntilObstruction;
         let tor_simulation::rules::StrikeSource::Authored { strikes } = &mut polymorph.strikes

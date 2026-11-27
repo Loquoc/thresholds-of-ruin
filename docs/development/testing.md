@@ -317,6 +317,12 @@ worker time while risking feature coverage, so none were removed.
   there rather than another private copy in a test file.
 - Put a test in the file for the behavior's own subject. A file of mixed
   subjects is a sign to split it.
+- Keep a short unit-test module inline. Once it grows to hundreds of lines,
+  give it a sibling file beside its subject (`storage.rs` and
+  `storage_tests.rs`, declared with `#[cfg(test)] #[path = "storage_tests.rs"]
+  mod tests;`), so the production module stays readable on its own. The module
+  keeps its name and its `use super::*` access, so test paths and filters do
+  not change.
 
 ## Bugs and regressions
 

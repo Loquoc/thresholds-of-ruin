@@ -218,7 +218,7 @@ fn weighted_actor_and_item_receipts_bind_selected_content_and_survive_restore() 
     game.activate_initial_floor().unwrap();
     let record = game.activations_since(0).unwrap().remove(0);
     game.validate_activation_record(&record).unwrap();
-    let mut forged = record.clone();
+    let mut forged = record;
     let StageResult::Evaluated { attempts, .. } = &mut forged.decisions[0].result else {
         panic!()
     };

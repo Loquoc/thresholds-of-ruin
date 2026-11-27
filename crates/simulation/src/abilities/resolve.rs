@@ -1411,304 +1411,18 @@ pub(super) fn resolve_batch<'a>(
         if application.creature.health().dead() {
             break;
         }
-        let effect = match effect {
-            PlannedEffect::Theft { theft } => {
-                deferred_theft = Some(theft.clone());
-                continue;
-            }
-            PlannedEffect::TeleportRandom | PlannedEffect::TeleportToRayOrigin => {
-                let mode = snapshot
-                    .context
-                    .relocation
-                    .as_ref()
-                    .map_or(super::MovementMode::Forced, |input| input.mode);
-                let to = if let Some(input) = snapshot.context.relocation.as_ref() {
-                    if matches!(effect, PlannedEffect::TeleportRandom)
-                        && !input.destinations.is_empty()
-                    {
-                        // Reuse the bounded unbiased selection used by ring/trap
-                        // relocation; a single possible endpoint consumes no draw.
-                        let index = crate::quantity::QuantityRange {
-                            minimum: 1,
-                            maximum: input.destinations.len() as u64,
-                        }
-                        .sample(rng)
-                        .map_err(|_| EffectApplicationError::RandomnessExhausted)?
-                            - 1;
-                        Some((input.from, input.destinations[index as usize]))
-                    } else if matches!(effect, PlannedEffect::TeleportToRayOrigin) {
-                        match input.destinations.as_slice() {
-                            [only] => Some((input.from, *only)),
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                let result = to.map_or(super::MovementResult::Blocked, |(from, to)| {
-                    super::MovementResult::Moved { from, to }
-                });
-                ResolvedEffect::Relocate { mode, result }
-            }
-            PlannedEffect::RoomLight => ResolvedEffect::RoomLight { changed: false },
-            PlannedEffect::DetectMonsters { id, turn_ticks } => ResolvedEffect::DetectMonsters {
-                id: id.clone(),
-                duration: crate::detection_lifecycle::duration(*turn_ticks)
-                    .ok_or(crate::conditions::ConditionError::InvalidDuration)?,
-                changed: false,
-            },
-            PlannedEffect::DetectFood => ResolvedEffect::DetectFood { changed: false },
-            PlannedEffect::MapTopology => ResolvedEffect::MapTopology { changed: false },
-            PlannedEffect::DetectMagic => ResolvedEffect::DetectMagic { changed: false },
-            PlannedEffect::DrainLife => ResolvedEffect::DrainLife { changed: false },
-            PlannedEffect::CancelSpecials => ResolvedEffect::CancelSpecials { changed: false },
-            PlannedEffect::BalefulPolymorph { forms } => ResolvedEffect::BalefulPolymorph {
-                form: select_baleful_form(&application.creature, forms, rng)?,
-                changed: false,
-            },
-            PlannedEffect::GainStrength => ResolvedEffect::GainStrength {
-                change: super::StrengthGain::Unchanged,
-            },
-            PlannedEffect::RaiseLevel => ResolvedEffect::RaiseLevel { amount: 0 },
-            PlannedEffect::HasteDose {
-                id,
-                rest,
-                turn_ticks,
-            } => {
-                if !super::valid_haste_turn_ticks(*turn_ticks) {
-                    return Err(crate::conditions::ConditionError::InvalidDuration.into());
-                }
-                let overdose = application.creature.conditions().has_active(id);
-                let dice = if overdose {
-                    crate::dice::DicePool::new(1, 8, -1)
-                } else {
-                    crate::dice::DicePool::new(1, 4, 3)
-                }
-                .expect("fixed Haste dose pool");
-                let ticks = u64::from(dice.roll(rng, Edge::default()).total)
-                    .checked_mul(*turn_ticks)
-                    .ok_or(crate::conditions::ConditionError::InvalidDuration)?;
-                let outcome = if overdose {
-                    super::HasteDoseOutcome::Overdose { rest: ticks }
-                } else {
-                    super::HasteDoseOutcome::Hasted { duration: ticks }
-                };
-                ResolvedEffect::HasteDose {
-                    id: id.clone(),
-                    rest: rest.clone(),
-                    outcome,
-                }
-            }
-            PlannedEffect::ArrestDescent => {
-                // A rejected extension must not turn a failed paid drink into
-                // an emergency brake. Checked item resolution rejects it atomically.
-                if condition_error.is_some() {
-                    continue;
-                }
-                ResolvedEffect::ArrestDescent
-            }
-            PlannedEffect::StepSelfOneCell | PlannedEffect::PushTargetOneCell { .. } => {
-                let mode = if matches!(effect, PlannedEffect::StepSelfOneCell) {
-                    super::MovementMode::Voluntary
-                } else {
-                    super::MovementMode::Forced
-                };
-                let result = snapshot
-                    .context
-                    .spatial
-                    .filter(|input| input.mode == mode)
-                    .map_or(super::MovementResult::Blocked, |input| input.result);
-                ResolvedEffect::Translate { mode, result }
-            }
-            PlannedEffect::AlterEquipment { alteration } => ResolvedEffect::AlterEquipment {
-                alteration: crate::ResolvedEquipmentAlteration {
-                    plan: alteration.clone(),
-                    hit: alteration.alteration == crate::EquipmentAlteration::EnchantWeapon
-                        && !alteration.targets.is_empty()
-                        && crate::dice::random_word(rng) & 1 == 0,
-                },
-            },
-            PlannedEffect::CorrodeArmor { slot, amount } => ResolvedEffect::CorrodeArmor {
-                slot: slot.clone(),
-                amount: *amount,
-            },
-            PlannedEffect::ApplyLinkedHold { policy } => ResolvedEffect::ApplyLinkedHold {
-                policy: policy.clone(),
-            },
-            PlannedEffect::HoldDamage {
-                category,
-                descriptor,
-            } => {
-                let Some(execution) = snapshot.context.hold_damage else {
-                    continue;
-                };
-                let damage = crate::damage::DamageSpec::new(
-                    vec![crate::damage::DamageComponent::fixed(
-                        *category,
-                        descriptor.clone(),
-                        execution.bonus,
-                    )],
-                    None,
-                )
-                .map_err(|_| crate::creatures::CreatureStateError::Inconsistent)?;
-                let resolved = damage.resolve(
-                    rng,
-                    budget.remaining,
-                    &application.creature.derived().protection,
-                    observer,
-                );
-                budget.remaining = resolved.unused_edge;
-                ResolvedEffect::Damage {
-                    amount: resolved.total,
-                }
-            }
-            PlannedEffect::Damage { damage } => {
-                let resolved = damage.resolve(
-                    rng,
-                    budget.remaining,
-                    &application.creature.derived().protection,
-                    observer,
-                );
-                budget.remaining = resolved.unused_edge;
-                ResolvedEffect::Damage {
-                    amount: resolved.total,
-                }
-            }
-            PlannedEffect::HealPerHitDie {
-                dice,
-                bonus,
-                overflow,
-            } => {
-                if !super::plan::valid_hit_die_healing(dice, *bonus) {
-                    return Err(crate::creatures::CreatureStateError::Inconsistent.into());
-                }
-                let total: i64 = dice
-                    .iter()
-                    .map(|pool| i64::from(pool.roll(rng, Edge::default()).total))
-                    .sum();
-                let amount = (total + i64::from(*bonus)).max(0) as u32;
-                let excess =
-                    u64::from(amount).saturating_sub(application.creature.health().injury());
-                let count = match overflow {
-                    crate::rules::HealingOverflow::None => 0,
-                    crate::rules::HealingOverflow::ImproveEarliestHitDie => usize::from(excess > 0),
-                    crate::rules::HealingOverflow::ImproveEarliestHitDiceByExcess => {
-                        let hit_dice: u64 = dice.iter().map(|pool| u64::from(pool.count())).sum();
-                        usize::from(excess > 0) + usize::from(excess > hit_dice + 1)
-                    }
-                };
-                let improvements: Vec<_> = application
-                    .creature
-                    .derived()
-                    .next_health_improvements
-                    .iter()
-                    .take(count)
-                    .cloned()
-                    .collect();
-                if !improvements.is_empty() {
-                    ResolvedEffect::HealAndImproveHitDice {
-                        amount,
-                        improvements,
-                        build_epoch: application.creature.build_epoch(),
-                    }
-                } else {
-                    ResolvedEffect::Heal { amount }
-                }
-            }
-            PlannedEffect::Heal { amount } => ResolvedEffect::Heal {
-                amount: amount.roll(rng),
-            },
-            PlannedEffect::Nourish { amount } => ResolvedEffect::Nourish {
-                amount: amount.roll(rng),
-            },
-            PlannedEffect::LoseAttribute { attribute, amount } => ResolvedEffect::LoseAttribute {
-                attribute: *attribute,
-                amount: amount.roll(rng),
-            },
-            PlannedEffect::RestoreAttribute { attribute, amount } => {
-                ResolvedEffect::RestoreAttribute {
-                    attribute: *attribute,
-                    amount: amount.roll(rng),
-                }
-            }
-            PlannedEffect::DrainLatestHitDie => ResolvedEffect::DrainLatestHitDie { amount: 1 },
-            PlannedEffect::RestoreHitDie => ResolvedEffect::RestoreHitDie { amount: 1 },
-            PlannedEffect::LoseMaximumHealth { amount } => ResolvedEffect::LoseMaximumHealth {
-                amount: amount.roll(rng),
-            },
-            PlannedEffect::RestoreMaximumHealth { amount } => {
-                ResolvedEffect::RestoreMaximumHealth {
-                    amount: amount.roll(rng),
-                }
-            }
-            PlannedEffect::ApplyConditionForTurns {
-                id,
-                duration,
-                turn_ticks,
-            } => {
-                // Check the entire pool before consuming RNG, not only the sampled value.
-                if !duration.valid_turn_duration(*turn_ticks) {
-                    return Err(crate::conditions::ConditionError::InvalidDuration.into());
-                }
-                let duration = u64::from(duration.roll(rng))
-                    .checked_mul(*turn_ticks)
-                    .filter(|ticks| (1..=crate::limits::NUMERIC as u64).contains(ticks))
-                    .ok_or(crate::conditions::ConditionError::InvalidDuration)?;
-                ResolvedEffect::ApplyCondition {
-                    id: id.clone(),
-                    duration,
-                }
-            }
-            PlannedEffect::ApplyPersistentCondition { id, cancels } => {
-                // Delivery has selected this payload. Cancellation is ordinary
-                // removal, so immunity to establishing `id` does not block it.
-                // The establishment branch retains its normal immunity check.
-                if let Some(opposite) = cancels
-                    .as_ref()
-                    .filter(|opposite| application.creature.conditions().has_active(opposite))
-                {
-                    ResolvedEffect::RemoveCondition {
-                        id: opposite.clone(),
-                    }
-                } else {
-                    ResolvedEffect::ApplyPersistentCondition { id: id.clone() }
-                }
-            }
-            PlannedEffect::RemoveCondition { id } => {
-                ResolvedEffect::RemoveCondition { id: id.clone() }
-            }
-            PlannedEffect::ApplyCondition { id, duration } => ResolvedEffect::ApplyCondition {
-                id: id.clone(),
-                duration: *duration,
-            },
-            PlannedEffect::Restore { resource, amount } => ResolvedEffect::Restore {
-                resource: *resource,
-                amount: amount.roll(rng),
-            },
-            PlannedEffect::SearchAdjacentGuises { check } => ResolvedEffect::SearchAdjacentGuises {
-                roll: check.sample(rng),
-            },
-            PlannedEffect::ObservePublicPlan => ResolvedEffect::ObservePublicPlan {
-                observation: snapshot
-                    .context
-                    .observation
-                    .clone()
-                    .expect("authorized observation payload"),
-            },
-            PlannedEffect::ApplyQualifiedConditionToSource {
-                id,
-                duration,
-                ability_tag,
-            } => ResolvedEffect::ApplyQualifiedConditionToSource {
-                id: id.clone(),
-                duration: *duration,
-                qualification: crate::conditions::TokenQualification {
-                    opponent: target,
-                    ability_tag: ability_tag.clone(),
-                },
-            },
+        if let PlannedEffect::Theft { theft } = effect {
+            deferred_theft = Some(theft.clone());
+            continue;
+        }
+        let inputs = EffectRollInputs {
+            creature: &application.creature,
+            snapshot,
+            target,
+            condition_rejected: condition_error.is_some(),
+        };
+        let Some(effect) = roll_planned_effect(effect, &inputs, rng, budget, observer)? else {
+            continue;
         };
         let nourishment_offered = match effect {
             ResolvedEffect::Nourish { amount } => Some(amount),
@@ -1771,6 +1485,319 @@ pub(super) fn resolve_batch<'a>(
             crate::rules::RiderTrigger::Failure
         }),
     })
+}
+/// Read-only inputs for rolling one planned effect.
+struct EffectRollInputs<'a> {
+    /// The recipient as earlier effects in this batch left it.
+    creature: &'a crate::creatures::CreatureState,
+    snapshot: &'a Snapshot,
+    target: ActorId,
+    /// An earlier condition in this batch was rejected.
+    condition_rejected: bool,
+}
+
+/// Roll one planned effect into the exact effect to apply, consuming
+/// randomness in plan order. `None` skips the effect. Theft is deferred by the
+/// caller and never reaches this function.
+fn roll_planned_effect(
+    effect: &PlannedEffect,
+    inputs: &EffectRollInputs,
+    rng: &mut u64,
+    budget: &mut StrikeBudget,
+    observer: &mut impl ResolutionObserver,
+) -> Result<Option<ResolvedEffect>, EffectApplicationError> {
+    let resolved = match effect {
+        PlannedEffect::Theft { .. } => return Ok(None),
+        PlannedEffect::TeleportRandom | PlannedEffect::TeleportToRayOrigin => {
+            let mode = inputs
+                .snapshot
+                .context
+                .relocation
+                .as_ref()
+                .map_or(super::MovementMode::Forced, |input| input.mode);
+            let to = if let Some(input) = inputs.snapshot.context.relocation.as_ref() {
+                if matches!(effect, PlannedEffect::TeleportRandom) && !input.destinations.is_empty()
+                {
+                    // Reuse the bounded unbiased selection used by ring/trap
+                    // relocation; a single possible endpoint consumes no draw.
+                    let index = crate::quantity::QuantityRange {
+                        minimum: 1,
+                        maximum: input.destinations.len() as u64,
+                    }
+                    .sample(rng)
+                    .map_err(|_| EffectApplicationError::RandomnessExhausted)?
+                        - 1;
+                    Some((input.from, input.destinations[index as usize]))
+                } else if matches!(effect, PlannedEffect::TeleportToRayOrigin) {
+                    match input.destinations.as_slice() {
+                        [only] => Some((input.from, *only)),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let result = to.map_or(super::MovementResult::Blocked, |(from, to)| {
+                super::MovementResult::Moved { from, to }
+            });
+            ResolvedEffect::Relocate { mode, result }
+        }
+        PlannedEffect::RoomLight => ResolvedEffect::RoomLight { changed: false },
+        PlannedEffect::DetectMonsters { id, turn_ticks } => ResolvedEffect::DetectMonsters {
+            id: id.clone(),
+            duration: crate::detection_lifecycle::duration(*turn_ticks)
+                .ok_or(crate::conditions::ConditionError::InvalidDuration)?,
+            changed: false,
+        },
+        PlannedEffect::DetectFood => ResolvedEffect::DetectFood { changed: false },
+        PlannedEffect::MapTopology => ResolvedEffect::MapTopology { changed: false },
+        PlannedEffect::DetectMagic => ResolvedEffect::DetectMagic { changed: false },
+        PlannedEffect::DrainLife => ResolvedEffect::DrainLife { changed: false },
+        PlannedEffect::CancelSpecials => ResolvedEffect::CancelSpecials { changed: false },
+        PlannedEffect::BalefulPolymorph { forms } => ResolvedEffect::BalefulPolymorph {
+            form: select_baleful_form(inputs.creature, forms, rng)?,
+            changed: false,
+        },
+        PlannedEffect::GainStrength => ResolvedEffect::GainStrength {
+            change: super::StrengthGain::Unchanged,
+        },
+        PlannedEffect::RaiseLevel => ResolvedEffect::RaiseLevel { amount: 0 },
+        PlannedEffect::HasteDose {
+            id,
+            rest,
+            turn_ticks,
+        } => {
+            if !super::valid_haste_turn_ticks(*turn_ticks) {
+                return Err(crate::conditions::ConditionError::InvalidDuration.into());
+            }
+            let overdose = inputs.creature.conditions().has_active(id);
+            let dice = if overdose {
+                crate::dice::DicePool::new(1, 8, -1)
+            } else {
+                crate::dice::DicePool::new(1, 4, 3)
+            }
+            .expect("fixed Haste dose pool");
+            let ticks = u64::from(dice.roll(rng, Edge::default()).total)
+                .checked_mul(*turn_ticks)
+                .ok_or(crate::conditions::ConditionError::InvalidDuration)?;
+            let outcome = if overdose {
+                super::HasteDoseOutcome::Overdose { rest: ticks }
+            } else {
+                super::HasteDoseOutcome::Hasted { duration: ticks }
+            };
+            ResolvedEffect::HasteDose {
+                id: id.clone(),
+                rest: rest.clone(),
+                outcome,
+            }
+        }
+        PlannedEffect::ArrestDescent => {
+            // A rejected extension must not turn a failed paid drink into
+            // an emergency brake. Checked item resolution rejects it atomically.
+            if inputs.condition_rejected {
+                return Ok(None);
+            }
+            ResolvedEffect::ArrestDescent
+        }
+        PlannedEffect::StepSelfOneCell | PlannedEffect::PushTargetOneCell { .. } => {
+            let mode = if matches!(effect, PlannedEffect::StepSelfOneCell) {
+                super::MovementMode::Voluntary
+            } else {
+                super::MovementMode::Forced
+            };
+            let result = inputs
+                .snapshot
+                .context
+                .spatial
+                .filter(|input| input.mode == mode)
+                .map_or(super::MovementResult::Blocked, |input| input.result);
+            ResolvedEffect::Translate { mode, result }
+        }
+        PlannedEffect::AlterEquipment { alteration } => ResolvedEffect::AlterEquipment {
+            alteration: crate::ResolvedEquipmentAlteration {
+                plan: alteration.clone(),
+                hit: alteration.alteration == crate::EquipmentAlteration::EnchantWeapon
+                    && !alteration.targets.is_empty()
+                    && crate::dice::random_word(rng) & 1 == 0,
+            },
+        },
+        PlannedEffect::CorrodeArmor { slot, amount } => ResolvedEffect::CorrodeArmor {
+            slot: slot.clone(),
+            amount: *amount,
+        },
+        PlannedEffect::ApplyLinkedHold { policy } => ResolvedEffect::ApplyLinkedHold {
+            policy: policy.clone(),
+        },
+        PlannedEffect::HoldDamage {
+            category,
+            descriptor,
+        } => {
+            let Some(execution) = inputs.snapshot.context.hold_damage else {
+                return Ok(None);
+            };
+            let damage = crate::damage::DamageSpec::new(
+                vec![crate::damage::DamageComponent::fixed(
+                    *category,
+                    descriptor.clone(),
+                    execution.bonus,
+                )],
+                None,
+            )
+            .map_err(|_| crate::creatures::CreatureStateError::Inconsistent)?;
+            let resolved = damage.resolve(
+                rng,
+                budget.remaining,
+                &inputs.creature.derived().protection,
+                observer,
+            );
+            budget.remaining = resolved.unused_edge;
+            ResolvedEffect::Damage {
+                amount: resolved.total,
+            }
+        }
+        PlannedEffect::Damage { damage } => {
+            let resolved = damage.resolve(
+                rng,
+                budget.remaining,
+                &inputs.creature.derived().protection,
+                observer,
+            );
+            budget.remaining = resolved.unused_edge;
+            ResolvedEffect::Damage {
+                amount: resolved.total,
+            }
+        }
+        PlannedEffect::HealPerHitDie {
+            dice,
+            bonus,
+            overflow,
+        } => {
+            if !super::plan::valid_hit_die_healing(dice, *bonus) {
+                return Err(crate::creatures::CreatureStateError::Inconsistent.into());
+            }
+            let total: i64 = dice
+                .iter()
+                .map(|pool| i64::from(pool.roll(rng, Edge::default()).total))
+                .sum();
+            let amount = (total + i64::from(*bonus)).max(0) as u32;
+            let excess = u64::from(amount).saturating_sub(inputs.creature.health().injury());
+            let count = match overflow {
+                crate::rules::HealingOverflow::None => 0,
+                crate::rules::HealingOverflow::ImproveEarliestHitDie => usize::from(excess > 0),
+                crate::rules::HealingOverflow::ImproveEarliestHitDiceByExcess => {
+                    let hit_dice: u64 = dice.iter().map(|pool| u64::from(pool.count())).sum();
+                    usize::from(excess > 0) + usize::from(excess > hit_dice + 1)
+                }
+            };
+            let improvements: Vec<_> = inputs
+                .creature
+                .derived()
+                .next_health_improvements
+                .iter()
+                .take(count)
+                .cloned()
+                .collect();
+            if !improvements.is_empty() {
+                ResolvedEffect::HealAndImproveHitDice {
+                    amount,
+                    improvements,
+                    build_epoch: inputs.creature.build_epoch(),
+                }
+            } else {
+                ResolvedEffect::Heal { amount }
+            }
+        }
+        PlannedEffect::Heal { amount } => ResolvedEffect::Heal {
+            amount: amount.roll(rng),
+        },
+        PlannedEffect::Nourish { amount } => ResolvedEffect::Nourish {
+            amount: amount.roll(rng),
+        },
+        PlannedEffect::LoseAttribute { attribute, amount } => ResolvedEffect::LoseAttribute {
+            attribute: *attribute,
+            amount: amount.roll(rng),
+        },
+        PlannedEffect::RestoreAttribute { attribute, amount } => ResolvedEffect::RestoreAttribute {
+            attribute: *attribute,
+            amount: amount.roll(rng),
+        },
+        PlannedEffect::DrainLatestHitDie => ResolvedEffect::DrainLatestHitDie { amount: 1 },
+        PlannedEffect::RestoreHitDie => ResolvedEffect::RestoreHitDie { amount: 1 },
+        PlannedEffect::LoseMaximumHealth { amount } => ResolvedEffect::LoseMaximumHealth {
+            amount: amount.roll(rng),
+        },
+        PlannedEffect::RestoreMaximumHealth { amount } => ResolvedEffect::RestoreMaximumHealth {
+            amount: amount.roll(rng),
+        },
+        PlannedEffect::ApplyConditionForTurns {
+            id,
+            duration,
+            turn_ticks,
+        } => {
+            // Check the entire pool before consuming RNG, not only the sampled value.
+            if !duration.valid_turn_duration(*turn_ticks) {
+                return Err(crate::conditions::ConditionError::InvalidDuration.into());
+            }
+            let duration = u64::from(duration.roll(rng))
+                .checked_mul(*turn_ticks)
+                .filter(|ticks| (1..=crate::limits::NUMERIC as u64).contains(ticks))
+                .ok_or(crate::conditions::ConditionError::InvalidDuration)?;
+            ResolvedEffect::ApplyCondition {
+                id: id.clone(),
+                duration,
+            }
+        }
+        PlannedEffect::ApplyPersistentCondition { id, cancels } => {
+            // Delivery has selected this payload. Cancellation is ordinary
+            // removal, so immunity to establishing `id` does not block it.
+            // The establishment branch retains its normal immunity check.
+            if let Some(opposite) = cancels
+                .as_ref()
+                .filter(|opposite| inputs.creature.conditions().has_active(opposite))
+            {
+                ResolvedEffect::RemoveCondition {
+                    id: opposite.clone(),
+                }
+            } else {
+                ResolvedEffect::ApplyPersistentCondition { id: id.clone() }
+            }
+        }
+        PlannedEffect::RemoveCondition { id } => ResolvedEffect::RemoveCondition { id: id.clone() },
+        PlannedEffect::ApplyCondition { id, duration } => ResolvedEffect::ApplyCondition {
+            id: id.clone(),
+            duration: *duration,
+        },
+        PlannedEffect::Restore { resource, amount } => ResolvedEffect::Restore {
+            resource: *resource,
+            amount: amount.roll(rng),
+        },
+        PlannedEffect::SearchAdjacentGuises { check } => ResolvedEffect::SearchAdjacentGuises {
+            roll: check.sample(rng),
+        },
+        PlannedEffect::ObservePublicPlan => ResolvedEffect::ObservePublicPlan {
+            observation: inputs
+                .snapshot
+                .context
+                .observation
+                .clone()
+                .expect("authorized observation payload"),
+        },
+        PlannedEffect::ApplyQualifiedConditionToSource {
+            id,
+            duration,
+            ability_tag,
+        } => ResolvedEffect::ApplyQualifiedConditionToSource {
+            id: id.clone(),
+            duration: *duration,
+            qualification: crate::conditions::TokenQualification {
+                opponent: inputs.target,
+                ability_tag: ability_tag.clone(),
+            },
+        },
+    };
+    Ok(Some(resolved))
 }
 impl<'de> Deserialize<'de> for ResolvedEffect {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

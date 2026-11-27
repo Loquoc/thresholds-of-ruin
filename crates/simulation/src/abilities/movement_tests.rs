@@ -1255,7 +1255,7 @@ fn captured_spatial_records_reject_positional_and_extra_field_spellings() {
         json!({"kind":"ineligible"}),
         json!({"kind":"stale"}),
         json!({"kind":"ambiguous"}),
-        moved.clone(),
+        moved,
     ] {
         let result: MovementResult =
             serde_json::from_slice(&serde_json::to_vec(&valid).unwrap()).unwrap();

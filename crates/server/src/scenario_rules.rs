@@ -505,7 +505,7 @@ mod tests {
         // derived source Rider decoder that could canonicalize a positional row.
         let rider = source["abilities"][index]["strikes"]["strikes"][0]["riders"][0].clone();
         source["abilities"][index]["strikes"] =
-            json!({"kind":"natural_melee","additional_riders":[rider.clone()]});
+            json!({"kind":"natural_melee","additional_riders":[rider]});
         assert!(serde_json::from_value::<authoring::Document>(source.clone()).is_ok());
         source["abilities"][index]["strikes"]["additional_riders"][0] = json!([
             rider["cancellable"],
@@ -977,7 +977,7 @@ value = {{ id = "test_projectile", name = "Test projectile", tags = [], basic_at
                 json!(["projectile", "launch"]),
             ),
             (
-                json!({"kind": "authored", "strikes": [strike.clone()]}),
+                json!({"kind": "authored", "strikes": [strike]}),
                 json!(["authored", [strike]]),
             ),
             (

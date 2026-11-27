@@ -544,6 +544,41 @@ impl<'de> serde::Deserialize<'de> for Work {
 }
 
 impl Work {
+    /// The prepared work an action starts; `None` for immediate actions.
+    /// This is the inverse of [`Work::action`].
+    pub(crate) fn from_action(action: Action) -> Option<Self> {
+        Some(match action {
+            Action::Escape { hold } => Self::Escape { hold },
+            Action::Respec {
+                basis,
+                replacement,
+                supplies,
+            } => Self::Respec {
+                basis,
+                replacement,
+                supplies,
+            },
+            Action::UseAbility {
+                id,
+                invocation,
+                supplies,
+            } => Self::UseAbility {
+                id,
+                invocation,
+                supplies,
+            },
+            Action::Equip { item, slot } => Self::Equip { item, slot },
+            Action::Unequip { item } => Self::Unequip { item },
+            Action::Ignite { item } => Self::Ignite { item },
+            Action::Extinguish { item } => Self::Extinguish { item },
+            Action::Drink { item } => Self::Drink { item },
+            Action::Read { item } => Self::Read { item },
+            Action::Zap { item, aim } => Self::Zap { item, aim },
+            Action::Eat { item } => Self::Eat { item },
+            _ => return None,
+        })
+    }
+
     pub fn action(&self) -> Action {
         match self {
             Self::Escape { hold } => Action::Escape { hold: *hold },
