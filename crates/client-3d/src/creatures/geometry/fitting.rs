@@ -921,7 +921,9 @@ impl FittedBaldric {
         // and fold the strip; resolving the grown surface first keeps it a sheet.
         let skin = torso_shape(body, None, true);
         let mut support = torso_layer_support(&skin, garment);
-        support.inflate(BALDRIC_SURFACE_OFFSET + overlay);
+        // Keep the inside face close to the torso. The optional overlay
+        // still reserves space for the retained tabard and its raised marks.
+        support.inflate(RIBBON_THICKNESS + BALDRIC_FIT_EASE + overlay);
         let garment = &support;
         let fitted_front = FittedStrap::fit(
             garment,
@@ -1295,7 +1297,9 @@ pub(super) fn torso_layer_transition_support(
 
 // Torso attachments reserve the same layers that the tabard renderer emits.
 pub(super) const TABARD_SURFACE_OFFSET: f32 = 0.014;
-pub(in crate::creatures) const BALDRIC_SURFACE_OFFSET: f32 = 0.017;
+const BALDRIC_FIT_EASE: f32 = 0.004;
+// Preserve the cloak's back reserve independently of the closer strap fit.
+pub(super) const BALDRIC_CLOAK_RESERVATION: f32 = 0.017;
 pub(super) const EMBLEM_SURFACE_OFFSET: f32 = 0.022;
 pub(super) const EMBLEM_FIELD_OFFSET: f32 = 0.026;
 

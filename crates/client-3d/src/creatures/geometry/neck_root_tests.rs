@@ -76,6 +76,112 @@ fn walking_closed_bib_occludes_actual_hobgoblin_head_neck_root() {
     check_native_closed_bib(18, &NATIVE_WALK);
 }
 
+#[test]
+fn equipped_breastplate_keeps_the_neck_root_behind_the_closed_bib() {
+    let mut gear = Equipment::default();
+    gear.select("breastplate").unwrap();
+    let look = Look::preview_adjusted(CreatureModel::Hobgoblin, 22, |variant| {
+        *variant = Variant {
+            woman: true,
+            build: 1,
+            ..default()
+        };
+    })
+    .composed(Wardrobe::Native, gear)
+    .unwrap();
+    let (world, rig, _, meshes) = super::super::rogue_tests::spawn_one(&look);
+
+    // Joint frames measured in the actual 50 Hz review capture, one tick
+    // after putting on the plate. Reproject the real mesh, not a proxy neck.
+    let project_joint = |joint, captured: [f32; 16]| {
+        let entity = rig.joint(joint).unwrap();
+        let reference =
+            Affine3A::from_mat4(Mat4::from_cols_array(&captured)) * frame(&world, entity).inverse();
+        let eye = Vec3::new(0.0, 0.64, 1.16);
+        let target = Vec3::new(0.0, 0.55, 0.06);
+        let view = Mat4::look_at_rh(eye, target, Vec3::Y);
+        let extent = 12.0_f32.to_radians().tan();
+        joint_triangles(&world, &rig, &meshes, joint, reference)
+            .into_iter()
+            .map(|triangle| {
+                triangle.map(|vertex| {
+                    let p = view.transform_point3(vertex);
+                    let inv_depth = -1.0 / p.z;
+                    Vec3::new(
+                        400.0 * (1.0 + p.x * inv_depth / extent),
+                        400.0 * (1.0 - p.y * inv_depth / extent),
+                        inv_depth,
+                    )
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let head = project_joint(
+        J::Head,
+        [
+            0.6587341,
+            0.14104202,
+            -0.07997696,
+            0.0,
+            -0.14926958,
+            0.6581909,
+            -0.06872451,
+            0.0,
+            0.06330687,
+            0.08433039,
+            0.67014945,
+            0.0,
+            0.00096177,
+            0.5452628,
+            0.04638552,
+            1.0,
+        ],
+    );
+    let torso = project_joint(
+        J::Torso,
+        [
+            0.6769326,
+            -0.00788471,
+            0.04381661,
+            0.0,
+            0.00252679,
+            0.67339915,
+            0.08213975,
+            0.0,
+            -0.04444862,
+            -0.08179948,
+            0.6719768,
+            0.0,
+            -0.00039006,
+            0.18499425,
+            0.00244076,
+            1.0,
+        ],
+    );
+    let throat = Vec2::new(406.0, 399.0);
+    assert!(
+        front(&head, throat).expect("the exposed throat must still exist")
+            > front(&torso, throat).unwrap_or(f32::NEG_INFINITY),
+        "the shirt must not cover the exposed throat"
+    );
+    let mut leaks = Vec::new();
+    for y in 476..=490 {
+        for x in 402..=420 {
+            let sample = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+            let cloth = front(&torso, sample).expect("the bib must still cover the chest");
+            if let Some(skin) = front(&head, sample).filter(|skin| *skin > cloth + 0.00001) {
+                leaks.push((sample, skin - cloth));
+            }
+        }
+    }
+    assert!(
+        leaks.is_empty(),
+        "{} skin breakthroughs on the armored bib, first: {:?}",
+        leaks.len(),
+        leaks.first()
+    );
+}
+
 fn check_native_closed_bib(capture_tick: u32, expected_frames: &[[[[u32; 16]; 2]; 3]; 2]) {
     let mut failures = Vec::new();
     for woman in [false, true] {
@@ -186,7 +292,8 @@ fn check_native_closed_bib(capture_tick: u32, expected_frames: &[[[[u32; 16]; 2]
 }
 
 // Torso and Head column-major global matrices from independently rendered
-// seed17 native neutral tick2 captures, indexed by sex then build.
+// seed17 native neutral tick2 captures, indexed by sex then build. The Head
+// witnesses include the Hobgoblin’s listening tilt; Torso is unchanged.
 const NATIVE_NEUTRAL: [[[[u32; 16]; 2]; 3]; 2] = [
     [
         [
@@ -195,8 +302,8 @@ const NATIVE_NEUTRAL: [[[[u32; 16]; 2]; 3]; 2] = [
                 3183554513, 1059906552, 0, 3156645164, 1060129477, 0, 1065353216,
             ],
             [
-                1059998042, 1015214721, 1024504177, 0, 3163031488, 1060011504, 1010694448, 0,
-                3171910682, 3159081592, 1059999534, 0, 3151578938, 1065772124, 1028569155,
+                1059997841, 1015255914, 1024556493, 0, 3163075909, 1060011457, 1010743384, 0,
+                3171962295, 3159139968, 1059999351, 0, 3151578938, 1065772124, 1028569155,
                 1065353216,
             ],
         ],
@@ -206,8 +313,8 @@ const NATIVE_NEUTRAL: [[[[u32; 16]; 2]; 3]; 2] = [
                 3183946081, 1060256981, 0, 3156982808, 1060486801, 0, 1065353216,
             ],
             [
-                1060351301, 1015480138, 1024797454, 0, 3163307206, 1060365181, 1011079496, 0,
-                3172201572, 3159494576, 1060352839, 0, 3152019336, 1066044522, 1028988152,
+                1060351094, 1015522604, 1024851387, 0, 3163353002, 1060365132, 1011129960, 0,
+                3172254782, 3159554776, 1060352651, 0, 3152019336, 1066044522, 1028988152,
                 1065353216,
             ],
         ],
@@ -217,8 +324,8 @@ const NATIVE_NEUTRAL: [[[[u32; 16]; 2]; 3]; 2] = [
                 3184337647, 1060607410, 0, 3157320451, 1060844125, 0, 1065353216,
             ],
             [
-                1060704560, 1015745553, 1025090730, 0, 3163582923, 1060718855, 1011464544, 0,
-                3172492461, 3159907576, 1060706144, 0, 3152459733, 1066316918, 1029407149,
+                1060704345, 1015789292, 1025146281, 0, 3163630093, 1060718804, 1011516520, 0,
+                3172547268, 3159969568, 1060705950, 0, 3152459733, 1066316918, 1029407149,
                 1065353216,
             ],
         ],
@@ -231,8 +338,8 @@ const NATIVE_NEUTRAL: [[[[u32; 16]; 2]; 3]; 2] = [
                 1065353216,
             ],
             [
-                1059601019, 3155872007, 1023906359, 0, 1007798250, 1059613545, 1010189280, 0,
-                3171430798, 3157176032, 1059600578, 0, 3152901692, 1065476423, 1024959153,
+                1059600882, 3155784056, 1023956005, 0, 1007704583, 1059613551, 1010236244, 0,
+                3171480234, 3157224836, 1059600409, 0, 3152901692, 1065476423, 1024959153,
                 1065353216,
             ],
         ],
@@ -243,8 +350,8 @@ const NATIVE_NEUTRAL: [[[[u32; 16]; 2]; 3]; 2] = [
                 1065353216,
             ],
             [
-                1059941998, 3156185732, 1024181145, 0, 1008093727, 1059954912, 1010558712, 0,
-                3171706845, 3157530092, 1059941544, 0, 3153383004, 1065739674, 1025266501,
+                1059941857, 3156095062, 1024232327, 0, 1007997163, 1059954919, 1010607128, 0,
+                3171757811, 3157580408, 1059941369, 0, 3153383004, 1065739674, 1025266501,
                 1065353216,
             ],
         ],
@@ -255,8 +362,8 @@ const NATIVE_NEUTRAL: [[[[u32; 16]; 2]; 3]; 2] = [
                 1065353216,
             ],
             [
-                1060282977, 3156499465, 1024455932, 0, 1008389209, 1060296279, 1010928144, 0,
-                3171982894, 3157884148, 1060282509, 0, 3153864312, 1066002926, 1025573848,
+                1060282832, 3156406074, 1024508649, 0, 1008289747, 1060296286, 1010978008, 0,
+                3172035388, 3157935972, 1060282330, 0, 3153864312, 1066002926, 1025573848,
                 1065353216,
             ],
         ],

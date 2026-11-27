@@ -2493,7 +2493,7 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
                 recipe.reserve_body_layer(armor);
             }
             if outfit.baldric.is_some() {
-                recipe.reserve_back_layer(BALDRIC_SURFACE_OFFSET);
+                recipe.reserve_back_layer(BALDRIC_CLOAK_RESERVATION);
             }
             if extra > 0.0 {
                 recipe.reserve_back_layer(extra);

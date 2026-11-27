@@ -594,7 +594,7 @@ fn live_review_rejects_ignored_floor_customization_but_accepts_default_stage() {
 fn held_item_capture_supports_explicit_grips_and_is_never_ignored_live() {
     let mut value = fixture();
     value["actors"][0]["held_item"] = json!("Staff");
-    for kind in ["Human", "Centaur"] {
+    for kind in ["Human", "Centaur", "Hobgoblin", "Orc"] {
         value["actors"][0]["model"] = json!(kind);
         value["actors"][0]["outfit"] = json!("native");
         assert!(parse(value.clone()).is_ok(), "{kind}");
@@ -605,6 +605,75 @@ fn held_item_capture_supports_explicit_grips_and_is_never_ignored_live() {
     value["actors"][0]["model"] = json!("Human");
     value["actors"][0]["held_item"] = json!("SecretTrueIdentity");
     assert!(parse(value).is_err());
+}
+
+#[test]
+fn held_item_reattaches_to_the_new_hand_after_equipment_change() {
+    let mut value = fixture();
+    value["actors"][0]["outfit"] = json!("native");
+    value["actors"][0]["held_item"] = json!("LongSword");
+    value["captures"][0]["tick"] = json!(1);
+    value["events"] = json!([
+        {"tick":1,"actor":"woman","operation":{"type":"equipment","items":["breastplate"]}}
+    ]);
+
+    let mut app = App::new();
+    app.init_resource::<Assets<Mesh>>()
+        .init_resource::<Assets<StandardMaterial>>()
+        .init_resource::<Assets<Image>>()
+        .init_resource::<Assets<crate::cave::CaveMaterial>>()
+        .init_resource::<Readiness>()
+        .insert_resource(Run {
+            script: parse(value).unwrap(),
+            offscreen: false,
+            output: PathBuf::new(),
+            tick: 0,
+            next_capture: 0,
+            phase: Phase::Apply,
+            clock: Time::default(),
+            deadline: Instant::now() + Duration::from_secs(60),
+            manifest: json!({}),
+            error: None,
+        })
+        .add_systems(Startup, setup)
+        .add_systems(Update, apply);
+
+    fn prop_and_hand(world: &mut World) -> (Entity, Entity) {
+        let hand = world
+            .query::<&Rig>()
+            .single(world)
+            .unwrap()
+            .joint(J::HandR)
+            .unwrap();
+        let (held, parent) = world
+            .query_filtered::<(Entity, &ChildOf), With<crate::scene::HeldItemProp>>()
+            .single(world)
+            .expect("exactly one held prop");
+        assert_eq!(
+            parent.parent(),
+            hand,
+            "held prop must be parented to current grip"
+        );
+        assert_eq!(
+            world.get::<Transform>(held).unwrap(),
+            &crate::props::held_transform(tor_client_3d_model::ItemModel::LongSword)
+        );
+        (held, hand)
+    }
+
+    app.update();
+    let (old_prop, old_hand) = prop_and_hand(app.world_mut());
+    {
+        let mut run = app.world_mut().resource_mut::<Run>();
+        run.tick = 1;
+        run.phase = Phase::Apply;
+    }
+    app.update();
+    let (prop, hand) = prop_and_hand(app.world_mut());
+    assert_ne!(hand, old_hand);
+    assert_ne!(prop, old_prop);
+    assert!(!app.world().entities().contains(old_prop));
+    assert!(!app.world().entities().contains(old_hand));
 }
 
 #[test]

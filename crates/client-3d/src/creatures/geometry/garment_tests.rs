@@ -969,8 +969,14 @@ fn breastplate_clears_emitted_underlayers_and_cloak_clears_plate_through_swing()
                 base.outfit.as_mut().unwrap().cloak = None;
                 let mut equipment = Equipment::default();
                 equipment.select("breastplate").unwrap();
-                let armored = base.clone().equipped(equipment);
-                let armor: Vec<_> = torso(&armored).into_iter().filter(|t| t.metal).collect();
+                let mut armored = base.clone().equipped(equipment);
+                // A baldric is fitted over armor, not under it. The native
+                // cuirass and its tabard are also replaced, not buried. Read
+                // both layers from the same composed look so it contributes
+                // only the underlayers that are actually drawn.
+                armored.outfit.as_mut().unwrap().baldric = None;
+                let (armor, underlayers): (Vec<_>, Vec<_>) =
+                    torso(&armored).into_iter().partition(|t| t.metal);
                 let armor_support = Support::new(armor.clone());
                 let opening = armor_parts::opening(HumanoidBody::resolve(&armored)).map(|shape| {
                     let mut cut = crate::sdf::Sculpt::default();
@@ -978,9 +984,7 @@ fn breastplate_clears_emitted_underlayers_and_cloak_clears_plate_through_swing()
                     cut
                 });
                 let mut checked = 0;
-                let mut underlayers = base.clone();
-                underlayers.outfit.as_mut().unwrap().baldric = None;
-                for triangle in torso(&underlayers).into_iter().filter(|t| !t.metal) {
+                for triangle in underlayers {
                     let at = triangle.center();
                     if !(0.11..0.40).contains(&at.y) || at.x.abs() > 0.09 || at.z.abs() < 0.04 {
                         continue;

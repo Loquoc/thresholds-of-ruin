@@ -2136,7 +2136,10 @@ to a replacement shirt or full articulated arm plates, but remains with a
 torso-only breastplate. Unrelated pieces, such as the separate torn skirt,
 do not follow the sleeve. Hoods and helmets can expose an eligible wearer's
 hair, but cannot supply scalp hair to a wearer without it. Model-specific
-crests, topknots and serpents remain separate anatomy.
+crests, topknots and serpents remain separate anatomy. For an equipped
+raised hood, a permanent crown such as Medusa's serpents uses the folded
+hood instead of cutting through the scalp cover. An admitted raised hood
+covers earrings; the folded hood and open hats preserve them.
 
 Keep identity and attachment data in the catalog, not in branches keyed by
 outfit names. Overlap can also mean fitting both pieces rather than removing

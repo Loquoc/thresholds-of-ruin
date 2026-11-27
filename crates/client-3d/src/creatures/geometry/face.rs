@@ -137,7 +137,39 @@ pub(in crate::creatures) fn face_shape(l: &Look, nose: bool) -> FaceShape {
         ),
         0.012,
     );
-    if nose {
+    if l.style == Style::Hobgoblin {
+        // A low, broad bridge is part of the cheek and brow sculpt, not a
+        // separate ball in front of the face. Keep it under the visor.
+        head.add(
+            Capsule(
+                Vec3::new(0.0, 0.176, 0.092),
+                Vec3::new(0.0, 0.138, 0.113),
+                0.012,
+                0.016,
+            ),
+            0.010,
+        )
+        .add(
+            Ellipsoid(Vec3::new(0.0, 0.131, 0.118), Vec3::new(0.023, 0.016, 0.015)),
+            0.008,
+        );
+        for side in [-1.0f32, 1.0] {
+            head.add(
+                Ellipsoid(
+                    Vec3::new(side * 0.017, 0.125, 0.111),
+                    Vec3::new(0.011, 0.008, 0.013),
+                ),
+                0.008,
+            )
+            .carve(
+                Ellipsoid(
+                    Vec3::new(side * 0.014, 0.119, 0.124),
+                    Vec3::new(0.005, 0.003, 0.008),
+                ),
+                0.003,
+            );
+        }
+    } else if nose {
         head.add(
             Capsule(
                 Vec3::new(0.0, 0.18, 0.094),
@@ -437,7 +469,7 @@ pub(super) fn face_brows(p: &mut Parts, l: &Look, head: &crate::sdf::Sculpt) {
     let brow = hair_color(l) * 0.85;
     for side in [-1.0f32, 1.0] {
         let profile = brow_profile(l, side);
-        if l.v.woman {
+        if l.v.woman || l.style == Style::Hobgoblin {
             fitted_brow(&mut p.matte, head, &profile, brow);
             continue;
         }
@@ -542,7 +574,11 @@ pub(in crate::creatures) fn brow_profile(l: &Look, side: f32) -> Vec<(Vec3, (f32
             ),
         ]
     } else {
-        let (w, h) = (0.009, 0.006);
+        let (w, h) = if l.style == Style::Hobgoblin {
+            (0.0065, 0.0035)
+        } else {
+            (0.009, 0.006)
+        };
         vec![
             (Vec3::new(side * 0.018, 0.187 - scowl, 0.101), (w, h)),
             (Vec3::new(side * 0.042, 0.197 - scowl * 0.3, 0.099), (w, h)),
@@ -628,12 +664,41 @@ pub(super) struct EyeSurface<'a> {
     pub(super) slope: Vec2,
     pub(super) size: f32,
     pub(super) side: f32,
+    opening: EyeOpening,
+}
+
+#[derive(Clone, Copy)]
+enum EyeOpening {
+    Almond,
+    Squint,
+}
+
+impl EyeOpening {
+    fn arch(self) -> Vec2 {
+        match self {
+            Self::Almond => Vec2::new(-0.39, 0.58),
+            Self::Squint => Vec2::new(-0.30, 0.43),
+        }
+    }
+
+    fn slant(self) -> f32 {
+        match self {
+            Self::Almond => 0.10,
+            Self::Squint => 0.18,
+        }
+    }
 }
 
 impl<'a> EyeSurface<'a> {
     pub(super) const COLUMNS: usize = 32;
 
-    pub(super) fn new(head: &'a crate::sdf::Sculpt, at: Vec3, size: f32, side: f32) -> Self {
+    fn new(
+        head: &'a crate::sdf::Sculpt,
+        at: Vec3,
+        size: f32,
+        side: f32,
+        opening: EyeOpening,
+    ) -> Self {
         let center = torso_surface(head, at.x, at.y, true);
         let e = size * 0.7;
         let depth = |x, y| torso_surface(head, x, y, true).z;
@@ -648,6 +713,7 @@ impl<'a> EyeSurface<'a> {
             slope,
             size,
             side,
+            opening,
         }
     }
 
@@ -663,17 +729,21 @@ impl<'a> EyeSurface<'a> {
         let t = (column - left).clamp(0.0, 1.0);
         let bounds = |column: f32| {
             let u = column / Self::COLUMNS as f32 * 2.0 - 1.0;
-            let tilt = self.side * u * 0.1;
-            Vec2::new(-0.39 * (1.0 - u * u) + tilt, 0.58 * (1.0 - u * u) + tilt) * self.size
+            let tilt = self.tilt(u);
+            (self.opening.arch() * (1.0 - u * u) + Vec2::splat(tilt)) * self.size
                 + Vec2::splat(self.at.y)
         };
         bounds(left).lerp(bounds(left + 1.0), t).into()
     }
 
+    fn tilt(&self, u: f32) -> f32 {
+        self.side * u * self.opening.slant()
+    }
+
     pub(super) fn point(&self, xy: Vec2, offset: f32) -> Vec3 {
         let delta = xy - self.at.truncate();
         let u = delta.x / self.half_width();
-        let v = (delta.y - self.side * u * self.size * 0.1) / (self.size * 0.9);
+        let v = (delta.y - self.tilt(u) * self.size) / (self.size * 0.9);
         let globe = self.at.z
             + self.slope.dot(delta)
             + self.size * 0.5 * (1.0 - u * u - v * v).max(0.0).sqrt();
@@ -761,7 +831,7 @@ pub(super) fn eye_lid(b: &mut Builder, eye: &EyeSurface, upper: bool, color: Vec
             + Vec2::new(
                 eye.size * 1.6 * u,
                 eye.size
-                    * (eye.side * u * 0.1
+                    * (eye.tilt(u)
                         + if upper { 0.98 } else { -0.9 } * (1.0 - u * u).max(0.0).sqrt()),
             );
         let outer = torso_surface(eye.head, outer_xy.x, outer_xy.y, true) + Vec3::Z * 0.0012;
@@ -774,13 +844,14 @@ pub(super) fn eye_lid(b: &mut Builder, eye: &EyeSurface, upper: bool, color: Vec
     closed_eye_grid(b, &grid, 4, color);
 }
 
-pub(super) fn adult_eye(
+fn fitted_eye(
     p: &mut Parts,
     eye: &EyeSurface,
     iris: Vec3,
     pupil: Vec2,
     face: Vec3,
     glow: Option<Accent>,
+    lashes: bool,
 ) {
     eye_patch(
         &mut p.matte,
@@ -824,22 +895,25 @@ pub(super) fn adult_eye(
         let u = k as f32 / EyeSurface::COLUMNS as f32 * 2.0 - 1.0;
         let x = eye.at.x + eye.half_width() * u;
         line.push(eye.point(Vec2::new(x, eye.opening(x).1), 0.0016));
-        let radius = eye.size * (0.04 + 0.085 * (1.0 - u * u));
+        let radius = eye.size * (0.04 + 0.085 * (1.0 - u * u))
+            * if lashes { 1.0 } else { 0.70 };
         radii.push((radius, radius));
     }
     tube(&mut p.matte, &line, &radii, DARK);
-    for u in [0.65, 0.88, 1.0] {
-        let x = eye.at.x + eye.side * eye.half_width() * u;
-        let root = eye.point(Vec2::new(x, eye.opening(x).1), 0.0016);
-        p.matte.prism(
-            root,
-            root + Vec3::new(eye.side * eye.size * 0.22, eye.size * 0.18, 0.0005),
-            eye.size * 0.035,
-            0.0,
-            3,
-            DARK,
-            0.0,
-        );
+    if lashes {
+        for u in [0.65, 0.88, 1.0] {
+            let x = eye.at.x + eye.side * eye.half_width() * u;
+            let root = eye.point(Vec2::new(x, eye.opening(x).1), 0.0016);
+            p.matte.prism(
+                root,
+                root + Vec3::new(eye.side * eye.size * 0.22, eye.size * 0.18, 0.0005),
+                eye.size * 0.035,
+                0.0,
+                3,
+                DARK,
+                0.0,
+            );
+        }
     }
     let glint_xy = eye.at.truncate() + Vec2::new(-0.18, 0.1) * eye.size;
     p.matte.blob(
@@ -851,8 +925,8 @@ pub(super) fn adult_eye(
     );
 }
 
-/// Adult female eyes use one fitted opening and lid assembly. Male eyes retain
-/// their established construction; glow ownership stays restricted to the iris.
+/// Fitted eyes seat their lids and pigment in the same opening. Other faces
+/// keep their established construction; any glow stays restricted to the iris.
 pub(super) fn soft_eyes(
     p: &mut Parts,
     center: Vec3,
@@ -868,19 +942,25 @@ pub(super) fn soft_eyes(
     }
     for side in [-1.0f32, 1.0] {
         let at = center + Vec3::X * side * spread;
-        if lashes {
+        if lashes || l.style == Style::Hobgoblin {
+            let opening = if l.style == Style::Hobgoblin {
+                EyeOpening::Squint
+            } else {
+                EyeOpening::Almond
+            };
             let pupil = if l.style == Style::Medusa {
                 Vec2::new(0.26, 0.43)
             } else {
                 Vec2::splat(0.3)
             } * size;
-            adult_eye(
+            fitted_eye(
                 p,
-                &EyeSurface::new(head, at, size, side),
+                &EyeSurface::new(head, at, size, side, opening),
                 iris,
                 pupil,
                 face,
                 glow,
+                lashes,
             );
             continue;
         }
@@ -938,5 +1018,35 @@ pub(super) fn soft_eyes(
             &[(0.0022, 0.0022), (0.0028, 0.0028), (0.0022, 0.0022)],
             DARK * 2.0,
         );
+    }
+}
+
+#[cfg(test)]
+mod hobgoblin_portrait_tests {
+    use super::*;
+
+    #[test]
+    fn hobgoblin_nose_is_part_of_the_face_and_below_the_helm_front() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let wearer = Look::with_choice(
+                    CreatureModel::Hobgoblin,
+                    17,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let head = face_shape(&wearer, false).form;
+                for (y, minimum) in [(0.147, 0.112), (0.132, 0.122)] {
+                    let (surface, _) = torso_surface_frame(&head, Vec2::new(0.0, y), true);
+                    assert!(
+                        (minimum..=0.139).contains(&surface.z),
+                        "sculpted bridge/tip must project through the face but not beyond the visor: {surface:?}/{woman}/{build}"
+                    );
+                }
+            }
+        }
     }
 }

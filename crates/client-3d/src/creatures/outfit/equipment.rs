@@ -5,8 +5,8 @@ use super::super::geometry::equipment_footwear::FootwearAppearance;
 use super::super::geometry::equipment_gloves::GloveAppearance;
 use super::super::geometry::equipment_headwear::HeadwearKind;
 use super::outerwear::{OuterwearAppearance, OuterwearCut, OuterwearHood};
-use super::slots::{self, Claims, GearPiece, Slot};
 use super::shirts::ShirtAppearance;
+use super::slots::{self, Claims, GearPiece, HoodClearance, Slot};
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -57,7 +57,9 @@ impl BodyItem {
 
     pub(super) fn bracer(self) -> Option<Vec3> {
         match self {
-            Self::Leather | Self::StuddedLeather | Self::RingMail => Some(Vec3::new(0.43, 0.24, 0.12)),
+            Self::Leather | Self::StuddedLeather | Self::RingMail => {
+                Some(Vec3::new(0.43, 0.24, 0.12))
+            }
             Self::ScaleMail | Self::ChainMail => Some(Vec3::new(0.55, 0.56, 0.6)),
             _ => None,
         }
@@ -155,12 +157,17 @@ impl Composition {
                 skirt.color = outfit.tunic * shade;
             }
         }
-        let mut outfit = look.equipment.compose(outfit);
+        let mut outfit = look
+            .equipment
+            .compose_with_clearance(outfit, HoodClearance::for_style(look.style));
         let body = look.equipment.body;
         let mut armor_panel = None;
         if let Some(color) = body.and_then(BodyItem::tassets) {
             let plated_legs = outfit.legs == Legs::Plate;
-            if outfit.skirt.is_some_and(|skirt| skirt.layers.iter().any(Option::is_some)) {
+            if outfit
+                .skirt
+                .is_some_and(|skirt| skirt.layers.iter().any(Option::is_some))
+            {
                 armor_panel = Some(tassets(color, None, plated_legs));
             } else {
                 outfit.skirt = Some(tassets(color, outfit.skirt, plated_legs));
@@ -272,19 +279,31 @@ impl Equipment {
         Ok(())
     }
 
-    pub(super) fn compose(self, mut base: Outfit) -> Outfit {
+    #[cfg(test)]
+    pub(super) fn compose(self, base: Outfit) -> Outfit {
+        self.compose_with_clearance(base, HoodClearance::Standard)
+    }
+
+    fn compose_with_clearance(self, mut base: Outfit, clearance: HoodClearance) -> Outfit {
         let back_recipe = self.outerwear().map(OuterwearAppearance::recipe);
-        let head_claim = self.head.map(GearPiece::Head).map(GearPiece::claims).unwrap_or_default();
-        let hood_claim = slots::admit_hood(
-            head_claim, back_recipe.map_or(OuterwearHood::None, |recipe| recipe.hood),
-        );
+        let head_claim = self
+            .head
+            .map(GearPiece::Head)
+            .map(GearPiece::claims)
+            .unwrap_or_default();
+        let requested_hood = back_recipe.map_or(OuterwearHood::None, |recipe| recipe.hood);
+        let fitted_hood = clearance.fit(requested_hood);
+        let hood_claim = slots::admit_hood(head_claim, fitted_hood);
         let mut claims = Claims::default();
         for gear in [
             self.body.map(GearPiece::Body),
             self.hands.map(GearPiece::Hands),
             self.feet.map(GearPiece::Feet),
             self.back.map(GearPiece::Back),
-        ].into_iter().flatten() {
+        ]
+        .into_iter()
+        .flatten()
+        {
             claims.merge(gear.claims());
         }
         claims.merge(head_claim);
@@ -351,7 +370,13 @@ impl Equipment {
                         hood_mount: Some(mount),
                     });
                     if hood_claim.occupied.has(Slot::Head) {
-                        base.head = Headwear::Hood { color: recipe.cloth, pointed: false };
+                        base.head = Headwear::Hood {
+                            color: recipe.cloth,
+                            pointed: false,
+                        };
+                        base.head_mount = Some(mount);
+                    } else if requested_hood != fitted_hood && base.head == Headwear::Bare {
+                        base.head = Headwear::HoodDown(recipe.cloth);
                         base.head_mount = Some(mount);
                     }
                 }
@@ -575,11 +600,13 @@ mod tests {
             let mut equipment = Equipment::default();
             equipment.select("helm").unwrap();
             let helmed = native.clone().equipped(equipment);
-            assert!(Composition::resolve(&helmed)
-                .outfit
-                .trimmings
-                .earrings
-                .is_none());
+            assert!(
+                Composition::resolve(&helmed)
+                    .outfit
+                    .trimmings
+                    .earrings
+                    .is_none()
+            );
             assert_eq!(
                 Composition::resolve(&helmed.equipped(Equipment::default()))
                     .outfit
@@ -774,11 +801,12 @@ mod look_tests {
             Wardrobe::RoyalPrincess,
             Wardrobe::SylvanDuelist,
         ] {
-            assert!(man
-                .clone()
-                .composed(wardrobe, empty)
-                .unwrap_err()
-                .contains("female body"));
+            assert!(
+                man.clone()
+                    .composed(wardrobe, empty)
+                    .unwrap_err()
+                    .contains("female body")
+            );
         }
         let woman = Look::with_choice(
             CreatureModel::Human,

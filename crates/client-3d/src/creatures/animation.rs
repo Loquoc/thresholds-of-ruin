@@ -176,6 +176,15 @@ pub fn animate(
         };
         let target_speed = (step / dt.max(1e-4) / (4.0 * rig.scale.max(0.2))).clamp(0.0, 1.0);
         anim.speed += (target_speed - anim.speed) * (1.0 - (-dt * 10.0).exp());
+        let moving = step > dt * 0.04 * rig.scale.max(0.2);
+        // The attack has already landed. If the Hobgoblin moves during
+        // the final support fade, start world footing there and carry it
+        // forward instead of rebuilding it when the action clock expires.
+        let walking_out_of_strike = rig.style == Style::Hobgoblin
+            && (moving || anim.contacts.rig.is_some())
+            && anim.action.is_some_and(|(action, phase)| {
+                action == Move::Strike && phase + elapsed / action.duration() >= ACTION_SUPPORT_OUT
+            });
         // Fliers never touch the floor; a rooted plant never steps.
         let supported = matches!(
             rig.plan,
@@ -184,7 +193,7 @@ pub fn animate(
             && !placed
             && delta.y.abs() <= 0.001
             && !anim.quiet
-            && anim.action.is_none()
+            && (anim.action.is_none() || walking_out_of_strike)
             && anim.dead.is_none();
         // A flinch or a sidestep keeps the feet where they stand: dropping
         // their support would snap them from the floor in a single frame.
@@ -232,7 +241,6 @@ pub fn animate(
             // A revived creature gets up over most of a second.
             anim.fallen = (anim.fallen - elapsed / 0.8).max(0.0);
         }
-        let moving = step > dt * 0.04 * rig.scale.max(0.2);
         let fit_cloaks = rig.cloaks.is_empty()
             || scheduling.cloaks.as_ref().is_none_or(|pacing| {
                 cloaked += 1;
@@ -377,7 +385,8 @@ fn present_pose(
     let started = profile.as_ref().map(|_| std::time::Instant::now());
     let pose = pose(rig, anim, fun, dt, supported, moving);
     if dt > 0.0 {
-        anim.contacts.strike_entry = if supported && moving {
+        let braking = rig.style == Style::Hobgoblin && anim.contacts.settle.is_some();
+        anim.contacts.strike_entry = if supported && (moving || braking) {
             strike_entry_from_walk(&pose, rig, anim)
         } else {
             None
@@ -417,7 +426,9 @@ fn present_pose(
             * Affine3A::from_translation(-rig.rest[J::Head as usize])
             * scale;
         if let Ok(mut transform) = joints.get_mut(veil.train) {
-            let train = veil.pose(torso * scale, head, anim.death_fall());
+            // Negative phase only faces the body for corridor clearance.
+            let performing_death = anim.dead.is_some_and(|phase| phase >= 0.0);
+            let train = veil.pose(torso * scale, head, anim.death_fall(), performing_death);
             publication::joint(&mut transform, train.translation, train.rotation);
         }
     }
@@ -1034,6 +1045,7 @@ fn posed_ankle(p: &Pose, rig: &Rig, leg: WalkLeg) -> Vec3 {
 }
 
 const ACTION_SUPPORT_IN: f32 = 0.08;
+const ACTION_SUPPORT_OUT: f32 = 0.92;
 const STRIKE_ENTRY_RELEASE_SECS: f32 = 0.16;
 
 fn strike_entry_release(elapsed: f32, planted: bool) -> f32 {
@@ -1049,7 +1061,9 @@ fn strike_entry_release(elapsed: f32, planted: bool) -> f32 {
 
 fn strike_entry_action(rig: &Rig) -> Option<Move> {
     match (rig.plan, rig.style) {
-        (Plan::Biped, Style::Hero) | (Plan::Bird, Style::Emu) => Some(Move::Strike),
+        (Plan::Biped, Style::Hero | Style::Hobgoblin) | (Plan::Bird, Style::Emu) => {
+            Some(Move::Strike)
+        }
         (Plan::Quadruped, Style::Aquator) => Some(Move::Touch(Accent::Amber)),
         _ => None,
     }
@@ -1057,9 +1071,10 @@ fn strike_entry_action(rig: &Rig) -> Option<Move> {
 
 fn strike_entry_from_walk(p: &Pose, rig: &Rig, a: &Anim) -> Option<StrikeEntry> {
     let action = strike_entry_action(rig)?;
+    let settle = a.contacts.settle;
     if a.action.is_some()
         || a.contacts.blend != 1.0
-        || a.contacts.settle.is_some()
+        || (settle.is_some() && rig.style != Style::Hobgoblin)
         || a.hurt.is_some()
         || a.dodge.is_some()
         || a.fallen > 0.0
@@ -1075,11 +1090,19 @@ fn strike_entry_from_walk(p: &Pose, rig: &Rig, a: &Anim) -> Option<StrikeEntry> 
     let snapshot = |i: usize| {
         let (leg, contact) = (legs[i]?, a.contacts.feet[i]?);
         let chain = sole_parent(p, leg.body, leg.thigh, leg.shin);
+        let planted = settle.map_or_else(
+            || contact.phase.rem_euclid(1.0) < leg.stance,
+            |elapsed| {
+                // When braking, a foot has either landed or is still waiting
+                // for its turn to settle. The last walking phase is stale.
+                contact.settled || settle_progress(contact, elapsed, 2) <= 0.0
+            },
+        );
         Some(StrikeEntryFoot {
             // Save the actual presented swing pose, not its last ground anchor.
             ankle: a.last + facing * posed_ankle(p, rig, leg) * rig.scale,
             sole: facing * chain * p.rot[leg.foot as usize],
-            planted: contact.phase.rem_euclid(1.0) < leg.stance,
+            planted,
         })
     };
     let feet = [snapshot(0)?, snapshot(1)?];
@@ -1702,7 +1725,7 @@ fn mend_contacts(p: &mut Pose, rig: &Rig, t: f32, weight: f32) -> ([Vec3; 2], f3
 }
 
 fn grounded_action(p: &mut Pose, rig: &Rig, a: &Anim, m: Move, t: f32) {
-    let weight = envelope(t, 0.0, ACTION_SUPPORT_IN, 0.92, 1.0);
+    let weight = envelope(t, 0.0, ACTION_SUPPORT_IN, ACTION_SUPPORT_OUT, 1.0);
     if a.speed > 0.0 {
         grounded_walk(p, rig, a);
     }
@@ -1988,11 +2011,21 @@ fn antics(p: &mut Pose, rig: &Rig, time: f32, gag: u32, progress: f32, k: f32) {
                 p.r(J::Lift, Quat::from_rotation_y(0.35 * snap(time) * k));
             }
             (Style::Hobgoblin, 1) => {
-                // Scratches its head with the club.
-                p.r(J::ArmR, Quat::from_rotation_z(-1.7 * k) * fwd(0.5 * k));
-                p.r(J::ForeR, fwd((2.1 + (time * 14.0).sin() * 0.15) * k));
-                p.r(J::Head, Quat::from_rotation_z(0.3 * k));
-                p.r(J::LegL, fwd(0.3 * k) * Quat::from_rotation_z(0.25 * k));
+                // A suspicious lookout: lean in, check one side, then the other.
+                // Keep the hands down; either may be empty or carrying gear.
+                let left = envelope(progress, 0.08, 0.23, 0.36, 0.50);
+                let right = envelope(progress, 0.39, 0.56, 0.71, 0.89);
+                let scan = left - right;
+                p.r(
+                    J::Neck,
+                    bow(0.13 * k) * Quat::from_rotation_y(0.16 * scan * k),
+                );
+                p.r(
+                    J::Head,
+                    Quat::from_rotation_y(0.68 * scan * k)
+                        * Quat::from_rotation_z(-0.20 * scan * k)
+                        * bow(-0.23 * k),
+                );
             }
             (Style::Zombie, 0) => {
                 // Its head drops off; it catches it and puts it back.
@@ -2280,13 +2313,16 @@ fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) {
                     );
                 }
                 Style::Hobgoblin => {
-                    // Twitchy, and taps the club on its shoulder.
+                    // The head twitches, then cocks as if catching a sound.
                     let twitch = ((time * 4.3).sin() * (time * 1.7).sin()).max(0.0) * 0.25;
-                    p.r(J::Head, Quat::from_rotation_z(twitch * k));
-                    let f = every(time, 6.0, 2.5, 5.0) * k;
-                    let tap = (time * 9.0).sin().max(0.0) * 0.15;
-                    p.r(J::ArmR, fwd(-0.4 * f) * Quat::from_rotation_z(-0.3 * f));
-                    p.r(J::ForeR, fwd((1.9 + tap) * f));
+                    let listen = every(time, 6.0, 2.5, 5.0) * k;
+                    p.r(J::Neck, bow(-0.08 * listen));
+                    p.r(
+                        J::Head,
+                        Quat::from_rotation_y(-0.32 * listen)
+                            * Quat::from_rotation_z(twitch * k + 0.18 * listen)
+                            * bow(0.10 * listen),
+                    );
                 }
                 Style::Zombie => {
                     // Sways and lolls.
@@ -4720,6 +4756,54 @@ mod support_tests {
         ] {
             assert!(kissing(model, true), "{model:?}: she blows a kiss");
             assert!(!kissing(model, false), "{model:?}: he does not");
+        }
+    }
+
+    #[test]
+    fn hobgoblin_idle_leaves_held_items_at_rest() {
+        assert_hobgoblin_fidget_keeps_right_grip(|p, rig| idle(p, rig, 3.75, 0.0, 1.0));
+    }
+
+    #[test]
+    fn hobgoblin_lookout_antic_leaves_held_items_at_rest() {
+        for (progress, side) in [(0.3, 1.0), (0.65, -1.0)] {
+            assert_hobgoblin_fidget_keeps_right_grip(|p, rig| {
+                antics(p, rig, 1.0 + 7.0 * progress, 1, progress, 1.0);
+                let forward = p.rot[J::Head as usize] * Vec3::Z;
+                assert!(forward.x * side > 0.50, "the lookout checks each side");
+            });
+        }
+    }
+
+    fn assert_hobgoblin_fidget_keeps_right_grip(fidget: impl Fn(&mut Pose, &Rig)) {
+        let base = Look::with_choice(
+            CreatureModel::Hobgoblin,
+            17,
+            Some(Variant {
+                woman: false,
+                ..default()
+            }),
+        );
+        let mut helmet = Equipment::default();
+        helmet.select("helm").unwrap();
+        for look in [base.clone(), base.equipped(helmet)] {
+            let (_, rig, _, _) = spawn_one(&look);
+            let mut p = Pose::new();
+            fidget(&mut p, &rig);
+            // A prop is a child of the real right-hand joint. Head and
+            // neck can react without swinging that shared attachment.
+            for j in [J::Torso, J::ArmR, J::ForeR, J::HandR] {
+                assert!(
+                    p.rot[j as usize].angle_between(Quat::IDENTITY) < 0.001
+                        && p.off[j as usize] == Vec3::ZERO,
+                    "a Hobgoblin fidget moved the held-item chain at joint {}",
+                    j as usize
+                );
+            }
+            assert!(
+                p.rot[J::Head as usize].angle_between(Quat::IDENTITY) > 0.12,
+                "the Hobgoblin still has a legible head gesture"
+            );
         }
     }
 
