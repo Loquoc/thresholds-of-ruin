@@ -34,10 +34,6 @@ pub(super) fn place_concealed_features(
 ) -> Result<(), Failure> {
     let maze_active = maze_slots.iter().any(|value| *value);
     let columns = run.group.grid[0] as usize;
-    let to_local = |(x, y): (i32, i32)| {
-        let slot = (y / size[1]) as usize * columns + (x / size[0]) as usize;
-        (run.group.members[slot], [x % size[0], y % size[1], 0])
-    };
     let reserved: BTreeSet<_> = run
         .group
         .members
@@ -77,312 +73,369 @@ pub(super) fn place_concealed_features(
                 .map(move |light| (light.at[0] + offset.0, light.at[1] + offset.1))
         })
         .collect();
+    let features = Features {
+        run,
+        open,
+        rooms,
+        size,
+        bases,
+        maze_slots,
+        maze_active,
+        columns,
+        reserved,
+        illuminated,
+    };
     for stage in run.recipe.stages.iter().skip(6) {
         match &stage.operation {
             Operation::SecretEntrances { config } => {
-                // Only a one-cell-wide corridor immediately outside a room may
-                // receive a full-height closure. Wide ordinary entrances stay open.
-                let mut candidates = BTreeSet::new();
-                for (slot, room) in rooms.iter().enumerate() {
-                    let offset = (
-                        (slot % columns) as i32 * size[0],
-                        (slot / columns) as i32 * size[1],
-                    );
-                    let cells: BTreeSet<_> = room
-                        .iter()
-                        .map(|&(x, y)| (x + offset.0, y + offset.1))
-                        .collect();
-                    for &(x, y) in &cells {
-                        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                            let mouth = (x + dx, y + dy);
-                            if !cells.contains(&mouth)
-                                && open.contains(&mouth)
-                                && open.contains(&(x + 2 * dx, y + 2 * dy))
-                                && !open.contains(&(mouth.0 + dy, mouth.1 + dx))
-                                && !open.contains(&(mouth.0 - dy, mouth.1 - dx))
-                                && !reserved.contains(&mouth)
-                            {
-                                candidates.insert(mouth);
-                            }
-                        }
-                    }
-                }
-                let mut placed = 0;
-                let mut ordinals = BTreeMap::<u64, usize>::new();
-                for candidate in candidates {
-                    let (region, at) = to_local(candidate);
-                    // A coordinate-keyed draw avoids unrelated candidate changes
-                    // shifting this entrance's chance or consuming geometry RNG.
-                    let mut rng = stream(
-                        run.seed,
-                        run.identity,
-                        run.group,
-                        run.recipe,
-                        stage,
-                        &format!("entrance/{region}/{}/{}", at[0], at[1]),
-                    )?;
-                    if placed >= config.maximum
-                        || rng.range(0, 999) as u32 >= config.chance_per_mille
-                    {
-                        continue;
-                    }
-                    let ordinal = ordinals.entry(region).or_default();
-                    let id = identity(bases.doors, region, *ordinal)?;
-                    *ordinal += 1;
-                    definitions.get_mut(&region).expect("member").doors.push(
-                        crate::scenario_package::Door {
-                            id,
-                            at,
-                            open: false,
-                            height: 2,
-                            concealment: Some(crate::scenario_package::Concealment {
-                                dc: config.dc,
-                            }),
-                        },
-                    );
-                    // A closure's exterior face receives the adjacent room's
-                    // authored light; it does not illuminate hidden corridor cells.
-                    if !definitions[&region].lit
-                        && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| {
-                            illuminated.contains(&(candidate.0 + dx, candidate.1 + dy))
-                        })
-                    {
-                        let definition = definitions.get_mut(&region).expect("member");
-                        for z in 0..2 {
-                            let surface = [at[0], at[1], z];
-                            if !definition.lighting.iter().any(|light| light.at == surface) {
-                                definition
-                                    .lighting
-                                    .push(crate::scenario_package::CellLight {
-                                        at: surface,
-                                        lit: true,
-                                    });
-                            }
-                        }
-                    }
-                    placed += 1;
-                }
+                features.place_secret_entrances(stage, config, definitions)?
             }
             Operation::HiddenTraps { config } => {
-                let mut landing_cells = BTreeSet::new();
-                if maze_active {
-                    for (slot, id) in run.group.members.iter().enumerate() {
-                        let offset = (
-                            (slot % columns) as i32 * size[0],
-                            (slot / columns) as i32 * size[1],
-                        );
-                        for (name, at) in &definitions[id].anchors {
-                            if name.starts_with("trapdoor_landing_") {
-                                landing_cells.insert((at[0] + offset.0, at[1] + offset.1));
-                            }
-                        }
-                    }
-                }
-                if config.hazards.is_some() && !maze_active {
-                    // Each source region owns an ordinal namespace on the next
-                    // depth's same slot. Generate all possible target anchors
-                    // independently of whether the predecessor was ever built.
-                    for (slot, room) in rooms.iter().enumerate() {
-                        let region = run.group.members[slot];
-                        let offset = (
-                            (slot % columns) as i32 * size[0],
-                            (slot / columns) as i32 * size[1],
-                        );
-                        // Omitted slots still own the same destination namespace.
-                        // With no realized omissions retain the legacy candidate set
-                        // and shuffle byte-for-byte (including explicit count zero).
-                        let landing_floor: Vec<_> = if rooms.iter().any(Vec::is_empty) {
-                            open.iter()
-                                .filter_map(|&(x, y)| {
-                                    let local = (x - offset.0, y - offset.1);
-                                    ((0..size[0]).contains(&local.0)
-                                        && (0..size[1]).contains(&local.1))
-                                    .then_some(local)
-                                })
-                                .collect()
-                        } else {
-                            room.clone()
-                        };
-                        let definition = &definitions[&region];
-                        let mut available: Vec<_> = landing_floor
-                            .into_iter()
-                            .filter(|&(x, y)| !reserved.contains(&(x + offset.0, y + offset.1)))
-                            .filter(|&(x, y)| {
-                                // Secret mouths may lie on corridor-only floor.
-                                !definition.doors.iter().any(|door| {
-                                    !door.open
-                                        && door.at[0] == x
-                                        && door.at[1] == y
-                                        && door.at[2] < 2
-                                        && door.at[2] + door.height as i32 > 0
-                                }) && !(0..2).any(|z| definition.walls.contains(&[x, y, z]))
-                            })
-                            .collect();
-                        available.sort();
-                        let mut landing_rng = stream(
-                            run.seed,
-                            run.identity,
-                            run.group,
-                            run.recipe,
-                            stage,
-                            &format!("landing/{region}"),
-                        )?;
-                        for i in (1..available.len()).rev() {
-                            let j = landing_rng.range(0, i as i32) as usize;
-                            available.swap(i, j);
-                        }
-                        if available.len() < config.count[1] as usize {
-                            return Err(fail("Trapdoor landing capacity exceeds clear floor"));
-                        }
-                        for (ordinal, (x, y)) in available
-                            .into_iter()
-                            .take(config.count[1] as usize)
-                            .enumerate()
-                        {
-                            let name = format!("trapdoor_landing_{ordinal}");
-                            if definitions
-                                .get_mut(&region)
-                                .expect("member")
-                                .anchors
-                                .insert(name, [x, y, size[2] - 1])
-                                .is_some()
-                            {
-                                return Err(fail("Duplicate trapdoor landing anchor"));
-                            }
-                            landing_cells.insert((x + offset.0, y + offset.1));
-                        }
-                    }
-                }
-                // Ground traps remain in present room interiors. With legacy
-                // room-only landings these are independent of entrance mouths;
-                // omitted-slot landings also exclude closures, so retuning those
-                // may change reserved landings and hence available trap cells.
-                let mut candidates: Vec<_> = rooms
-                    .iter()
-                    .enumerate()
-                    .filter(|(slot, _)| !maze_slots[*slot])
-                    .flat_map(|(slot, room)| {
-                        let offset = (
-                            (slot % columns) as i32 * size[0],
-                            (slot / columns) as i32 * size[1],
-                        );
-                        room.iter().map(move |&(x, y)| (x + offset.0, y + offset.1))
-                    })
-                    .filter(|at| !reserved.contains(at) && !landing_cells.contains(at))
-                    .collect();
-                candidates.sort();
-                candidates.dedup();
-                if maze_active {
-                    for &cell in candidates.iter().chain(landing_cells.iter()) {
-                        let (region, at) = to_local(cell);
-                        if definitions[&region].doors.iter().any(|door| {
-                            !door.open
-                                && door.at[..2] == at[..2]
-                                && door.at[2] < 2
-                                && door.at[2] + door.height as i32 > 0
-                        }) {
-                            return Err(fail("Maze reservation intersects a secret closure"));
-                        }
-                    }
-                }
-                let mut rng = stream(
-                    run.seed,
-                    run.identity,
-                    run.group,
-                    run.recipe,
-                    stage,
-                    "placement",
-                )?;
-                if maze_active && candidates.len() < config.count[1] as usize {
-                    return Err(fail(
-                        "Maze ordinary-room candidates cannot preserve authored trap maximum",
-                    ));
-                }
-                let maximum = config.count[1].min(candidates.len() as u32);
-                if config.count[0] > maximum {
-                    return Err(fail(
-                        "Hidden trap minimum exceeds room-interior placement capacity",
-                    ));
-                }
-                let count = rng.range(config.count[0] as i32, maximum as i32) as usize;
-                for i in (1..candidates.len()).rev() {
-                    let j = rng.range(0, i as i32) as usize;
-                    candidates.swap(i, j);
-                }
-                let mut ordinals = BTreeMap::<u64, usize>::new();
-                for candidate in candidates.into_iter().take(count) {
-                    let (region, at) = to_local(candidate);
-                    let ordinal = ordinals.entry(region).or_default();
-                    let id = identity(bases.traps, region, *ordinal)?;
-                    let trap_ordinal = *ordinal;
-                    *ordinal += 1;
-                    let mut family = stream(
-                        run.seed,
-                        run.identity,
-                        run.group,
-                        run.recipe,
-                        stage,
-                        &format!("family/{region}/{}/{}", at[0], at[1]),
-                    )?;
-                    use crate::scenario_package::TrapKind;
-                    let mut kinds = vec![
-                        TrapKind::Rust {
-                            slot: config.rust_slot.clone(),
-                            amount: config.rust_amount,
-                        },
-                        TrapKind::SleepingGas {
-                            condition: config.sleep_condition.clone(),
-                            duration: config.sleep_duration,
-                            exposure: config.sleep_exposure.clone(),
-                        },
-                    ];
-                    let kind = if let Some(hazards) = &config.hazards {
-                        kinds.extend([
-                            TrapKind::Arrow {
-                                attack_bonus: hazards.attack_bonus,
-                                ammunition: hazards.arrow_ammunition.clone(),
-                            },
-                            hazards.bear_trap_kind()?,
-                            TrapKind::Teleport {},
-                            TrapKind::PoisonDart {
-                                attack_bonus: hazards.attack_bonus,
-                                exposure: hazards.poison_exposure.clone(),
-                            },
-                            TrapKind::Mysterious {},
-                        ]);
-                        if let Some(destination) = definitions[&region].trapdoor_destination {
-                            kinds.push(TrapKind::TrapDoor {
-                                destination: tor_world::NamedAnchor {
-                                    region: tor_world::RegionId(destination),
-                                    name: format!("trapdoor_landing_{trap_ordinal}"),
-                                },
-                                open: false,
-                            });
-                        }
-                        kinds.remove(family.range(0, kinds.len() as i32 - 1) as usize)
-                    } else {
-                        // Existing two-family authored recipes retain their exact
-                        // stream and identity behavior until they opt into hazards.
-                        kinds.remove((family.next() & 1) as usize)
-                    };
-                    definitions.get_mut(&region).expect("member").traps.push(
-                        crate::scenario_package::Trap {
-                            id,
-                            at,
-                            dc: config.dc,
-                            avoidance_dc: config
-                                .hazards
-                                .as_ref()
-                                .map(|hazards| hazards.avoidance_dc),
-                            kind,
-                        },
-                    );
-                }
+                features.place_hidden_traps(stage, config, definitions)?
             }
             _ => {}
         }
     }
     Ok(())
+}
+
+/// Grid-wide inputs shared by the concealed feature stages.
+struct Features<'a, 'r> {
+    run: &'a RecipeRun<'r>,
+    open: &'a BTreeSet<(i32, i32)>,
+    rooms: &'a [Vec<(i32, i32)>],
+    size: [i32; 3],
+    bases: FeatureBases,
+    maze_slots: &'a [bool],
+    maze_active: bool,
+    columns: usize,
+    /// Authored anchor cells, which features never occupy.
+    reserved: BTreeSet<(i32, i32)>,
+    /// Lit floor cells, whose light reaches adjacent secret closures.
+    illuminated: BTreeSet<(i32, i32)>,
+}
+
+impl Features<'_, '_> {
+    /// A grid cell as its member region and region-local cell.
+    fn to_local(&self, (x, y): (i32, i32)) -> (u64, [i32; 3]) {
+        let slot = (y / self.size[1]) as usize * self.columns + (x / self.size[0]) as usize;
+        (
+            self.run.group.members[slot],
+            [x % self.size[0], y % self.size[1], 0],
+        )
+    }
+
+    /// Close qualifying one-cell corridor mouths with concealed doors.
+    fn place_secret_entrances(
+        &self,
+        stage: &Stage,
+        config: &SecretEntrances,
+        definitions: &mut BTreeMap<u64, RegionDef>,
+    ) -> Result<(), Failure> {
+        // Only a one-cell-wide corridor immediately outside a room may
+        // receive a full-height closure. Wide ordinary entrances stay self.open.
+        let mut candidates = BTreeSet::new();
+        for (slot, room) in self.rooms.iter().enumerate() {
+            let offset = (
+                (slot % self.columns) as i32 * self.size[0],
+                (slot / self.columns) as i32 * self.size[1],
+            );
+            let cells: BTreeSet<_> = room
+                .iter()
+                .map(|&(x, y)| (x + offset.0, y + offset.1))
+                .collect();
+            for &(x, y) in &cells {
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let mouth = (x + dx, y + dy);
+                    if !cells.contains(&mouth)
+                        && self.open.contains(&mouth)
+                        && self.open.contains(&(x + 2 * dx, y + 2 * dy))
+                        && !self.open.contains(&(mouth.0 + dy, mouth.1 + dx))
+                        && !self.open.contains(&(mouth.0 - dy, mouth.1 - dx))
+                        && !self.reserved.contains(&mouth)
+                    {
+                        candidates.insert(mouth);
+                    }
+                }
+            }
+        }
+        let mut placed = 0;
+        let mut ordinals = BTreeMap::<u64, usize>::new();
+        for candidate in candidates {
+            let (region, at) = self.to_local(candidate);
+            // A coordinate-keyed draw avoids unrelated candidate changes
+            // shifting this entrance's chance or consuming geometry RNG.
+            let mut rng = stream(
+                self.run.seed,
+                self.run.identity,
+                self.run.group,
+                self.run.recipe,
+                stage,
+                &format!("entrance/{region}/{}/{}", at[0], at[1]),
+            )?;
+            if placed >= config.maximum || rng.range(0, 999) as u32 >= config.chance_per_mille {
+                continue;
+            }
+            let ordinal = ordinals.entry(region).or_default();
+            let id = identity(self.bases.doors, region, *ordinal)?;
+            *ordinal += 1;
+            definitions.get_mut(&region).expect("member").doors.push(
+                crate::scenario_package::Door {
+                    id,
+                    at,
+                    open: false,
+                    height: 2,
+                    concealment: Some(crate::scenario_package::Concealment { dc: config.dc }),
+                },
+            );
+            // A closure's exterior face receives the adjacent room's
+            // authored light; it does not illuminate hidden corridor cells.
+            if !definitions[&region].lit
+                && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| {
+                    self.illuminated
+                        .contains(&(candidate.0 + dx, candidate.1 + dy))
+                })
+            {
+                let definition = definitions.get_mut(&region).expect("member");
+                for z in 0..2 {
+                    let surface = [at[0], at[1], z];
+                    if !definition.lighting.iter().any(|light| light.at == surface) {
+                        definition
+                            .lighting
+                            .push(crate::scenario_package::CellLight {
+                                at: surface,
+                                lit: true,
+                            });
+                    }
+                }
+            }
+            placed += 1;
+        }
+        Ok(())
+    }
+
+    /// Place concealed traps and, with hazards, their trapdoor landings.
+    fn place_hidden_traps(
+        &self,
+        stage: &Stage,
+        config: &HiddenTraps,
+        definitions: &mut BTreeMap<u64, RegionDef>,
+    ) -> Result<(), Failure> {
+        let mut landing_cells = BTreeSet::new();
+        if self.maze_active {
+            for (slot, id) in self.run.group.members.iter().enumerate() {
+                let offset = (
+                    (slot % self.columns) as i32 * self.size[0],
+                    (slot / self.columns) as i32 * self.size[1],
+                );
+                for (name, at) in &definitions[id].anchors {
+                    if name.starts_with("trapdoor_landing_") {
+                        landing_cells.insert((at[0] + offset.0, at[1] + offset.1));
+                    }
+                }
+            }
+        }
+        if config.hazards.is_some() && !self.maze_active {
+            // Each source region owns an ordinal namespace on the next
+            // depth's same slot. Generate all possible target anchors
+            // independently of whether the predecessor was ever built.
+            for (slot, room) in self.rooms.iter().enumerate() {
+                let region = self.run.group.members[slot];
+                let offset = (
+                    (slot % self.columns) as i32 * self.size[0],
+                    (slot / self.columns) as i32 * self.size[1],
+                );
+                // Omitted slots still own the same destination namespace.
+                // With no realized omissions retain the legacy candidate set
+                // and shuffle byte-for-byte (including explicit count zero).
+                let landing_floor: Vec<_> = if self.rooms.iter().any(Vec::is_empty) {
+                    self.open
+                        .iter()
+                        .filter_map(|&(x, y)| {
+                            let local = (x - offset.0, y - offset.1);
+                            ((0..self.size[0]).contains(&local.0)
+                                && (0..self.size[1]).contains(&local.1))
+                            .then_some(local)
+                        })
+                        .collect()
+                } else {
+                    room.clone()
+                };
+                let definition = &definitions[&region];
+                let mut available: Vec<_> = landing_floor
+                    .into_iter()
+                    .filter(|&(x, y)| !self.reserved.contains(&(x + offset.0, y + offset.1)))
+                    .filter(|&(x, y)| {
+                        // Secret mouths may lie on corridor-only floor.
+                        !definition.doors.iter().any(|door| {
+                            !door.open
+                                && door.at[0] == x
+                                && door.at[1] == y
+                                && door.at[2] < 2
+                                && door.at[2] + door.height as i32 > 0
+                        }) && !(0..2).any(|z| definition.walls.contains(&[x, y, z]))
+                    })
+                    .collect();
+                available.sort();
+                let mut landing_rng = stream(
+                    self.run.seed,
+                    self.run.identity,
+                    self.run.group,
+                    self.run.recipe,
+                    stage,
+                    &format!("landing/{region}"),
+                )?;
+                for i in (1..available.len()).rev() {
+                    let j = landing_rng.range(0, i as i32) as usize;
+                    available.swap(i, j);
+                }
+                if available.len() < config.count[1] as usize {
+                    return Err(fail("Trapdoor landing capacity exceeds clear floor"));
+                }
+                for (ordinal, (x, y)) in available
+                    .into_iter()
+                    .take(config.count[1] as usize)
+                    .enumerate()
+                {
+                    let name = format!("trapdoor_landing_{ordinal}");
+                    if definitions
+                        .get_mut(&region)
+                        .expect("member")
+                        .anchors
+                        .insert(name, [x, y, self.size[2] - 1])
+                        .is_some()
+                    {
+                        return Err(fail("Duplicate trapdoor landing anchor"));
+                    }
+                    landing_cells.insert((x + offset.0, y + offset.1));
+                }
+            }
+        }
+        // Ground traps remain in present room interiors. With legacy
+        // room-only landings these are independent of entrance mouths;
+        // omitted-slot landings also exclude closures, so retuning those
+        // may change self.reserved landings and hence available trap cells.
+        let mut candidates: Vec<_> = self
+            .rooms
+            .iter()
+            .enumerate()
+            .filter(|(slot, _)| !self.maze_slots[*slot])
+            .flat_map(|(slot, room)| {
+                let offset = (
+                    (slot % self.columns) as i32 * self.size[0],
+                    (slot / self.columns) as i32 * self.size[1],
+                );
+                room.iter().map(move |&(x, y)| (x + offset.0, y + offset.1))
+            })
+            .filter(|at| !self.reserved.contains(at) && !landing_cells.contains(at))
+            .collect();
+        candidates.sort();
+        candidates.dedup();
+        if self.maze_active {
+            for &cell in candidates.iter().chain(landing_cells.iter()) {
+                let (region, at) = self.to_local(cell);
+                if definitions[&region].doors.iter().any(|door| {
+                    !door.open
+                        && door.at[..2] == at[..2]
+                        && door.at[2] < 2
+                        && door.at[2] + door.height as i32 > 0
+                }) {
+                    return Err(fail("Maze reservation intersects a secret closure"));
+                }
+            }
+        }
+        let mut rng = stream(
+            self.run.seed,
+            self.run.identity,
+            self.run.group,
+            self.run.recipe,
+            stage,
+            "placement",
+        )?;
+        if self.maze_active && candidates.len() < config.count[1] as usize {
+            return Err(fail(
+                "Maze ordinary-room candidates cannot preserve authored trap maximum",
+            ));
+        }
+        let maximum = config.count[1].min(candidates.len() as u32);
+        if config.count[0] > maximum {
+            return Err(fail(
+                "Hidden trap minimum exceeds room-interior placement capacity",
+            ));
+        }
+        let count = rng.range(config.count[0] as i32, maximum as i32) as usize;
+        for i in (1..candidates.len()).rev() {
+            let j = rng.range(0, i as i32) as usize;
+            candidates.swap(i, j);
+        }
+        let mut ordinals = BTreeMap::<u64, usize>::new();
+        for candidate in candidates.into_iter().take(count) {
+            let (region, at) = self.to_local(candidate);
+            let ordinal = ordinals.entry(region).or_default();
+            let id = identity(self.bases.traps, region, *ordinal)?;
+            let trap_ordinal = *ordinal;
+            *ordinal += 1;
+            let mut family = stream(
+                self.run.seed,
+                self.run.identity,
+                self.run.group,
+                self.run.recipe,
+                stage,
+                &format!("family/{region}/{}/{}", at[0], at[1]),
+            )?;
+            use crate::scenario_package::TrapKind;
+            let mut kinds = vec![
+                TrapKind::Rust {
+                    slot: config.rust_slot.clone(),
+                    amount: config.rust_amount,
+                },
+                TrapKind::SleepingGas {
+                    condition: config.sleep_condition.clone(),
+                    duration: config.sleep_duration,
+                    exposure: config.sleep_exposure.clone(),
+                },
+            ];
+            let kind = if let Some(hazards) = &config.hazards {
+                kinds.extend([
+                    TrapKind::Arrow {
+                        attack_bonus: hazards.attack_bonus,
+                        ammunition: hazards.arrow_ammunition.clone(),
+                    },
+                    hazards.bear_trap_kind()?,
+                    TrapKind::Teleport {},
+                    TrapKind::PoisonDart {
+                        attack_bonus: hazards.attack_bonus,
+                        exposure: hazards.poison_exposure.clone(),
+                    },
+                    TrapKind::Mysterious {},
+                ]);
+                if let Some(destination) = definitions[&region].trapdoor_destination {
+                    kinds.push(TrapKind::TrapDoor {
+                        destination: tor_world::NamedAnchor {
+                            region: tor_world::RegionId(destination),
+                            name: format!("trapdoor_landing_{trap_ordinal}"),
+                        },
+                        open: false,
+                    });
+                }
+                kinds.remove(family.range(0, kinds.len() as i32 - 1) as usize)
+            } else {
+                // Existing two-family authored recipes retain their exact
+                // stream and identity behavior until they opt into hazards.
+                kinds.remove((family.next() & 1) as usize)
+            };
+            definitions.get_mut(&region).expect("member").traps.push(
+                crate::scenario_package::Trap {
+                    id,
+                    at,
+                    dc: config.dc,
+                    avoidance_dc: config.hazards.as_ref().map(|hazards| hazards.avoidance_dc),
+                    kind,
+                },
+            );
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
