@@ -428,17 +428,32 @@ session disk, and fail-fast left 3,334 tests unstarted. Classification:
 harness/infrastructure, not a product or test defect. After the caches were
 cleared, the full 3,553-test run had no failures on the same commit.
 
-### Pre-existing 3D fitting failures, 27 November (unresolved)
+### Pre-existing 3D library failures, 27 November
 
 A local `cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d --lib`
-on Linux (rustc 1.97.0) failed the same 20 methods on base `68bff10`
-and on branch `claude/code-docs-refactor-ovqedk`, in both debug and release;
-1,411 other methods passed. By module: `creatures::cloak::tests` (6); `creatures::geometry::biped::necklace_layers_tests` (1); `creatures::geometry::bracelet_tests` (6); `creatures::geometry::forearm_plan::bracelet_support_tests` (2); `creatures::geometry::forearm_plan::tests` (1); `creatures::geometry::garment_tests` (1); `creatures::geometry::mantle_head_contact_tests` (2); `creatures::rogue_tests` (1). Typical failures report
-infeasible radial cloth or accessory fits by small margins (for example a
-0.00018 collar deficit). This branch changed no fitting logic in the 3D
-workspace, only lint, format and clone cleanups, so they predate it. Hosted CI
-runs only the 3D smoke check, not this library suite. Classification:
-unresolved; the root cause was not bisected. The tests were not changed.
+on Linux (rustc 1.97.0) failed 20 methods on base `68bff10`, identically in
+debug and release; 1,411 others passed. Bisecting the merge history:
+
+- **11 stale tests, now corrected:** introduced by PR #87 (procedural model
+  materials). That PR deliberately moved bracelets, armlets, earrings and
+  necklaces from the `metal` builder to the new `gold` builder ("Adopt gold,
+  glass, wood, steel, and chitin on necklaces..."), but bracelet, bracelet
+  support, forearm plan, necklace and composition tests still read `metal`.
+  They now read `gold`, and the layer snapshots they compare cover every
+  bucket through `Parts::all_builders`. Three further tests were passing only
+  vacuously, because their no-mutation and rejection checks never saw the gold
+  layer. They now check it.
+- **1 unresolved, from PR #86:**
+  `garment_tests::breastplate_clears_emitted_underlayers_and_cloak_clears_plate_through_swing`
+  passes at `8a083b1` and fails from `4ad85fd`.
+- **8 unresolved, older than PR #86:** six `cloak::tests` and two
+  `mantle_head_contact_tests` methods fail already at `8a083b1`. Production
+  cloak fitting reports an infeasible radial fit by small margins (for example
+  a 0.00018 collar deficit).
+
+These nine are genuine fitting failures in independently maintained art
+geometry, not stale expectations, and need that geometry's owner. Their tests
+were not changed. Hosted CI runs only the 3D smoke check, not this suite.
 
 ### Documentation is tested behavior too
 

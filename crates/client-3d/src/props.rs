@@ -128,6 +128,12 @@ impl PropMaterials {
         &self.metal
     }
 
+    /// The gold that jewellery and regalia fittings share.
+    #[cfg(test)]
+    pub fn gold(&self) -> &Handle<StandardMaterial> {
+        &self.gold
+    }
+
     pub fn new(materials: &mut Assets<StandardMaterial>) -> Self {
         let glow = [
             Accent::Teal,
