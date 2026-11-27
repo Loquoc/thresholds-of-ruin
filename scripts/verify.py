@@ -32,6 +32,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -114,7 +115,12 @@ ENVIRONMENT_HINTS = {
     "SetCursorPos": "native input was denied: rerun with interactive desktop access",
     "Native click must hit the game window": "another window covered the game window during a native click",
     "A native Windows desktop is required": "no interactive desktop",
+    "No space left on device": "the disk is full: remove stale build caches such as target/*/incremental and rerun",
 }
+
+# Below this much free space a debug build plus process-test saves can fill the
+# disk mid-run, which then fails as unrelated test errors.
+LOW_DISK_GB = 10
 
 
 def workspace(metadata):
@@ -272,6 +278,14 @@ def jobs_for_memory(free_gb, cpus):
     """Build jobs from free commit memory, per the maintainer machine's measured limits."""
     jobs = 4 if free_gb >= 10 else 2 if free_gb >= 5 else 1
     return max(1, min(jobs, cpus or 1))
+
+
+def low_disk_warning(free_gb):
+    """A preflight warning when the build disk is nearly full, else None."""
+    if free_gb >= LOW_DISK_GB:
+        return None
+    return (f"warning: only {free_gb:.1f} GB free on the build disk; a full disk fails builds and "
+            "process tests mid-run. Free space first, for example stale target/*/incremental caches.")
 
 
 def free_memory_gb():
@@ -887,6 +901,9 @@ def main(argv=None):
                  for name, command, env in steps]
     selection = "complete workspace" if args.ci_profile else f"{len(paths)} changed paths since {args.base}"
     print(f"tier {label}; {selection}; jobs {jobs}; test workers {workers} ({free:.1f} GB free)")
+    disk = low_disk_warning(shutil.disk_usage(ROOT).free / 1024 ** 3)
+    if disk:
+        print(disk, flush=True)
     if unknown:
         print("unmapped paths select everything: " + ", ".join(unknown[:5]) + (" ..." if len(unknown) > 5 else ""))
     print("packages: " + (", ".join(sorted(affected)) or "none"))

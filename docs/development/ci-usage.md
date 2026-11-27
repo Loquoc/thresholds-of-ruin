@@ -330,3 +330,13 @@ stdout, so the excerpt appears in the hosted job log. It starts no process,
 reaches no network destination, and adds no artifact, upload, cache, runner,
 trigger, permission or dependency. `summary.json` receipts keep their schema.
 Updated only the reviewed `verify.py` hash after this source review.
+
+## November 27 disk guards
+
+`scripts/verify.py` adds a `No space left on device` environment hint and, before
+any build, prints a warning when the repository's disk has less than 10 GB free.
+Reviewed the change: the check calls `shutil.disk_usage` on the checkout and
+writes only to stdout. The hint matches text already in the failed step's log.
+Neither changes a command, exit status, artifact, upload, runner, trigger,
+permission, dependency or receipt. Updated only the reviewed `verify.py` hash
+after this source review.

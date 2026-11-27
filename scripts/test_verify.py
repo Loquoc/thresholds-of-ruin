@@ -324,6 +324,17 @@ class Reporting(unittest.TestCase):
             self.assertIn("lines omitted", excerpt)
         self.assertEqual(verify.python_failure_excerpts("ok\nRan 3 tests\n\nOK\n"), [])
 
+    def test_full_disk_is_named_as_a_machine_problem(self):
+        hint = verify.environment_hint("OSError: [Errno 28] No space left on device: 'game.db'")
+        self.assertIsNotNone(hint)
+        self.assertIn("disk is full", hint)
+
+    def test_low_disk_warning_names_free_space_before_builds_start(self):
+        self.assertIsNone(verify.low_disk_warning(verify.LOW_DISK_GB))
+        warning = verify.low_disk_warning(verify.LOW_DISK_GB - 0.5)
+        self.assertIn(f"{verify.LOW_DISK_GB - 0.5:.1f} GB free", warning)
+        self.assertIn("incremental", warning)
+
     def test_environment_hints_name_the_machine_problem(self):
         self.assertIn("lower --jobs", verify.environment_hint("memory allocation of 4096 bytes failed"))
         self.assertIsNone(verify.environment_hint("assertion failed: left == right"))
