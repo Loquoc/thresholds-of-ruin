@@ -163,7 +163,10 @@ broader performance and scaling work is finished.
   - Earlier commits on the branch split `App::input`, `window_loop`,
     `Ruleset::validate`, `StateView::validate`, `AbilityPlan::valid`,
     scripting `invoke` and the others listed in the pull request.
-- **Retained, with reasons:** eight main-workspace functions remain at 300 or
+- **Later splits:** `OutcomeFacts::capture_selected` drops from 302 to 33
+  lines. Its discovery, motion, sighting, door, interaction, combat, goal and
+  actor-name steps are now functions that append facts in the original order.
+- **Retained, with reasons:** seven main-workspace functions remain at 300 or
   more lines.
   - `advance_preparation` (now 408 lines) and `apply_outcome_effects` are
     ordered state machines; their checks and effects run in an order replay
@@ -176,8 +179,9 @@ broader performance and scaling work is finished.
   - `parse_wizard_with_origin` is one flat grammar table.
   - The creature-inspection and combat-diagnostics views are linear view
     builders.
-  - `capture_selected` and `roll_planned_effect` were already narrowed and keep
-    their remaining steps together.
+  - `roll_planned_effect` (300) was itself extracted on this branch from the
+    strike resolver. It is one exhaustive match from each planned effect to its
+    resolved effect, and its random draws happen in the order replay depends on.
   - The fourteen 3D functions of that size, mostly mesh and outfit
     composition, belong to the 3D geometry work, which has its own open fitting
     failures.
