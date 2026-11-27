@@ -1471,9 +1471,9 @@ case.
 The branch's measured gains are in the client and combat-restart workloads
 above, not in these ordinary command paths, which stay within noise.
 `wire_encoding` p50 was 1.7–3.0% higher on the head side in all three cases.
-No change on the branch touches wire encoding, and the shift is recorded as
-unexplained rather than attributed. Restart replay with n=3 per side is
-within its run-to-run spread.
+No change on the branch touches wire encoding. The A/A runs below show that a
+shift this size is within the spread between two builds of identical code.
+Restart replay with n=3 per side is within its run-to-run spread.
 
 **Ruleset reference cache (2026-11-27).** A callgrind profile of engine open
 attributed about 21% of its instructions to `Ruleset::validate_condition_modifiers`.
@@ -1493,12 +1493,50 @@ validation; the three per-call builders share them. Two local `perf_compare.py
 
 Command and decision timings were unchanged. One run's 8-actor, 1,000-history
 save p50 rose 37% but fell 5.5% in the repeat; saves include disk I/O on a VM,
-so this is treated as noise. Unexplained: `client_apply_ms` p50 was 8–11%
-higher on the head side in every case of both runs, although the client
-application code is identical on both sides. It is not attributed to this
-change, and it is not a measured client regression either. Raw samples are local
+so this is treated as noise. `client_apply_ms` p50 was 8–11% higher on the
+head side in every case of both runs, although the client application code is
+identical on both sides. The A/A runs below put that within the spread between
+two builds of identical code, so it is not a client regression. Raw samples are local
 and not uploaded; there is no ledger entry.
 
+
+
+**A/A spread between separately built binaries (2026-11-27).** Two `perf_compare.py`
+runs compared identical code with itself, on machine fingerprint
+`2e1674e8be77`: a later VM than the runs above, so its timings are not
+comparable with them. Each run used three balanced rounds, had no failed runs,
+and every count matched.
+
+| Run | Metric | Head p50 change, identical code |
+| --- | --- | --- |
+| `combat` (`HEAD` against itself) | `client_apply_ms` | −4.3% to +9.0% pooled by case; per round −9.5% to +49.6% |
+| `combat` | `client_draw_ms` | per round −21.5% to +56.5% |
+| `combat` | `command_ms` | per round −16.4% to +55.8% |
+| `r8-a1-h100-memory` (docs-only difference) | `wire_encoding` | −4.0% |
+| `r8-a1-h100-memory` | `authoritative_total` | −5.5% |
+| `r8-a1-h100-memory` | `restart_replay_ms` | +12.3% (n=3) |
+
+Both earlier "unexplained" shifts, `wire_encoding` +1.7–3.0% and
+`client_apply_ms` +8–11%, are inside this spread.
+
+**Why identical code times differently.** `perf_compare.py` builds the base in
+a Git worktree and the head in place. The A/A `combat_bench` binaries had
+different SHA-256 digests and sizes (61,722,976 and 61,722,664 bytes), and
+almost every byte after the first difference had shifted. Embedded source and
+target paths change string sizes, so every function after them moves. Building
+both sides with `--remap-path-prefix` for the tree and the target directory
+narrowed the size difference to 56 bytes but did not remove it. LLVM's local
+symbol suffixes (`.llvm.<hash>`) still hash the build directory, and those
+decimal hashes differ in length. Matching binaries would need both sides built
+at the same absolute path.
+
+**How to read comparisons until then.** Treat sub-millisecond p50 shifts below
+roughly ±10% (client apply, draw, command and wire metrics) as within A/A noise
+on this hardware unless they repeat across runs and exceed a same-session A/A.
+Counts are deterministic and stay exact. A future change to `perf_compare.py`
+could build each side in turn at one shared path and record whether the
+binaries then match. Raw samples are local and not uploaded; there is no ledger
+entry.
 
 ## Ordered-strike workload v1
 
