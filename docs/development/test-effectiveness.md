@@ -407,6 +407,21 @@ causal prefix, while rejecting future events beyond the batch. A successful
 render is still not visual acceptance. Keep the batching/schema witnesses
 separate from the model and image-review evidence.
 
+### Unregistered tooling test owner, 27 November
+
+A full local Python run on branch `claude/code-docs-refactor-ovqedk` caught a
+tooling defect introduced on that branch: a new architecture-check test class,
+`test_check_architecture.MirroredSourceTests`, had no reviewed planner owner, so
+the CI planner reported "unreviewed owner" and required full coverage. One root
+cause produced six distinct failing methods in `test_ci_test_plan.PlanTests`,
+with eight failed executions counting subtests. The class is now registered in
+`ci_test_contracts.py` after a usage review, and all 23 planner tests pass.
+Classification: production (tooling) defect, caught during development, after
+it was pushed to the branch but before any merge. The same run's four errors
+in arena-search owners were harness/environment failures (the isolated `optuna`
+environment was not installed), not evidence about this change; all
+four passed when rerun in a venv built from the hash-pinned requirements.
+
 ### Documentation is tested behavior too
 
 The documentation suite caught a renamed historical anchor still linked by a

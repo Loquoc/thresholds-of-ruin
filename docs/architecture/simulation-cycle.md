@@ -568,7 +568,7 @@ owning behavioral tests as well as documentation updates. Paths below are under
 | Action/deadline walk | `simulation/src/actions.rs:314–344,984–1048` | Action/scheduling contracts |
 | Timer/physics/work order | `simulation/src/physics.rs:950–1186`; `simulation/src/creature_time.rs:63–168` | Moving-expiry/arena-deadline witnesses above |
 | Regeneration/nutrition endpoints | `simulation/src/creatures/state.rs:1888–2075`; `simulation/src/lifecycle.rs:302–394` | `coincident_condition_and_engagement_expiry_rephase_earned_work_once` in `behavior_tests.rs`; survival/recovery suites |
-| Preparation ties/payment | `simulation/src/sequence_execution.rs:7–459` | Ability/condition/supply/continuation contracts |
+| Preparation ties/payment | `simulation/src/sequence_execution.rs` `resolve_preparations`, `advance_preparation` | Ability/condition/supply/continuation contracts |
 | Region continuation | `simulation/src/floor_activation.rs:1171–1216`; `server/src/engine.rs:1980–2046,3774–3977` | Activation/region/host-continuation contracts |
 | Save admission/publication | `server/src/engine.rs:4276–4404`; `server/src/storage.rs:1176–1255,1510–1535` | `failed_ai_journal_admission_does_not_publish_candidate_effects` in server performance contracts; storage contracts |
 | Outcomes/lifecycle/readiness | `server/src/session.rs` `action_result_update`, `action_update`, `report_execution_failure`, `refresh_readiness` | Outcome/privacy/session contracts |

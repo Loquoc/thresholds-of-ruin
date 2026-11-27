@@ -307,3 +307,15 @@ Rogue-o-matic policy or session modules change. It also recognizes
 `RogueReferencePolicyTests`, which checks the pre-refactor policy against
 in-memory observations and session fixtures. Both changes use the existing
 test jobs, runner limits, dependencies, and artifact retention.
+
+## November 27 mirrored-source test registration
+
+The architecture check gains one planner owner class in
+`scripts/ci_test_contracts.py`: `MirroredSourceTests` in the existing
+`test_check_architecture` module. Reviewed its source: it compares two pairs of
+checked-in Rust files byte-for-byte and writes small fixture files into
+temporary directories. It starts no process, server, renderer or benchmark,
+reaches no network destination and produces no artifact. No workflow commands,
+runners, triggers, permissions, dependencies, caches, retention or budgets
+change. Updated only the reviewed `ci_test_contracts.py` hash after this source
+review.
