@@ -568,6 +568,77 @@ impl Game {
         Ok(actor)
     }
 
+    /// Plan prepared work, or adopt the plan captured at admission, and fix
+    /// its preparation duration and started outcome.
+    fn plan_prepared_work(
+        &self,
+        id: ActorId,
+        actor: &crate::Actor,
+        work: crate::Work,
+        captured_plan: Option<crate::abilities::Plan>,
+    ) -> Result<(OutcomeKind, u64, crate::abilities::Plan), GameError> {
+        let plan = match captured_plan {
+            Some(plan) if plan.actor() == id && plan.work() == work => plan,
+            Some(_) => {
+                return Err(GameError::Rule(crate::abilities::RuleError::InvalidPlan));
+            }
+            None => self.plan_work(id, work.clone())?,
+        };
+        let duration = actor
+            .pending
+            .as_ref()
+            .filter(|p| p.plan.work() == work)
+            .map_or(plan.preparation(), |p| p.remaining);
+        let commitment = if let Some(pending) = actor
+            .pending
+            .as_ref()
+            .filter(|pending| pending.plan.work() == work)
+        {
+            pending.completion_delay(self.tick)?
+        } else {
+            duration
+                .checked_add(
+                    plan.as_ability()
+                        .and_then(|plan| plan.strikes.last())
+                        .map_or(0, |strike| strike.offset),
+                )
+                .and_then(|value| value.checked_add(plan.recovery()))
+                .ok_or(GameError::Schedule(crate::ScheduleError::TimeExhausted))?
+        };
+        self.tick
+            .checked_add(commitment)
+            .ok_or(GameError::Schedule(crate::ScheduleError::TimeExhausted))?;
+        let kind = match &work {
+            crate::Work::Escape { hold } => OutcomeKind::EscapeStarted { hold: *hold },
+            crate::Work::Respec {
+                basis, replacement, ..
+            } => OutcomeKind::RespecStarted {
+                basis: basis.clone(),
+                replacement: replacement.clone(),
+            },
+            crate::Work::UseAbility {
+                id: ability,
+                invocation,
+                ..
+            } if invocation.kind() == crate::abilities::InvocationKind::ActorTarget => {
+                OutcomeKind::AbilityStarted {
+                    reference: invocation.reference(),
+                    id: ability.clone(),
+                    name: self
+                        .content
+                        .rules
+                        .ability(ability)
+                        .ok_or(GameError::Rule(crate::abilities::RuleError::UnknownAbility))?
+                        .name
+                        .clone(),
+                    target: invocation.target(id),
+                }
+            }
+            _ => OutcomeKind::ItemStarted { work: work.clone() },
+        };
+        Ok((kind, duration, plan))
+    }
+
     fn prepare_available_action(
         &self,
         id: ActorId,
@@ -683,97 +754,10 @@ impl Game {
             | Action::Zap { .. }
             | Action::Drink { .. }
             | Action::Eat { .. } => {
-                let work = match action.clone() {
-                    Action::Escape { hold } => crate::Work::Escape { hold },
-                    Action::Respec {
-                        basis,
-                        replacement,
-                        supplies,
-                    } => crate::Work::Respec {
-                        basis,
-                        replacement,
-                        supplies,
-                    },
-                    Action::UseAbility {
-                        id,
-                        invocation,
-                        supplies,
-                    } => crate::Work::UseAbility {
-                        id,
-                        invocation,
-                        supplies,
-                    },
-                    Action::Equip { item, slot } => crate::Work::Equip { item, slot },
-                    Action::Unequip { item } => crate::Work::Unequip { item },
-                    Action::Ignite { item } => crate::Work::Ignite { item },
-                    Action::Extinguish { item } => crate::Work::Extinguish { item },
-                    Action::Drink { item } => crate::Work::Drink { item },
-                    Action::Read { item } => crate::Work::Read { item },
-                    Action::Zap { item, aim } => crate::Work::Zap { item, aim },
-                    Action::Eat { item } => crate::Work::Eat { item },
-                    _ => return Err(GameError::Schedule(crate::ScheduleError::InvalidIntention)),
-                };
-                let plan = match captured_plan {
-                    Some(plan) if plan.actor() == id && plan.work() == work => plan,
-                    Some(_) => {
-                        return Err(GameError::Rule(crate::abilities::RuleError::InvalidPlan));
-                    }
-                    None => self.plan_work(id, work.clone())?,
-                };
-                let duration = actor
-                    .pending
-                    .as_ref()
-                    .filter(|p| p.plan.work() == work)
-                    .map_or(plan.preparation(), |p| p.remaining);
-                let commitment = if let Some(pending) = actor
-                    .pending
-                    .as_ref()
-                    .filter(|pending| pending.plan.work() == work)
-                {
-                    pending.completion_delay(self.tick)?
-                } else {
-                    duration
-                        .checked_add(
-                            plan.as_ability()
-                                .and_then(|plan| plan.strikes.last())
-                                .map_or(0, |strike| strike.offset),
-                        )
-                        .and_then(|value| value.checked_add(plan.recovery()))
-                        .ok_or(GameError::Schedule(crate::ScheduleError::TimeExhausted))?
-                };
-                self.tick
-                    .checked_add(commitment)
-                    .ok_or(GameError::Schedule(crate::ScheduleError::TimeExhausted))?;
-                let kind = match &work {
-                    crate::Work::Escape { hold } => OutcomeKind::EscapeStarted { hold: *hold },
-                    crate::Work::Respec {
-                        basis, replacement, ..
-                    } => OutcomeKind::RespecStarted {
-                        basis: basis.clone(),
-                        replacement: replacement.clone(),
-                    },
-                    crate::Work::UseAbility {
-                        id: ability,
-                        invocation,
-                        ..
-                    } if invocation.kind() == crate::abilities::InvocationKind::ActorTarget => {
-                        OutcomeKind::AbilityStarted {
-                            reference: invocation.reference(),
-                            id: ability.clone(),
-                            name: self
-                                .content
-                                .rules
-                                .ability(ability)
-                                .ok_or(GameError::Rule(
-                                    crate::abilities::RuleError::UnknownAbility,
-                                ))?
-                                .name
-                                .clone(),
-                            target: invocation.target(id),
-                        }
-                    }
-                    _ => OutcomeKind::ItemStarted { work: work.clone() },
-                };
+                let work = crate::Work::from_action(action.clone())
+                    .ok_or(GameError::Schedule(crate::ScheduleError::InvalidIntention))?;
+                let (kind, duration, plan) =
+                    self.plan_prepared_work(id, actor, work, captured_plan)?;
                 planned = Some(plan);
                 (kind, duration)
             }
