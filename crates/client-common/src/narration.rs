@@ -1102,21 +1102,7 @@ fn action_with_name(event: &Event, name: Option<&OutcomeName>) -> String {
                 named().unwrap_or_else(|| "item".into())
             )
         }
-        Event::Moved { direction } => format!(
-            "You move {}.",
-            match direction {
-                Direction::North => "north",
-                Direction::East => "east",
-                Direction::South => "south",
-                Direction::West => "west",
-                Direction::NorthEast => "northeast",
-                Direction::SouthEast => "southeast",
-                Direction::SouthWest => "southwest",
-                Direction::NorthWest => "northwest",
-                Direction::Up => "up",
-                Direction::Down => "down",
-            }
-        ),
+        Event::Moved { direction } => format!("You move {}.", crate::direction_name(*direction)),
         Event::Crumbled { quantity, .. } => {
             if *quantity == 1 {
                 "The item crumbles as you try to pick it up.".into()
@@ -1176,21 +1162,7 @@ fn action_legacy(event: &Event, view: &Observation) -> String {
             format!("You begin to {verb} the {name}.")
         }
 
-        Event::Moved { direction } => format!(
-            "You move {}.",
-            match direction {
-                Direction::North => "north",
-                Direction::East => "east",
-                Direction::South => "south",
-                Direction::West => "west",
-                Direction::NorthEast => "northeast",
-                Direction::SouthEast => "southeast",
-                Direction::SouthWest => "southwest",
-                Direction::NorthWest => "northwest",
-                Direction::Up => "up",
-                Direction::Down => "down",
-            }
-        ),
+        Event::Moved { direction } => format!("You move {}.", crate::direction_name(*direction)),
         Event::Crumbled { quantity, .. } => {
             if *quantity == 1 {
                 "The item crumbles as you try to pick it up.".into()

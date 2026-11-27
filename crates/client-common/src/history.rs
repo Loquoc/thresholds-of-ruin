@@ -1,20 +1,7 @@
 //! History entries as players read them, shared by every client.
 use tor_protocol::*;
 
-fn direction_name(direction: Direction) -> &'static str {
-    match direction {
-        Direction::North => "north",
-        Direction::East => "east",
-        Direction::South => "south",
-        Direction::West => "west",
-        Direction::NorthEast => "northeast",
-        Direction::SouthEast => "southeast",
-        Direction::SouthWest => "southwest",
-        Direction::NorthWest => "northwest",
-        Direction::Up => "up",
-        Direction::Down => "down",
-    }
-}
+use crate::direction_name;
 
 /// The exact wording the actor previously received, when the server recorded it.
 pub fn recorded_narration(entry: &HistoryEntry) -> Option<String> {

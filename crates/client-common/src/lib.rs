@@ -59,7 +59,23 @@ pub use palette::{observation_assets, AssetTable, Palette};
 pub use pending_request::{ConfirmedReply, PendingRequest, RequestCompletion};
 pub use state::{ClientSessionState, ClientState, CombatUpdate, RememberedCell};
 
-use tor_protocol::{ActorId, StreamCursor};
+use tor_protocol::{ActorId, Direction, StreamCursor};
+
+/// A direction as a lower-case English word, as every client words it.
+pub fn direction_name(direction: Direction) -> &'static str {
+    match direction {
+        Direction::North => "north",
+        Direction::East => "east",
+        Direction::South => "south",
+        Direction::West => "west",
+        Direction::NorthEast => "northeast",
+        Direction::SouthEast => "southeast",
+        Direction::SouthWest => "southwest",
+        Direction::NorthWest => "northwest",
+        Direction::Up => "up",
+        Direction::Down => "down",
+    }
+}
 
 /// Validation failure while applying a disclosed stream or reset boundary.
 /// Callers must recover through a fresh authoritative boundary, not patch a

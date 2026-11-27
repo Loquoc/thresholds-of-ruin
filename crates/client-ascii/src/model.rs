@@ -3266,21 +3266,7 @@ fn nudge(position: Position, key: Key) -> Option<Position> {
     })
 }
 
-/// A direction as a word.
-pub fn direction_name(direction: Direction) -> &'static str {
-    match direction {
-        Direction::North => "north",
-        Direction::East => "east",
-        Direction::South => "south",
-        Direction::West => "west",
-        Direction::NorthEast => "northeast",
-        Direction::SouthEast => "southeast",
-        Direction::SouthWest => "southwest",
-        Direction::NorthWest => "northwest",
-        Direction::Up => "up",
-        Direction::Down => "down",
-    }
-}
+pub use tor_client_common::direction_name;
 
 pub fn item_glyph(class: ItemClass) -> char {
     match class {
