@@ -185,7 +185,7 @@ Breath attacks still specify their own reach, checks, effects and costs.
 
 Sources: [check arithmetic](../../crates/simulation/src/attributes.rs#L321-L347),
 [dice kernel](../../crates/simulation/src/dice.rs),
-[defense derivation](../../crates/simulation/src/creatures/derive.rs#L2351-L2376).
+[defense derivation](../../crates/simulation/src/creatures/derive.rs#L2227-L2252).
 
 ## Primary, exposure and effect ordering
 

@@ -2168,137 +2168,13 @@ fn fold(
         });
     }
     derived.weapon_abilities.clear();
-    for ability in &derived.abilities {
-        let stat = |stat| {
-            value(
-                &values,
-                Stat::Ability {
-                    ability: ability.clone(),
-                    stat,
-                },
-                0,
-            )
-        };
-        let dice = stat(AbilityStat::Dice)?;
-        if !(0..i64::from(crate::limits::DICE)).contains(&dice) {
-            return Err(BuildError::DerivedLimit);
-        }
-        derived.ability_values.insert(
-            ability.clone(),
-            AbilityValues {
-                hold_damage_increment: u32::try_from(stat(AbilityStat::HoldDamageIncrement)?)
-                    .map_err(|_| BuildError::DerivedLimit)?,
-                dice: dice as u16,
-                flat: stat(AbilityStat::FlatBonus)? as i32,
-                check_bonus: stat(AbilityStat::CheckBonus)? as i32,
-                difficulty: stat(AbilityStat::Difficulty)? as i32,
-                duration: u64::try_from(stat(AbilityStat::Duration)?)
-                    .map_err(|_| BuildError::DerivedLimit)?,
-                range: stat(AbilityStat::Range)? as i32,
-                preparation: stat(AbilityStat::Preparation)?,
-                recovery: stat(AbilityStat::Recovery)?,
-            },
-        );
-        let definition = rules
-            .ability(ability)
-            .ok_or(BuildError::InvalidDefinition)?;
-        let modifiers = derived.ability_values(ability);
-        let interaction_error = |error| match error {
-            crate::rules::EffectiveInteractionError::DirectHarm => BuildError::InvalidInteraction,
-            // Source expressions already passed catalog validation. A composed
-            // damage operand can exceed its current numeric/pool bound without
-            // becoming malformed content or a direct-harm contradiction.
-            crate::rules::EffectiveInteractionError::InvalidDamage => BuildError::DerivedLimit,
-        };
-        match &definition.strikes {
-            crate::rules::StrikeSource::NaturalMelee { additional_riders } => {
-                let crate::attacks::SelectedMeleeAttack::Natural(natural) =
-                    &derived.natural_attack.attack
-                else {
-                    return Err(BuildError::InvalidDefinition);
-                };
-                let strikes =
-                    crate::rules::append_natural_riders(natural.strikes(), additional_riders)
-                        .map_err(|_| BuildError::InvalidDefinition)?;
-                rules
-                    .validate_effective_interaction(
-                        definition.interaction,
-                        &strikes,
-                        &modifiers,
-                        true,
-                        &derived.active_talents,
-                    )
-                    .map_err(interaction_error)?;
-            }
-            crate::rules::StrikeSource::Authored { strikes } => {
-                rules
-                    .validate_effective_interaction(
-                        definition.interaction,
-                        strikes,
-                        &modifiers,
-                        false,
-                        &derived.active_talents,
-                    )
-                    .map_err(interaction_error)?;
-            }
-            crate::rules::StrikeSource::SelectedMelee
-            | crate::rules::StrikeSource::Projectile { .. } => {}
-        }
-        let reach = match definition.reach {
-            crate::rules::Reach::MutualSight { range } => {
-                let range = i64::from(range) + i64::from(modifiers.range);
-                if !(1..=i64::from(crate::limits::SIGHT_RANGE)).contains(&range) {
-                    return Err(BuildError::DerivedLimit);
-                }
-                crate::rules::Reach::MutualSight {
-                    range: range as u16,
-                }
-            }
-            crate::rules::Reach::Sight { range } => {
-                let range = i64::from(range) + i64::from(modifiers.range);
-                if !(1..=i64::from(crate::limits::SIGHT_RANGE)).contains(&range) {
-                    return Err(BuildError::DerivedLimit);
-                }
-                crate::rules::Reach::Sight {
-                    range: range as u16,
-                }
-            }
-            crate::rules::Reach::SelfOrAlly {
-                range: crate::rules::AllyRange::Sight { range },
-            } => {
-                let range = i64::from(range) + i64::from(modifiers.range);
-                if !(1..=i64::from(crate::limits::SIGHT_RANGE)).contains(&range) {
-                    return Err(BuildError::DerivedLimit);
-                }
-                crate::rules::Reach::SelfOrAlly {
-                    range: crate::rules::AllyRange::Sight {
-                        range: range as u16,
-                    },
-                }
-            }
-            ref reach => reach.clone(),
-        };
-        derived.ability_reaches.insert(ability.clone(), reach);
-        let source = if matches!(
-            definition.strikes,
-            crate::rules::StrikeSource::NaturalMelee { .. }
-        ) {
-            &derived.natural_attack
-        } else {
-            &derived.selected_attack
-        };
-        let timing = ability_timing_for_attack(derived, build, definition, &modifiers, source)?;
-        derived.ability_timings.insert(ability.clone(), timing);
-        if definition.consumes_caster_weapon(|ordinal| match &definition.strikes {
-            crate::rules::StrikeSource::Authored { strikes } => strikes[ordinal]
-                .unlock
-                .as_ref()
-                .is_none_or(|id| derived.active_talents.contains(id)),
-            _ => true,
-        }) {
-            derived.weapon_abilities.insert(ability.clone());
-        }
-    }
+    // Each ability reads other derived values, so fold them with the set taken out.
+    let abilities = std::mem::take(&mut derived.abilities);
+    let folded = abilities
+        .iter()
+        .try_for_each(|ability| fold_ability(derived, build, &values, ability));
+    derived.abilities = abilities;
+    folded?;
     if losses.has_attribute_loss() {
         for attributes in derived.defense_attributes.values_mut() {
             *attributes = Attributes::from_derived(ByAttribute::from_fn(|attribute| {
@@ -2431,32 +2307,166 @@ fn fold_ability_timings(
 ) -> Result<(), BuildError> {
     let rules = build.ruleset();
     derived.weapon_abilities.clear();
-    for ability in &derived.abilities {
+    let abilities = std::mem::take(&mut derived.abilities);
+    let folded = abilities.iter().try_for_each(|ability| {
         let definition = rules
             .ability(ability)
             .ok_or(BuildError::InvalidDefinition)?;
-        let modifiers = derived.ability_values(ability);
-        let source = if matches!(
-            definition.strikes,
-            crate::rules::StrikeSource::NaturalMelee { .. }
-        ) {
-            &derived.natural_attack
-        } else {
-            &derived.selected_attack
-        };
-        let timing = ability_timing_for_attack(derived, build, definition, &modifiers, source)?;
-        derived.ability_timings.insert(ability.clone(), timing);
-        if definition.consumes_caster_weapon(|ordinal| match &definition.strikes {
-            crate::rules::StrikeSource::Authored { strikes } => strikes[ordinal]
-                .unlock
-                .as_ref()
-                .is_none_or(|id| derived.active_talents.contains(id)),
-            _ => true,
-        }) {
-            derived.weapon_abilities.insert(ability.clone());
-        }
+        fold_ability_timing(derived, build, definition, ability)
+    });
+    derived.abilities = abilities;
+    folded
+}
+
+/// Record an ability's effective timing for its attack source, and whether it
+/// consumes the caster's weapon.
+fn fold_ability_timing(
+    derived: &mut DerivedCreature,
+    build: &CreatureBuild,
+    definition: &crate::rules::AbilityDef,
+    ability: &AbilityId,
+) -> Result<(), BuildError> {
+    let modifiers = derived.ability_values(ability);
+    let source = if matches!(
+        definition.strikes,
+        crate::rules::StrikeSource::NaturalMelee { .. }
+    ) {
+        &derived.natural_attack
+    } else {
+        &derived.selected_attack
+    };
+    let timing = ability_timing_for_attack(derived, build, definition, &modifiers, source)?;
+    derived.ability_timings.insert(ability.clone(), timing);
+    if definition.consumes_caster_weapon(|ordinal| match &definition.strikes {
+        crate::rules::StrikeSource::Authored { strikes } => strikes[ordinal]
+            .unlock
+            .as_ref()
+            .is_none_or(|id| derived.active_talents.contains(id)),
+        _ => true,
+    }) {
+        derived.weapon_abilities.insert(ability.clone());
     }
     Ok(())
+}
+
+/// Fold one granted ability's effective values, reach, timing and weapon use.
+fn fold_ability(
+    derived: &mut DerivedCreature,
+    build: &CreatureBuild,
+    values: &BTreeMap<Stat, Accumulator>,
+    ability: &AbilityId,
+) -> Result<(), BuildError> {
+    let rules = build.ruleset();
+    let stat = |stat| {
+        value(
+            values,
+            Stat::Ability {
+                ability: ability.clone(),
+                stat,
+            },
+            0,
+        )
+    };
+    let dice = stat(AbilityStat::Dice)?;
+    if !(0..i64::from(crate::limits::DICE)).contains(&dice) {
+        return Err(BuildError::DerivedLimit);
+    }
+    derived.ability_values.insert(
+        ability.clone(),
+        AbilityValues {
+            hold_damage_increment: u32::try_from(stat(AbilityStat::HoldDamageIncrement)?)
+                .map_err(|_| BuildError::DerivedLimit)?,
+            dice: dice as u16,
+            flat: stat(AbilityStat::FlatBonus)? as i32,
+            check_bonus: stat(AbilityStat::CheckBonus)? as i32,
+            difficulty: stat(AbilityStat::Difficulty)? as i32,
+            duration: u64::try_from(stat(AbilityStat::Duration)?)
+                .map_err(|_| BuildError::DerivedLimit)?,
+            range: stat(AbilityStat::Range)? as i32,
+            preparation: stat(AbilityStat::Preparation)?,
+            recovery: stat(AbilityStat::Recovery)?,
+        },
+    );
+    let definition = rules
+        .ability(ability)
+        .ok_or(BuildError::InvalidDefinition)?;
+    let modifiers = derived.ability_values(ability);
+    let interaction_error = |error| match error {
+        crate::rules::EffectiveInteractionError::DirectHarm => BuildError::InvalidInteraction,
+        // Source expressions already passed catalog validation. A composed
+        // damage operand can exceed its current numeric/pool bound without
+        // becoming malformed content or a direct-harm contradiction.
+        crate::rules::EffectiveInteractionError::InvalidDamage => BuildError::DerivedLimit,
+    };
+    match &definition.strikes {
+        crate::rules::StrikeSource::NaturalMelee { additional_riders } => {
+            let crate::attacks::SelectedMeleeAttack::Natural(natural) =
+                &derived.natural_attack.attack
+            else {
+                return Err(BuildError::InvalidDefinition);
+            };
+            let strikes = crate::rules::append_natural_riders(natural.strikes(), additional_riders)
+                .map_err(|_| BuildError::InvalidDefinition)?;
+            rules
+                .validate_effective_interaction(
+                    definition.interaction,
+                    &strikes,
+                    &modifiers,
+                    true,
+                    &derived.active_talents,
+                )
+                .map_err(interaction_error)?;
+        }
+        crate::rules::StrikeSource::Authored { strikes } => {
+            rules
+                .validate_effective_interaction(
+                    definition.interaction,
+                    strikes,
+                    &modifiers,
+                    false,
+                    &derived.active_talents,
+                )
+                .map_err(interaction_error)?;
+        }
+        crate::rules::StrikeSource::SelectedMelee
+        | crate::rules::StrikeSource::Projectile { .. } => {}
+    }
+    let reach = match definition.reach {
+        crate::rules::Reach::MutualSight { range } => {
+            let range = i64::from(range) + i64::from(modifiers.range);
+            if !(1..=i64::from(crate::limits::SIGHT_RANGE)).contains(&range) {
+                return Err(BuildError::DerivedLimit);
+            }
+            crate::rules::Reach::MutualSight {
+                range: range as u16,
+            }
+        }
+        crate::rules::Reach::Sight { range } => {
+            let range = i64::from(range) + i64::from(modifiers.range);
+            if !(1..=i64::from(crate::limits::SIGHT_RANGE)).contains(&range) {
+                return Err(BuildError::DerivedLimit);
+            }
+            crate::rules::Reach::Sight {
+                range: range as u16,
+            }
+        }
+        crate::rules::Reach::SelfOrAlly {
+            range: crate::rules::AllyRange::Sight { range },
+        } => {
+            let range = i64::from(range) + i64::from(modifiers.range);
+            if !(1..=i64::from(crate::limits::SIGHT_RANGE)).contains(&range) {
+                return Err(BuildError::DerivedLimit);
+            }
+            crate::rules::Reach::SelfOrAlly {
+                range: crate::rules::AllyRange::Sight {
+                    range: range as u16,
+                },
+            }
+        }
+        ref reach => reach.clone(),
+    };
+    derived.ability_reaches.insert(ability.clone(), reach);
+    fold_ability_timing(derived, build, definition, ability)
 }
 
 pub(crate) fn ability_timing_for_attack(
