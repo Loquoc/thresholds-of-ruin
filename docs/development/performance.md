@@ -1030,6 +1030,27 @@ binary hashes and the machine fingerprint. The validator enforces exact ordering
 counts and finite nonnegative phase timings, not machine-specific latency gates.
 The allocation-retention and glyph-oracle Rust tests provide stable regressions.
 
+**Placement reconciliation (2026-11-27).** Applying one update used to re-check
+every remembered placement against the record map, even when nothing was
+evicted. That made each update cost grow with retained memory rather than with
+the update. Reconciliation now runs only after an eviction or a bulk snapshot or
+region install; [map memory unit tests](../../crates/client-common/src/map_memory.rs)
+witness both paths. A local `perf_compare.py 1461e6b4 --case client` run (three
+balanced rounds, 60 samples per side and case, machine fingerprint
+`2fc32b1e6ef5`, 4-CPU Linux VM, no failed runs) measured:
+
+| Case | apply p50 base → head | apply p95 base → head |
+| --- | --- | --- |
+| 20,956 cells, burst 1 | 1.129 → 0.126 ms | 1.975 → 0.189 ms |
+| 20,956 cells, burst 64 | 68.801 → 4.981 ms | 85.894 → 6.318 ms |
+| 64 cells, burst 1 | 0.105 → 0.080 ms | 0.149 → 0.112 ms |
+| 64 cells, burst 64 | 4.823 → 4.530 ms | 7.170 → 7.407 ms |
+
+Memory and chart counts were identical on both sides. Render time did not
+change materially. This is the synthetic stationary workload, not a whole-client
+or exploration measurement. Raw samples are retained locally and have not been
+uploaded, so there is no ledger entry yet.
+
 Actual-client samples now retain native frame phase diagnostics when available.
 `--no-capture` isolates PPM writing while preserving native presentation and JSON
 reporting. Default capture behavior is unchanged for existing workloads and the
