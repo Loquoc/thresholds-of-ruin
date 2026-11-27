@@ -4722,33 +4722,8 @@ impl Engine {
                         adapt::action(&action),
                         tor_simulation::IntentionOrigin::Human,
                     )
-                    .map_err(|error| match error {
-                        tor_simulation::GameError::ActionRequirement(_)
-                        | tor_simulation::GameError::InsufficientGrip => {
-                            Failure::disclosed_action_refusal(error).expect("matched disclosed refusal")
-                        }
-                        tor_simulation::GameError::Rule(tor_simulation::abilities::RuleError::MeleeOutOfReach) => Failure::new(
-                            ErrorCode::InvalidAction,
-                            "You can't reach that target in melee from here. Try from an open adjacent square.",
-                        ),
-                        tor_simulation::GameError::StepNeedsSupport => Failure::new(
-                            ErrorCode::InvalidAction,
-                            "You need solid ground underfoot to take a step.",
-                        ),
-                        tor_simulation::GameError::StairsWhileLevitating => Failure::new(
-                            ErrorCode::InvalidAction,
-                            "You are levitating above the stairs. Wait until you reach the ground.",
-                        ),
-                        tor_simulation::GameError::ActorBusy
-                            if matches!(action.as_ref(), Action::Move { .. })
-                                && candidate.game.actor_locomotion(SimActor(receipt.actor.0)).is_some_and(|capabilities| capabilities.stationary) =>
-                        {
-                            Failure::new(ErrorCode::ActorBusy, "You cannot move while stationary.")
-                        }
-                        tor_simulation::GameError::ActorBusy => {
-                            Failure::new(ErrorCode::ActorBusy, "Intention is unavailable")
-                        }
-                        _ => Failure::new(ErrorCode::InvalidAction, "Intention is unavailable"),
+                    .map_err(|error| {
+                        intention_refusal(&candidate.game, receipt.actor, action.as_ref(), error)
                     })?;
                 (
                     Author::User {
@@ -5507,6 +5482,305 @@ impl Candidate {
         Ok(())
     }
 
+    fn advance_wizard_creature(
+        &mut self,
+        actor: ActorId,
+        advancement: &crate::journal::CreatureAdvancement,
+    ) -> Result<(), Failure> {
+        use crate::journal::CreatureAdvancement;
+        let invalid = wizard_unavailable;
+        let id = SimActor(actor.0);
+        let mut build = self.game.creature(id).ok_or_else(invalid)?.build().clone();
+        let owner_index = |owner: u64| -> Result<tor_simulation::HdIndex, Failure> {
+            owner
+                .checked_sub(1)
+                .map(tor_simulation::HdIndex)
+                .ok_or_else(invalid)
+        };
+        let purchase_index = |purchase: u16| -> Result<usize, Failure> {
+            purchase.checked_sub(1).map(usize::from).ok_or_else(invalid)
+        };
+        match advancement {
+            CreatureAdvancement::AddHitDie { source } => {
+                let seed = crate::creature_authoring::actor_health_seed(self.game.seed(), actor.0);
+                build.add_hit_die(
+                    crate::creature_authoring::hit_die_source(source, build.content().rules())?,
+                    seed,
+                )
+            }
+            CreatureAdvancement::Train { owner, skill } => build.train(
+                owner_index(*owner)?,
+                crate::creature_authoring::skill(skill)?,
+            ),
+            CreatureAdvancement::IncreaseAttribute { owner, attribute } => build
+                .increase_attribute(
+                    owner_index(*owner)?,
+                    crate::creature_authoring::attribute(attribute)?,
+                ),
+            CreatureAdvancement::SelectExpertise { owner, expertise } => build.select_expertise(
+                owner_index(*owner)?,
+                crate::creature_authoring::expertise(expertise, build.content().rules())?,
+            ),
+            CreatureAdvancement::SelectTalent { owner, talent } => build.select_talent(
+                owner_index(*owner)?,
+                crate::creature_authoring::talent(talent, build.content().rules())?,
+            ),
+            CreatureAdvancement::ReplacePurchase {
+                owner,
+                purchase,
+                replacement,
+            } => {
+                use crate::journal::PurchaseReplacement as R;
+                use tor_simulation::creatures::{
+                    AdvancementPurchase, PurchaseLocation, PurchaseSelection,
+                };
+                let point_pool = |value: &str| {
+                    tor_simulation::content_ids::PointPoolId::new(value).map_err(|_| invalid())
+                };
+                let replacement = match replacement {
+                    R::Refund {} => None,
+                    R::SkillRank { pool, skill } => Some(AdvancementPurchase {
+                        id: None,
+                        pool: point_pool(pool)?,
+                        selection: PurchaseSelection::SkillRank(crate::creature_authoring::skill(
+                            skill,
+                        )?),
+                    }),
+                    R::Expertise { pool, expertise } => Some(AdvancementPurchase {
+                        id: None,
+                        pool: point_pool(pool)?,
+                        selection: PurchaseSelection::Expertise(
+                            crate::creature_authoring::expertise(
+                                expertise,
+                                build.content().rules(),
+                            )?,
+                        ),
+                    }),
+                    R::Talent { pool, talent } => Some(AdvancementPurchase {
+                        id: None,
+                        pool: point_pool(pool)?,
+                        selection: PurchaseSelection::Talent(crate::creature_authoring::talent(
+                            talent,
+                            build.content().rules(),
+                        )?),
+                    }),
+                };
+                build
+                    .preview_replacement(
+                        PurchaseLocation {
+                            owner: owner_index(*owner)?,
+                            index: purchase_index(*purchase)?,
+                        },
+                        replacement,
+                    )
+                    .and_then(|preview| build.commit_replacement(preview))
+            }
+        }
+        .map_err(|_| invalid())?;
+        self.rebuild_wizard_creature(id, build)
+    }
+
+    fn set_wizard_creature_template(
+        &mut self,
+        actor: ActorId,
+        template: &str,
+        enabled: bool,
+        regions: Option<&crate::regions::Regions>,
+    ) -> Result<(), Failure> {
+        let invalid = wizard_unavailable;
+        let definition = regions
+            .and_then(|regions| regions.creature_catalog().template(template))
+            .ok_or_else(invalid)?;
+        let id = SimActor(actor.0);
+        let mut build = self.game.creature(id).ok_or_else(invalid)?.build().clone();
+        let mut templates = build.template_ids().to_vec();
+        let existing = templates
+            .iter()
+            .position(|value| value.as_str() == template);
+        if enabled {
+            if existing.is_some() {
+                return Err(invalid());
+            }
+            templates.push(definition.id.clone());
+        } else {
+            templates.remove(existing.ok_or_else(invalid)?);
+        }
+        build.set_templates(templates).map_err(|_| invalid())?;
+        self.rebuild_wizard_creature(id, build)
+    }
+
+    fn place_wizard_region(
+        &mut self,
+        region: &crate::journal::RegionView,
+        chamber: bool,
+    ) -> Result<(), Failure> {
+        let invalid = wizard_unavailable;
+        // Bound setup and disclosure work independently of wire limits.
+        if region.id == 0
+            || region.name.is_empty()
+            || region.name.len() > 80
+            || region.name.chars().any(char::is_control)
+            || !(1..=32).contains(&region.width)
+            || !(1..=32).contains(&region.depth)
+            || !(1..=8).contains(&region.height)
+        {
+            return Err(invalid());
+        }
+        let room = tor_world::Region {
+            id: tor_world::RegionId(region.id),
+            name: region.name.clone(),
+            bounds: tor_world::Extent::new(region.width, region.depth, region.height)
+                .ok_or_else(invalid)?,
+        };
+        if chamber {
+            self.game.add_chamber(room)
+        } else {
+            self.game.add_region(room)
+        }
+        .map_err(|_| invalid())
+    }
+
+    fn place_wizard_stock(
+        &mut self,
+        kind: &WizardItem,
+        position: &Position,
+    ) -> Result<tor_simulation::ItemId, Failure> {
+        let invalid = wizard_unavailable;
+        let (name, key) = match kind {
+            WizardItem::Token => ("copper token", "item.misc.copper-token"),
+            WizardItem::Tablet => ("stone tablet", "item.misc.tablet"),
+        };
+        let identity: tor_simulation::ItemIdentity =
+            key.parse().expect("authored wizard stock key");
+        // Wizard stock is ordinary, but a source may reserve one of
+        // these identities. A display-name match alone is harmless.
+        if self
+            .game
+            .unique_retrieval_policy()
+            .is_some_and(|policy| policy.item.identity == identity)
+        {
+            return Err(invalid());
+        }
+        self.game
+            .place_item(adapt::location(*position), identity, name.into())
+            .map_err(|_| invalid())
+    }
+
+    fn spawn_wizard_creature(
+        &mut self,
+        selector: &str,
+        position: &Position,
+        depth: Option<u32>,
+        regions: Option<&crate::regions::Regions>,
+    ) -> Result<WizardResult, Failure> {
+        let invalid = wizard_unavailable;
+        let regions = regions.ok_or_else(invalid)?;
+        let depth = depth.or_else(|| regions.authored_depth(position.region));
+        let recipe = crate::wizard_creatures::resolve(&self.game, regions, selector, depth)?;
+        let capacity = |error| {
+            if Failure::simulation_failure(error).is_some() {
+                Failure::new(
+                    ErrorCode::ResourceLimit,
+                    "Creature spawn exceeds current simulation capacity; no creature or stock was created",
+                )
+            } else {
+                invalid()
+            }
+        };
+        let (actor, selector, depth, carried_item) = match recipe {
+            crate::wizard_creatures::ResolvedCreature::Population {
+                profile,
+                stage,
+                archetype,
+                selector,
+            } => {
+                let (actor, stock) = self
+                    .game
+                    .spawn_named_population_actor(
+                        &profile,
+                        &stage,
+                        &archetype,
+                        depth,
+                        adapt::location(*position),
+                    )
+                    .map_err(capacity)?;
+                let item = match stock {
+                    Some(tor_simulation::floor_activation::CarriedLootDecision::Carried {
+                        item,
+                        ..
+                    }) => Some(item.0),
+                    _ => None,
+                };
+                (actor, selector, depth, item)
+            }
+            crate::wizard_creatures::ResolvedCreature::Standalone {
+                selector,
+                definition,
+            } => {
+                let actor = self
+                    .game
+                    .spawn_standalone_creature(
+                        &definition.actor,
+                        adapt::location(*position),
+                        NonZeroU64::new(definition.turn_ticks).ok_or_else(invalid)?,
+                        crate::creature_authoring::actor_health_seed,
+                    )
+                    .map_err(capacity)?;
+                (actor, selector, None, None)
+            }
+        };
+
+        Ok(WizardResult::CreatureSpawned {
+            actor: ActorId(actor.0),
+            selector,
+            depth,
+            carried_item,
+        })
+    }
+
+    fn rewind_wizard(
+        &mut self,
+        receipt: &Receipt,
+        target: &Option<EntryId>,
+        entry_id: &EntryId,
+        history: &[Record],
+    ) -> Result<WizardResult, Failure> {
+        let invalid = wizard_unavailable;
+        if let Some(id) = target {
+            if !history
+                .iter()
+                .any(|r| &r.entry.id == id && r.entry.visible_to(receipt.actor, &receipt.user))
+            {
+                return Err(invalid());
+            }
+        }
+        let boundary = self
+            .boundaries
+            .iter()
+            .find(|b| b.selectable && &b.id == target)
+            .cloned()
+            .ok_or_else(invalid)?;
+        if boundary
+            .game
+            .known_actor_region(SimActor(receipt.actor.0))
+            .is_none()
+        {
+            return Err(invalid());
+        }
+        let later = std::mem::replace(&mut self.game, boundary.game.clone());
+        // Retained futures can still refer to their entities and work;
+        // new entities and work must never reuse those identities.
+        self.game.continue_identities(&later);
+        let from_branch = self.current_branch.clone();
+        self.current_branch = BranchId(entry_id.0.clone());
+        Ok(WizardResult::Rewound {
+            from_branch,
+            branch: self.current_branch.clone(),
+            tick: self.game.tick(),
+            next_actor: ActorId(self.game.next_scheduled_actor().ok_or_else(invalid)?.0),
+        })
+    }
+
     fn apply_wizard(
         &mut self,
         receipt: &Receipt,
@@ -5515,12 +5789,7 @@ impl Candidate {
         history: &[Record],
         regions: Option<&mut crate::regions::Regions>,
     ) -> Result<WizardResult, Failure> {
-        let invalid = || {
-            Failure::new(
-                ErrorCode::InvalidAction,
-                "Wizard target or settings are unavailable",
-            )
-        };
+        let invalid = wizard_unavailable;
         let before = self.actors();
         for actor in &before {
             self.game
@@ -5535,107 +5804,7 @@ impl Candidate {
                 crate::wizard_conditions::execute(&mut self.game, receipt.actor, operation)?
             }
             WizardOperation::AdvanceCreature { actor, advancement } => {
-                use crate::journal::CreatureAdvancement;
-                let id = SimActor(actor.0);
-                let mut build = self.game.creature(id).ok_or_else(invalid)?.build().clone();
-                let owner_index = |owner: u64| -> Result<tor_simulation::HdIndex, Failure> {
-                    owner
-                        .checked_sub(1)
-                        .map(tor_simulation::HdIndex)
-                        .ok_or_else(invalid)
-                };
-                let purchase_index = |purchase: u16| -> Result<usize, Failure> {
-                    purchase.checked_sub(1).map(usize::from).ok_or_else(invalid)
-                };
-                match advancement {
-                    CreatureAdvancement::AddHitDie { source } => {
-                        let seed =
-                            crate::creature_authoring::actor_health_seed(self.game.seed(), actor.0);
-                        build.add_hit_die(
-                            crate::creature_authoring::hit_die_source(
-                                source,
-                                build.content().rules(),
-                            )?,
-                            seed,
-                        )
-                    }
-                    CreatureAdvancement::Train { owner, skill } => build.train(
-                        owner_index(*owner)?,
-                        crate::creature_authoring::skill(skill)?,
-                    ),
-                    CreatureAdvancement::IncreaseAttribute { owner, attribute } => build
-                        .increase_attribute(
-                            owner_index(*owner)?,
-                            crate::creature_authoring::attribute(attribute)?,
-                        ),
-                    CreatureAdvancement::SelectExpertise { owner, expertise } => build
-                        .select_expertise(
-                            owner_index(*owner)?,
-                            crate::creature_authoring::expertise(
-                                expertise,
-                                build.content().rules(),
-                            )?,
-                        ),
-                    CreatureAdvancement::SelectTalent { owner, talent } => build.select_talent(
-                        owner_index(*owner)?,
-                        crate::creature_authoring::talent(talent, build.content().rules())?,
-                    ),
-                    CreatureAdvancement::ReplacePurchase {
-                        owner,
-                        purchase,
-                        replacement,
-                    } => {
-                        use crate::journal::PurchaseReplacement as R;
-                        use tor_simulation::creatures::{
-                            AdvancementPurchase, PurchaseLocation, PurchaseSelection,
-                        };
-                        let point_pool = |value: &str| {
-                            tor_simulation::content_ids::PointPoolId::new(value)
-                                .map_err(|_| invalid())
-                        };
-                        let replacement = match replacement {
-                            R::Refund {} => None,
-                            R::SkillRank { pool, skill } => Some(AdvancementPurchase {
-                                id: None,
-                                pool: point_pool(pool)?,
-                                selection: PurchaseSelection::SkillRank(
-                                    crate::creature_authoring::skill(skill)?,
-                                ),
-                            }),
-                            R::Expertise { pool, expertise } => Some(AdvancementPurchase {
-                                id: None,
-                                pool: point_pool(pool)?,
-                                selection: PurchaseSelection::Expertise(
-                                    crate::creature_authoring::expertise(
-                                        expertise,
-                                        build.content().rules(),
-                                    )?,
-                                ),
-                            }),
-                            R::Talent { pool, talent } => Some(AdvancementPurchase {
-                                id: None,
-                                pool: point_pool(pool)?,
-                                selection: PurchaseSelection::Talent(
-                                    crate::creature_authoring::talent(
-                                        talent,
-                                        build.content().rules(),
-                                    )?,
-                                ),
-                            }),
-                        };
-                        build
-                            .preview_replacement(
-                                PurchaseLocation {
-                                    owner: owner_index(*owner)?,
-                                    index: purchase_index(*purchase)?,
-                                },
-                                replacement,
-                            )
-                            .and_then(|preview| build.commit_replacement(preview))
-                    }
-                }
-                .map_err(|_| invalid())?;
-                self.rebuild_wizard_creature(id, build)?;
+                self.advance_wizard_creature(*actor, advancement)?;
                 WizardResult::CreatureAdvanced {
                     actor: *actor,
                     advancement: advancement.clone(),
@@ -5646,26 +5815,7 @@ impl Candidate {
                 template,
                 enabled,
             } => {
-                let definition = regions
-                    .as_deref()
-                    .and_then(|regions| regions.creature_catalog().template(template))
-                    .ok_or_else(invalid)?;
-                let id = SimActor(actor.0);
-                let mut build = self.game.creature(id).ok_or_else(invalid)?.build().clone();
-                let mut templates = build.template_ids().to_vec();
-                let existing = templates
-                    .iter()
-                    .position(|value| value.as_str() == template);
-                if *enabled {
-                    if existing.is_some() {
-                        return Err(invalid());
-                    }
-                    templates.push(definition.id.clone());
-                } else {
-                    templates.remove(existing.ok_or_else(invalid)?);
-                }
-                build.set_templates(templates).map_err(|_| invalid())?;
-                self.rebuild_wizard_creature(id, build)?;
+                self.set_wizard_creature_template(*actor, template, *enabled, regions.as_deref())?;
                 WizardResult::CreatureTemplateSet {
                     actor: *actor,
                     template: template.clone(),
@@ -5795,29 +5945,7 @@ impl Candidate {
             }
             WizardOperation::PlaceRoom { region } | WizardOperation::PlaceChamber { region } => {
                 let chamber = matches!(operation, WizardOperation::PlaceChamber { .. });
-                // Bound setup and disclosure work independently of wire limits.
-                if region.id == 0
-                    || region.name.is_empty()
-                    || region.name.len() > 80
-                    || region.name.chars().any(char::is_control)
-                    || !(1..=32).contains(&region.width)
-                    || !(1..=32).contains(&region.depth)
-                    || !(1..=8).contains(&region.height)
-                {
-                    return Err(invalid());
-                }
-                let room = tor_world::Region {
-                    id: tor_world::RegionId(region.id),
-                    name: region.name.clone(),
-                    bounds: tor_world::Extent::new(region.width, region.depth, region.height)
-                        .ok_or_else(invalid)?,
-                };
-                if chamber {
-                    self.game.add_chamber(room)
-                } else {
-                    self.game.add_region(room)
-                }
-                .map_err(|_| invalid())?;
+                self.place_wizard_region(region, chamber)?;
                 WizardResult::RoomPlaced { region: region.id }
             }
             WizardOperation::Connect {
@@ -5857,25 +5985,7 @@ impl Candidate {
                 WizardResult::ItemIdentified
             }
             WizardOperation::PlaceItem { kind, position } => {
-                let (name, key) = match kind {
-                    WizardItem::Token => ("copper token", "item.misc.copper-token"),
-                    WizardItem::Tablet => ("stone tablet", "item.misc.tablet"),
-                };
-                let identity: tor_simulation::ItemIdentity =
-                    key.parse().expect("authored wizard stock key");
-                // Wizard stock is ordinary, but a source may reserve one of
-                // these identities. A display-name match alone is harmless.
-                if self
-                    .game
-                    .unique_retrieval_policy()
-                    .is_some_and(|policy| policy.item.identity == identity)
-                {
-                    return Err(invalid());
-                }
-                let item = self
-                    .game
-                    .place_item(adapt::location(*position), identity, name.into())
-                    .map_err(|_| invalid())?;
+                let item = self.place_wizard_stock(kind, position)?;
                 WizardResult::ItemPlaced { item: item.0 }
             }
             WizardOperation::SpawnItem { .. } | WizardOperation::GiveItem { .. } => {
@@ -5890,73 +6000,7 @@ impl Candidate {
                 selector,
                 position,
                 depth,
-            } => {
-                let regions = regions.as_deref().ok_or_else(invalid)?;
-                let depth = depth.or_else(|| regions.authored_depth(position.region));
-                let recipe =
-                    crate::wizard_creatures::resolve(&self.game, regions, selector, depth)?;
-                let capacity = |error| {
-                    if Failure::simulation_failure(error).is_some() {
-                        Failure::new(
-                            ErrorCode::ResourceLimit,
-                            "Creature spawn exceeds current simulation capacity; no creature or stock was created",
-                        )
-                    } else {
-                        invalid()
-                    }
-                };
-                let (actor, selector, depth, carried_item) = match recipe {
-                    crate::wizard_creatures::ResolvedCreature::Population {
-                        profile,
-                        stage,
-                        archetype,
-                        selector,
-                    } => {
-                        let (actor, stock) = self
-                            .game
-                            .spawn_named_population_actor(
-                                &profile,
-                                &stage,
-                                &archetype,
-                                depth,
-                                adapt::location(*position),
-                            )
-                            .map_err(capacity)?;
-                        let item = match stock {
-                            Some(
-                                tor_simulation::floor_activation::CarriedLootDecision::Carried {
-                                    item,
-                                    ..
-                                },
-                            ) => Some(item.0),
-                            _ => None,
-                        };
-                        (actor, selector, depth, item)
-                    }
-                    crate::wizard_creatures::ResolvedCreature::Standalone {
-                        selector,
-                        definition,
-                    } => {
-                        let actor = self
-                            .game
-                            .spawn_standalone_creature(
-                                &definition.actor,
-                                adapt::location(*position),
-                                NonZeroU64::new(definition.turn_ticks).ok_or_else(invalid)?,
-                                crate::creature_authoring::actor_health_seed,
-                            )
-                            .map_err(capacity)?;
-                        (actor, selector, None, None)
-                    }
-                };
-
-                WizardResult::CreatureSpawned {
-                    actor: ActorId(actor.0),
-                    selector,
-                    depth,
-                    carried_item,
-                }
-            }
+            } => self.spawn_wizard_creature(selector, position, *depth, regions.as_deref())?,
             WizardOperation::SpawnActor {
                 position,
                 turn_ticks,
@@ -5985,38 +6029,7 @@ impl Candidate {
                 WizardResult::Teleported { actor: *actor }
             }
             WizardOperation::Rewind { target } => {
-                if let Some(id) = target {
-                    if !history.iter().any(|r| {
-                        &r.entry.id == id && r.entry.visible_to(receipt.actor, &receipt.user)
-                    }) {
-                        return Err(invalid());
-                    }
-                }
-                let boundary = self
-                    .boundaries
-                    .iter()
-                    .find(|b| b.selectable && &b.id == target)
-                    .cloned()
-                    .ok_or_else(invalid)?;
-                if boundary
-                    .game
-                    .known_actor_region(SimActor(receipt.actor.0))
-                    .is_none()
-                {
-                    return Err(invalid());
-                }
-                let later = std::mem::replace(&mut self.game, boundary.game.clone());
-                // Retained futures can still refer to their entities and work;
-                // new entities and work must never reuse those identities.
-                self.game.continue_identities(&later);
-                let from_branch = self.current_branch.clone();
-                self.current_branch = BranchId(entry_id.0.clone());
-                return Ok(WizardResult::Rewound {
-                    from_branch,
-                    branch: self.current_branch.clone(),
-                    tick: self.game.tick(),
-                    next_actor: ActorId(self.game.next_scheduled_actor().ok_or_else(invalid)?.0),
-                });
+                return self.rewind_wizard(receipt, target, entry_id, history);
             }
         };
         for actor in before {
@@ -6028,6 +6041,54 @@ impl Candidate {
         }
         Ok(result)
     }
+}
+
+/// The player-facing refusal for an intention the simulation would not admit.
+fn intention_refusal(
+    game: &Game,
+    actor: ActorId,
+    action: &Action,
+    error: tor_simulation::GameError,
+) -> Failure {
+    match error {
+        tor_simulation::GameError::ActionRequirement(_)
+        | tor_simulation::GameError::InsufficientGrip => {
+            Failure::disclosed_action_refusal(error).expect("matched disclosed refusal")
+        }
+        tor_simulation::GameError::Rule(tor_simulation::abilities::RuleError::MeleeOutOfReach) => {
+            Failure::new(
+                ErrorCode::InvalidAction,
+                "You can't reach that target in melee from here. Try from an open adjacent square.",
+            )
+        }
+        tor_simulation::GameError::StepNeedsSupport => Failure::new(
+            ErrorCode::InvalidAction,
+            "You need solid ground underfoot to take a step.",
+        ),
+        tor_simulation::GameError::StairsWhileLevitating => Failure::new(
+            ErrorCode::InvalidAction,
+            "You are levitating above the stairs. Wait until you reach the ground.",
+        ),
+        tor_simulation::GameError::ActorBusy
+            if matches!(action, Action::Move { .. })
+                && game
+                    .actor_locomotion(SimActor(actor.0))
+                    .is_some_and(|capabilities| capabilities.stationary) =>
+        {
+            Failure::new(ErrorCode::ActorBusy, "You cannot move while stationary.")
+        }
+        tor_simulation::GameError::ActorBusy => {
+            Failure::new(ErrorCode::ActorBusy, "Intention is unavailable")
+        }
+        _ => Failure::new(ErrorCode::InvalidAction, "Intention is unavailable"),
+    }
+}
+
+fn wizard_unavailable() -> Failure {
+    Failure::new(
+        ErrorCode::InvalidAction,
+        "Wizard target or settings are unavailable",
+    )
 }
 
 #[cfg(test)]
