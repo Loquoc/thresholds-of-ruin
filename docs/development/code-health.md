@@ -148,8 +148,10 @@ broader performance and scaling work is finished.
     scripting `invoke` and the others listed in the pull request.
 - **Retained, with reasons:** eight main-workspace functions remain at 300 or
   more lines.
-  - `advance_preparation` and `apply_outcome_effects` are ordered state
-    machines; their checks and effects run in an order replay depends on.
+  - `advance_preparation` (now 408 lines) and `apply_outcome_effects` are
+    ordered state machines; their checks and effects run in an order replay
+    depends on. Only self-contained steps were taken out of the first:
+    `isolate_equipped_unit` and `schedule_after_strike`.
   - `Ruleset::validate` (394) builds the interned catalogs, checks the
     constants, calls one validator per definition kind and derives the talent
     order, flag graph and indexes. Each stage needs the catalogs built before

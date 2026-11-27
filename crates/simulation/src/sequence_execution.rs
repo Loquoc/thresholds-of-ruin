@@ -37,6 +37,45 @@ impl Game {
         Ok(())
     }
 
+    /// Give equip work its own singleton unit before it resolves. Only this
+    /// local resolved work names the extracted unit; the admitted/persisted
+    /// plan continues to name its source. Other work is left unchanged.
+    fn isolate_equipped_unit(
+        &mut self,
+        id: crate::ActorId,
+        resolved: &mut crate::combat::Preparation,
+        completion: &mut crate::lifecycle::ActorOutcome,
+    ) -> Result<(), GameError> {
+        let crate::abilities::Plan::Equip {
+            item,
+            slot,
+            allocation,
+            ..
+        } = &resolved.plan
+        else {
+            return Ok(());
+        };
+        if !self.frozen_equip_available(id, *item, *slot, allocation) {
+            return Err(GameError::ItemUnavailable);
+        }
+        completion.spent_items = resolved.item_lineage();
+        let unit = self.extract_reserved_item_unit(resolved)?;
+        if let Some(facts) = completion.state.known_equipment.inherited_transfer(
+            unit.knowledge_source,
+            None,
+            unit.id,
+        ) {
+            completion.state.known_equipment.remember_inherited(facts);
+        }
+        let singleton = unit.id;
+        self.items.insert(singleton, unit.item);
+        let crate::abilities::Plan::Equip { item, .. } = &mut resolved.plan else {
+            unreachable!("equip work remains equip work");
+        };
+        *item = singleton;
+        Ok(())
+    }
+
     /// Advance one actor's preparation by one strike boundary: interrupt it if
     /// it is no longer available, or complete it when due.
     fn advance_preparation(&mut self, id: crate::ActorId) -> Result<PreparationStep, GameError> {
@@ -173,34 +212,7 @@ impl Game {
             self.complete_projectile_release(resolved, completion, due)?;
             return Ok(PreparationStep::NextActor);
         }
-        if let crate::abilities::Plan::Equip {
-            item,
-            slot,
-            allocation,
-            ..
-        } = &resolved.plan
-        {
-            if !self.frozen_equip_available(id, *item, *slot, allocation) {
-                return Err(GameError::ItemUnavailable);
-            }
-            completion.spent_items = resolved.item_lineage();
-            let unit = self.extract_reserved_item_unit(&mut resolved)?;
-            if let Some(facts) = completion.state.known_equipment.inherited_transfer(
-                unit.knowledge_source,
-                None,
-                unit.id,
-            ) {
-                completion.state.known_equipment.remember_inherited(facts);
-            }
-            let singleton = unit.id;
-            self.items.insert(singleton, unit.item);
-            // Only this local resolved work names the extracted unit.
-            // The admitted/persisted plan continues to name its source.
-            let crate::abilities::Plan::Equip { item, .. } = &mut resolved.plan else {
-                unreachable!("equip work remains equip work");
-            };
-            *item = singleton;
-        }
+        self.isolate_equipped_unit(id, &mut resolved, &mut completion)?;
         // Capture identity and the exact source's curse before its last
         // unit can disappear. Effects may also kill the consumer.
         let (consumed_identity, source_cursed) = match &resolved.plan {
@@ -232,28 +244,7 @@ impl Game {
                 self.spend_item_payment(&mut resolved)?;
             }
         }
-        let next = resolved.next_strike().and_then(|index| {
-            resolved.plan.as_ability().and_then(|plan| {
-                plan.strikes
-                    .get(index + 1)
-                    .map(|strike| (index + 1, strike.offset - plan.strikes[index].offset))
-            })
-        });
-        if let Some((_, gap)) = next {
-            let mut pending = resolved.clone();
-            pending.hold = None;
-            pending.progress = resolved.progress.advanced();
-            pending.remaining = gap;
-            pending.started = due;
-            completion.state.pending = Some(pending);
-            completion.state.ready_at = due
-                .checked_add(gap)
-                .ok_or(GameError::Schedule(ScheduleError::TimeExhausted))?;
-        } else {
-            completion.state.ready_at = due
-                .checked_add(resolved.plan.recovery())
-                .ok_or(GameError::Schedule(ScheduleError::TimeExhausted))?;
-        }
+        let next = schedule_after_strike(&resolved, &mut completion, due)?;
         resolved.hold = None;
         self.apply_outcome(completion)?;
         if let crate::abilities::Plan::Zap { item, charges, .. } = &resolved.plan {
@@ -555,6 +546,38 @@ impl Game {
                 })
         })
     }
+}
+
+/// Queue the next strike of resolved work, or start its recovery when it has
+/// no further strike. Returns the next strike's index and gap, if any.
+fn schedule_after_strike(
+    resolved: &crate::combat::Preparation,
+    completion: &mut crate::lifecycle::ActorOutcome,
+    due: u64,
+) -> Result<Option<(usize, u64)>, GameError> {
+    let next = resolved.next_strike().and_then(|index| {
+        resolved.plan.as_ability().and_then(|plan| {
+            plan.strikes
+                .get(index + 1)
+                .map(|strike| (index + 1, strike.offset - plan.strikes[index].offset))
+        })
+    });
+    if let Some((_, gap)) = next {
+        let mut pending = resolved.clone();
+        pending.hold = None;
+        pending.progress = resolved.progress.advanced();
+        pending.remaining = gap;
+        pending.started = due;
+        completion.state.pending = Some(pending);
+        completion.state.ready_at = due
+            .checked_add(gap)
+            .ok_or(GameError::Schedule(ScheduleError::TimeExhausted))?;
+    } else {
+        completion.state.ready_at = due
+            .checked_add(resolved.plan.recovery())
+            .ok_or(GameError::Schedule(ScheduleError::TimeExhausted))?;
+    }
+    Ok(next)
 }
 
 #[cfg(test)]
