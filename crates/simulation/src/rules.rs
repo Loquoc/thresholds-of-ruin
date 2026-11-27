@@ -1779,6 +1779,52 @@ pub struct Ruleset {
     document: RulesetDocument,
     talent_order: Vec<TalentId>,
     indexes: Indexes,
+    /// Reference sets derived once from `document`, so validating a source
+    /// later does not rebuild them from every definition.
+    references: ReferenceSets,
+}
+
+/// Owned identifier sets for validating references against a ruleset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ReferenceSets {
+    abilities: BTreeSet<AbilityId>,
+    ability_tags: BTreeSet<AbilityTagId>,
+    types: BTreeSet<TypeId>,
+    subtypes: BTreeSet<SubtypeId>,
+    talents: BTreeSet<TalentId>,
+    classes: BTreeSet<ClassId>,
+    conditions: BTreeSet<ConditionId>,
+    qualified_conditions: BTreeSet<ConditionId>,
+    persistent_conditions: BTreeSet<ConditionId>,
+    descriptors: BTreeSet<DescriptorId>,
+    flags: BTreeSet<FlagId>,
+}
+impl ReferenceSets {
+    fn new(document: &RulesetDocument, indexes: &Indexes) -> Self {
+        let conditions_where = |keep: fn(&ConditionDef) -> bool| {
+            document
+                .conditions
+                .iter()
+                .filter(|condition| keep(condition))
+                .map(|condition| condition.id.clone())
+                .collect()
+        };
+        Self {
+            abilities: indexes.abilities.keys().cloned().collect(),
+            ability_tags: indexes.ability_tags.keys().cloned().collect(),
+            types: indexes.creature_types.keys().cloned().collect(),
+            subtypes: indexes.subtypes.keys().cloned().collect(),
+            talents: indexes.talents.keys().cloned().collect(),
+            classes: indexes.classes.keys().cloned().collect(),
+            conditions: indexes.conditions.keys().cloned().collect(),
+            qualified_conditions: conditions_where(ConditionDef::supports_qualification),
+            persistent_conditions: conditions_where(|condition| {
+                condition.timing.permits_persistent()
+            }),
+            descriptors: document.descriptors.iter().map(|d| d.id.clone()).collect(),
+            flags: indexes.flags.keys().cloned().collect(),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Indexes {
@@ -1799,6 +1845,27 @@ struct Indexes {
     point_pools: BTreeMap<PointPoolId, usize>,
 }
 impl Ruleset {
+    /// Validation references against this ruleset's own definitions.
+    fn references(&self) -> References<'_> {
+        let sets = &self.references;
+        References {
+            abilities: &sets.abilities,
+            ability_tags: &sets.ability_tags,
+            types: &sets.types,
+            subtypes: &sets.subtypes,
+            talents: &sets.talents,
+            classes: &sets.classes,
+            conditions: &sets.conditions,
+            condition_definitions: &self.document.conditions,
+            qualified_conditions: &sets.qualified_conditions,
+            persistent_conditions: &sets.persistent_conditions,
+            descriptors: &sets.descriptors,
+            flags: &sets.flags,
+            equipment_slot_index: &self.indexes.equipment_slots,
+            equipment_slots: &self.document.equipment_slots,
+        }
+    }
+
     /// Borrow the validated definition document, without reopening edit access.
     /// Clone it and call [`Self::validate`] again to derive a different ruleset.
     pub fn document(&self) -> &RulesetDocument {
@@ -2078,10 +2145,11 @@ impl Ruleset {
         }
         let flags = catalog!(flags);
         let equipment_slots = catalog!(equipment_slots);
-        let equipment_slot_definitions = document
+        let equipment_slot_index: BTreeMap<_, _> = document
             .equipment_slots
             .iter()
-            .map(|slot| (slot.id.clone(), slot))
+            .enumerate()
+            .map(|(index, slot)| (slot.id.clone(), index))
             .collect();
         let refs = References {
             abilities: &abilities,
@@ -2096,7 +2164,8 @@ impl Ruleset {
             persistent_conditions: &persistent_conditions,
             descriptors: &descriptors,
             flags: &flags,
-            equipment_slots: &equipment_slot_definitions,
+            equipment_slot_index: &equipment_slot_index,
+            equipment_slots: &document.equipment_slots,
         };
         let c = &mut document.constants;
         bound(
@@ -2112,8 +2181,11 @@ impl Ruleset {
             id.intern(&mut pool);
         }
         bound(
-            c.default_anatomy
-                .valid_with(|id| equipment_slot_definitions.get(id).copied()),
+            c.default_anatomy.valid_with(|id| {
+                equipment_slot_index
+                    .get(id)
+                    .and_then(|&index| document.equipment_slots.get(index))
+            }),
             "default_anatomy",
         )?;
         c.default_anatomy.capacities.intern(&mut pool);
@@ -2726,10 +2798,12 @@ impl Ruleset {
             equipment_slots: index!(equipment_slots),
             point_pools: index!(point_pools),
         };
+        let references = ReferenceSets::new(&document, &indexes);
         let rules = Self {
             document,
             talent_order,
             indexes,
+            references,
         };
         for modifiers in rules
             .document
@@ -2859,13 +2933,14 @@ struct References<'a> {
     persistent_conditions: &'a BTreeSet<ConditionId>,
     descriptors: &'a BTreeSet<DescriptorId>,
     flags: &'a BTreeSet<FlagId>,
-    equipment_slots: &'a BTreeMap<EquipmentSlot, &'a EquipmentSlotDef>,
+    equipment_slot_index: &'a BTreeMap<EquipmentSlot, usize>,
+    equipment_slots: &'a [EquipmentSlotDef],
 }
 impl References<'_> {
     fn equipment_slot(&self, id: &EquipmentSlot) -> Result<&EquipmentSlotDef, RulesetError> {
-        self.equipment_slots
+        self.equipment_slot_index
             .get(id)
-            .copied()
+            .and_then(|&index| self.equipment_slots.get(index))
             .ok_or_else(|| RulesetError::UnknownReference {
                 category: "equipment_slot",
                 id: id.to_string(),
@@ -3604,56 +3679,8 @@ impl Ruleset {
     /// This does not apply a condition or mutate its input.
     pub fn validate_condition_modifiers(&self, modifiers: &[Modifier]) -> Result<(), RulesetError> {
         self.validate_projectile_range_modifiers(modifiers)?;
-        let abilities = self.indexes.abilities.keys().cloned().collect();
-        let ability_tags = self.indexes.ability_tags.keys().cloned().collect();
-        let types = self.indexes.creature_types.keys().cloned().collect();
-        let subtypes = self.indexes.subtypes.keys().cloned().collect();
-        let talents = self.indexes.talents.keys().cloned().collect();
-        let classes = self.indexes.classes.keys().cloned().collect();
-        let conditions = self.indexes.conditions.keys().cloned().collect();
-        let persistent_conditions = self
-            .document
-            .conditions
-            .iter()
-            .filter(|condition| condition.timing.permits_persistent())
-            .map(|condition| condition.id.clone())
-            .collect();
-        let qualified_conditions = self
-            .document
-            .conditions
-            .iter()
-            .filter(|condition| condition.supports_qualification())
-            .map(|condition| condition.id.clone())
-            .collect();
-        let descriptors = self
-            .document
-            .descriptors
-            .iter()
-            .map(|d| d.id.clone())
-            .collect();
-        let flags = self.indexes.flags.keys().cloned().collect();
-        let equipment_slots = self
-            .document
-            .equipment_slots
-            .iter()
-            .map(|slot| (slot.id.clone(), slot))
-            .collect();
-        References {
-            abilities: &abilities,
-            ability_tags: &ability_tags,
-            types: &types,
-            subtypes: &subtypes,
-            talents: &talents,
-            classes: &classes,
-            conditions: &conditions,
-            condition_definitions: &self.document.conditions,
-            qualified_conditions: &qualified_conditions,
-            persistent_conditions: &persistent_conditions,
-            descriptors: &descriptors,
-            flags: &flags,
-            equipment_slots: &equipment_slots,
-        }
-        .modifiers(&mut modifiers.to_vec(), &mut Interner::default())?;
+        self.references()
+            .modifiers(&mut modifiers.to_vec(), &mut Interner::default())?;
         self.expanded_modifier_count(modifiers).map(|_| ())
     }
 
@@ -3764,108 +3791,12 @@ impl Ruleset {
                 .any(|effect| matches!(effect, Effect::Theft { .. })),
             "theft_checked_rider",
         )?;
-        let abilities = self.indexes.abilities.keys().cloned().collect();
-        let ability_tags = self.indexes.ability_tags.keys().cloned().collect();
-        let types = self.indexes.creature_types.keys().cloned().collect();
-        let subtypes = self.indexes.subtypes.keys().cloned().collect();
-        let talents = self.indexes.talents.keys().cloned().collect();
-        let classes = self.indexes.classes.keys().cloned().collect();
-        let conditions = self.indexes.conditions.keys().cloned().collect();
-        let persistent_conditions = self
-            .document
-            .conditions
-            .iter()
-            .filter(|condition| condition.timing.permits_persistent())
-            .map(|condition| condition.id.clone())
-            .collect();
-        let qualified_conditions = self
-            .document
-            .conditions
-            .iter()
-            .filter(|condition| condition.supports_qualification())
-            .map(|condition| condition.id.clone())
-            .collect();
-        let descriptors = self
-            .document
-            .descriptors
-            .iter()
-            .map(|d| d.id.clone())
-            .collect();
-        let flags = self.indexes.flags.keys().cloned().collect();
-        let equipment_slots = self
-            .document
-            .equipment_slots
-            .iter()
-            .map(|slot| (slot.id.clone(), slot))
-            .collect();
-        References {
-            abilities: &abilities,
-            ability_tags: &ability_tags,
-            types: &types,
-            subtypes: &subtypes,
-            talents: &talents,
-            classes: &classes,
-            conditions: &conditions,
-            condition_definitions: &self.document.conditions,
-            qualified_conditions: &qualified_conditions,
-            persistent_conditions: &persistent_conditions,
-            descriptors: &descriptors,
-            flags: &flags,
-            equipment_slots: &equipment_slots,
-        }
-        .effects(&mut effects.to_vec(), &mut Interner::default())
+        self.references()
+            .effects(&mut effects.to_vec(), &mut Interner::default())
     }
     pub fn validate_strikes(&self, strikes: &[StrikeDef]) -> Result<(), RulesetError> {
-        let abilities = self.indexes.abilities.keys().cloned().collect();
-        let ability_tags = self.indexes.ability_tags.keys().cloned().collect();
-        let types = self.indexes.creature_types.keys().cloned().collect();
-        let subtypes = self.indexes.subtypes.keys().cloned().collect();
-        let talents = self.indexes.talents.keys().cloned().collect();
-        let classes = self.indexes.classes.keys().cloned().collect();
-        let conditions = self.indexes.conditions.keys().cloned().collect();
-        let persistent_conditions = self
-            .document
-            .conditions
-            .iter()
-            .filter(|condition| condition.timing.permits_persistent())
-            .map(|condition| condition.id.clone())
-            .collect();
-        let qualified_conditions = self
-            .document
-            .conditions
-            .iter()
-            .filter(|condition| condition.supports_qualification())
-            .map(|condition| condition.id.clone())
-            .collect();
-        let descriptors = self
-            .document
-            .descriptors
-            .iter()
-            .map(|d| d.id.clone())
-            .collect();
-        let flags = self.indexes.flags.keys().cloned().collect();
-        let equipment_slots = self
-            .document
-            .equipment_slots
-            .iter()
-            .map(|slot| (slot.id.clone(), slot))
-            .collect();
-        References {
-            abilities: &abilities,
-            ability_tags: &ability_tags,
-            types: &types,
-            subtypes: &subtypes,
-            talents: &talents,
-            classes: &classes,
-            conditions: &conditions,
-            condition_definitions: &self.document.conditions,
-            qualified_conditions: &qualified_conditions,
-            persistent_conditions: &persistent_conditions,
-            descriptors: &descriptors,
-            flags: &flags,
-            equipment_slots: &equipment_slots,
-        }
-        .strikes(&mut strikes.to_vec(), &mut Interner::default())
+        self.references()
+            .strikes(&mut strikes.to_vec(), &mut Interner::default())
     }
 }
 
@@ -4026,6 +3957,39 @@ mod tests {
     }
     fn ruleset() -> Arc<Ruleset> {
         Ruleset::validate(document()).unwrap()
+    }
+
+    #[test]
+    fn condition_sources_check_references_against_the_validated_ruleset() {
+        let rules = ruleset();
+        let ability = rules.document().abilities[0].id.clone();
+        let flag = rules.document().flags[0].id.clone();
+        let source = |op| Modifier {
+            cancellable: false,
+            scope: Scope::Always,
+            op,
+        };
+        let known = [
+            source(ModifierOp::GrantAbility { ability }),
+            source(ModifierOp::Flag { flag }),
+        ];
+        assert!(rules.validate_condition_modifiers(&known).is_ok());
+        let absent = AbilityId::new("fixture.absent").unwrap();
+        assert_eq!(
+            rules.validate_condition_modifiers(&[source(ModifierOp::GrantAbility {
+                ability: absent.clone(),
+            })]),
+            Err(RulesetError::UnknownReference {
+                category: "ability",
+                id: absent.to_string(),
+            })
+        );
+        let absent = FlagId::new("fixture.absent").unwrap();
+        assert!(rules
+            .validate_condition_modifiers(&[source(ModifierOp::Flag { flag: absent })])
+            .is_err());
+        // Derived reference sets depend on the document alone.
+        assert_eq!(*Ruleset::validate(document()).unwrap(), *rules);
     }
     fn repeatable_restriction_document() -> RulesetDocument {
         let mut document = document();

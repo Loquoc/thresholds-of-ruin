@@ -143,6 +143,25 @@ broader performance and scaling work is finished.
   chart counts. That is a synthetic stationary workload, not a whole-client or
   exploration measurement, and has no ledger entry yet.
 
+### CH-023: Ruleset reference sets were rebuilt for every validation call
+
+- **Category/status:** performance; confirmed repeated work on restore and
+  derivation, corrected on branch `claude/code-docs-refactor-ovqedk` (pending
+  hosted CI and merge). No gameplay or format change.
+- **Source/trigger:** [`Ruleset`](../../crates/simulation/src/rules.rs)
+  `validate_condition_modifiers`, `validate_effects` and `validate_strikes` each
+  cloned every ability, tag, type, condition, descriptor and flag ID into fresh
+  sets on every call. A callgrind profile of engine open attributed about 21%
+  of its instructions to the first of these.
+- **Correction:** `ReferenceSets` is derived once in `Ruleset::validate` and
+  stored beside the indexes. It is a pure function of the validated document,
+  so ruleset equality keeps its meaning. `References` looks equipment slots up
+  through the existing index instead of a per-call map of borrowed definitions.
+- **Evidence:** restart p50 fell 10–18% in the 1,000-history combat cases
+  across two balanced local comparisons; see the
+  [combat workload](performance.md#combat-workload-v1) for both runs and their
+  unexplained client-apply shift.
+
 ### CH-022: Mirrored protocol/simulation sources had no drift guard
 
 - **Category/status:** maintainability; confirmed byte-identical duplication,

@@ -1456,6 +1456,30 @@ Keep raw samples, p50/p95/max and operation counts with the feature findings in
 [dungeon gameplay](../play/gameplay.md). Do not mix results collected during builds or
 process-test runs. Existing provisional targets and deferred 3p work still apply.
 
+**Ruleset reference cache (2026-11-27).** A callgrind profile of engine open
+attributed about 21% of its instructions to `Ruleset::validate_condition_modifiers`.
+Each call rebuilt a dozen identifier sets from every definition in the ruleset,
+once per condition source in every creature derivation. The
+[ruleset](../../crates/simulation/src/rules.rs) now derives those sets once at
+validation; the three per-call builders share them. Two local `perf_compare.py
+995508ed --case combat` runs (balanced, 3 then 4 rounds, machine fingerprint
+`2fc32b1e6ef5`, no failed runs) measured restart (`resume_ms`) p50:
+
+| Case | Run 1 base → head (n=9) | Run 2 base → head (n=12) |
+| --- | --- | --- |
+| 2 actors, 0 history | 27.4 → 26.3 ms | 26.8 → 26.2 ms |
+| 2 actors, 1,000 history | 158.0 → 136.3 ms | 150.0 → 135.4 ms |
+| 8 actors, 0 history | 90.0 → 86.2 ms | 85.7 → 85.3 ms |
+| 8 actors, 1,000 history | 338.9 → 277.5 ms | 323.4 → 269.3 ms |
+
+Command and decision timings were unchanged. One run's 8-actor, 1,000-history
+save p50 rose 37% but fell 5.5% in the repeat; saves include disk I/O on a VM,
+so this is treated as noise. Unexplained: `client_apply_ms` p50 was 8–11%
+higher on the head side in every case of both runs, although the client
+application code is identical on both sides. It is not attributed to this
+change, and it is not a measured client regression either. Raw samples are local
+and not uploaded; there is no ledger entry.
+
 
 ## Ordered-strike workload v1
 
