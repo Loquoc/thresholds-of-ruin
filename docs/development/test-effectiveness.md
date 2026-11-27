@@ -421,6 +421,12 @@ it was pushed to the branch but before any merge. The same run's four errors
 in arena-search owners were harness/environment failures (the isolated `optuna`
 environment was not installed), not evidence about this change; all
 four passed when rerun in a venv built from the hash-pinned requirements.
+A later full run on the same branch failed one long earned-route process test,
+`test_fixed_seed42_earned_hd_reexecutes_with_exact_source_free_restore_and_gross_flows`,
+with `OSError: No space left on device`. Local build caches had filled the
+session disk, and fail-fast left 3,334 tests unstarted. Classification:
+harness/infrastructure, not a product or test defect. After the caches were
+cleared, the full 3,553-test run had no failures on the same commit.
 
 ### Documentation is tested behavior too
 
