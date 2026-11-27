@@ -362,6 +362,101 @@ mod saved_boundaries {
     }
 }
 
+/// Journal records indexed while checking each against the prefix before it.
+struct JournalIndex<'a> {
+    /// Accepted request receipts by (user, request ID), to their record index.
+    receipts: BTreeMap<(String, String), usize>,
+    records_by_id: BTreeMap<EntryId, &'a Record>,
+    lifecycle: super::intention_lifecycle::JournalLifecycle<'a>,
+}
+
+/// Check every journal record's identity, anchors and receipt in order, as
+/// live admission and full replay would, and index them for restore.
+fn index_journal(archive: &Archive) -> Result<JournalIndex<'_>, Failure> {
+    let mut receipts = BTreeMap::new();
+    let mut records_by_id: BTreeMap<EntryId, &Record> = BTreeMap::new();
+    let mut lifecycle = super::intention_lifecycle::JournalLifecycle::new(archive.branch.clone());
+    for (index, record) in archive.records.iter().enumerate() {
+        // A restored checkpoint does not replay every annotation. Bind its
+        // private normalized anchor to the already-validated journal prefix,
+        // never to a future entry, itself, or another branch's snapshot.
+        if let JournalContent::Annotation {
+            anchor: crate::journal::RecordedAnchor::State { snapshot, boundary },
+            ..
+        } = &record.entry.content
+        {
+            if !snapshot.is_valid()
+                || match boundary {
+                    Some(id) => records_by_id
+                        .get(id)
+                        .is_none_or(|previous| previous.entry.branch != record.entry.branch),
+                    None => record.entry.branch != archive.branch,
+                }
+            {
+                return Err(invalid_archive());
+            }
+        }
+        // Captures may pin an entry before upload. A checkpoint must enforce
+        // the same earlier, visible, same-branch entry contract as live
+        // admission and full replay; it cannot trust a forged stored anchor.
+        if let JournalContent::Annotation {
+            anchor: crate::journal::RecordedAnchor::Entry { id },
+            attachments,
+            ..
+        } = &record.entry.content
+        {
+            if !attachments.is_empty() {
+                let receipt = record.receipt.as_ref().ok_or_else(invalid_archive)?;
+                let previous = records_by_id.get(id).ok_or_else(invalid_archive)?;
+                if previous.entry.branch != record.entry.branch
+                    || !previous.entry.visible_to(record.entry.actor, &receipt.user)
+                {
+                    return Err(invalid_archive());
+                }
+            }
+        }
+        if !record.valid_admission()
+            || Uuid::parse_str(&record.entry.id.0).is_err()
+            || Uuid::parse_str(&record.entry.branch.0).is_err()
+            || records_by_id
+                .insert(record.entry.id.clone(), record)
+                .is_some()
+        {
+            return Err(invalid_archive());
+        }
+        lifecycle.observe(record)?;
+        if let Some(receipt) = &record.receipt {
+            if !valid_label(&receipt.user)
+                || !valid_label(&receipt.frontend)
+                || !valid_label(&receipt.request_id)
+                || receipt.actor != record.entry.actor
+                || Uuid::parse_str(&receipt.branch.0).is_err()
+                || receipts
+                    .insert((receipt.user.clone(), receipt.request_id.clone()), index)
+                    .is_some()
+            {
+                return Err(invalid_archive());
+            }
+        } else if record.resolution().is_none()
+            && record.change_source().is_none()
+            && (!matches!(record.entry.author, Author::Backend { .. })
+                || !matches!(
+                    record.entry.content,
+                    JournalContent::Annotation { .. }
+                        | JournalContent::AutonomousIntentionAdmitted { .. }
+                        | JournalContent::TravelIntentionAdmitted { .. }
+                ))
+        {
+            return Err(invalid_archive());
+        }
+    }
+    Ok(JournalIndex {
+        receipts,
+        records_by_id,
+        lifecycle,
+    })
+}
+
 impl DiskCheckpoint {
     pub(super) fn restore(self, archive: Archive) -> Result<Engine, Failure> {
         if self.version != ARCHIVE_VERSION
@@ -385,84 +480,11 @@ impl DiskCheckpoint {
         {
             return Err(invalid_archive());
         }
-        let mut receipts = BTreeMap::new();
-        let mut records_by_id: BTreeMap<EntryId, &Record> = BTreeMap::new();
-        let mut lifecycle =
-            super::intention_lifecycle::JournalLifecycle::new(archive.branch.clone());
-        for (index, record) in archive.records.iter().enumerate() {
-            // A restored checkpoint does not replay every annotation. Bind its
-            // private normalized anchor to the already-validated journal prefix,
-            // never to a future entry, itself, or another branch's snapshot.
-            if let JournalContent::Annotation {
-                anchor: crate::journal::RecordedAnchor::State { snapshot, boundary },
-                ..
-            } = &record.entry.content
-            {
-                if !snapshot.is_valid()
-                    || match boundary {
-                        Some(id) => records_by_id
-                            .get(id)
-                            .is_none_or(|previous| previous.entry.branch != record.entry.branch),
-                        None => record.entry.branch != archive.branch,
-                    }
-                {
-                    return Err(invalid_archive());
-                }
-            }
-            // Captures may pin an entry before upload. A checkpoint must enforce
-            // the same earlier, visible, same-branch entry contract as live
-            // admission and full replay; it cannot trust a forged stored anchor.
-            if let JournalContent::Annotation {
-                anchor: crate::journal::RecordedAnchor::Entry { id },
-                attachments,
-                ..
-            } = &record.entry.content
-            {
-                if !attachments.is_empty() {
-                    let receipt = record.receipt.as_ref().ok_or_else(invalid_archive)?;
-                    let previous = records_by_id.get(id).ok_or_else(invalid_archive)?;
-                    if previous.entry.branch != record.entry.branch
-                        || !previous.entry.visible_to(record.entry.actor, &receipt.user)
-                    {
-                        return Err(invalid_archive());
-                    }
-                }
-            }
-            if !record.valid_admission()
-                || Uuid::parse_str(&record.entry.id.0).is_err()
-                || Uuid::parse_str(&record.entry.branch.0).is_err()
-                || records_by_id
-                    .insert(record.entry.id.clone(), record)
-                    .is_some()
-            {
-                return Err(invalid_archive());
-            }
-            lifecycle.observe(record)?;
-            if let Some(receipt) = &record.receipt {
-                if !valid_label(&receipt.user)
-                    || !valid_label(&receipt.frontend)
-                    || !valid_label(&receipt.request_id)
-                    || receipt.actor != record.entry.actor
-                    || Uuid::parse_str(&receipt.branch.0).is_err()
-                    || receipts
-                        .insert((receipt.user.clone(), receipt.request_id.clone()), index)
-                        .is_some()
-                {
-                    return Err(invalid_archive());
-                }
-            } else if record.resolution().is_none()
-                && record.change_source().is_none()
-                && (!matches!(record.entry.author, Author::Backend { .. })
-                    || !matches!(
-                        record.entry.content,
-                        JournalContent::Annotation { .. }
-                            | JournalContent::AutonomousIntentionAdmitted { .. }
-                            | JournalContent::TravelIntentionAdmitted { .. }
-                    ))
-            {
-                return Err(invalid_archive());
-            }
-        }
+        let JournalIndex {
+            receipts,
+            records_by_id,
+            lifecycle,
+        } = index_journal(&archive)?;
         let population = archive
             .scenario
             .package
