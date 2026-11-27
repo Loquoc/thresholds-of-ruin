@@ -123,6 +123,80 @@ class Offscreen3DProcesses(ProcessTestCase):
         # Exact pixels are intentionally not compared across frames/adapters;
         # deterministic state and decoded nonblank images are separate contracts.
 
+    def test_tick_zero_rig_honors_authored_yaw(self):
+        value = scene()
+        forward = value["actors"][0]
+        turned = dict(forward, id="turned", position=[1, -0.5, 0], yaw=90)
+        value["actors"].append(turned)
+        value["captures"] = value["captures"][:1]
+        source = self.source(value)
+        output = self.directory / "turned"
+        code, log = self.invoke("render", ["--scene-script", source, "--offscreen", "--capture", output],
+                                timeout=240)
+        self.assertEqual(code, 0, log[-4000:])
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["status"], "complete")
+        shot, = manifest["captures"]
+        self.assertEqual((shot["tick"], shot["clock_ns"]), (0, "0"))
+        actors = {actor["id"]: actor for actor in shot["actors"]}
+        rest, side = actors["duelist"], actors["turned"]
+        self.assertEqual(rest["position"], forward["position"])
+        self.assertEqual(side["position"], turned["position"])
+        self.assertIsNone(side["action"])
+        # Compare rendered world-space transforms, not the reported yaw, which
+        # can be correct even when the generated rig never received the turn.
+        for joint in ("Torso", "Head", "HandR"):
+            straight, rotated = rest["joints"][joint], side["joints"][joint]
+            for start in (0, 4, 8, 12):
+                x, y, z = straight[start:start + 3]
+                offset = 1 if start == 12 else 0
+                for actual, expected in zip(rotated[start:start + 3], (z + offset, y, -x), strict=True):
+                    self.assertAlmostEqual(actual, expected, places=5,
+                                           msg=f"{joint} column {start // 4} must follow yaw at tick zero")
+
+    def test_tick_zero_wardrobe_edits_share_the_preconfigured_rest_pose(self):
+        value = scene()
+        direct = value["actors"][0]
+        direct["equipment"] = ["boots"]
+        switched = dict(direct, id="switched", outfit="native", equipment=[],
+                        position=[1.25, -0.5, 0], yaw=45)
+        value["actors"].append(switched)
+        velocity = {"type": "velocity", "value": [0, 0, 0.55]}
+        value["events"] = [
+            {"tick": 0, "actor": actor, "operation": operation}
+            for actor, operation in (
+                ("duelist", velocity),
+                ("switched", velocity),
+                ("switched", {"type": "dress", "outfit": "sylvan-duelist"}),
+                ("switched", {"type": "equipment", "items": ["helm"]}),
+                ("switched", {"type": "teleport", "position": [1, -0.5, 0], "yaw": 0}),
+                ("switched", {"type": "equipment", "items": ["boots"]}),
+            )
+        ]
+        value["captures"][1]["tick"] = 1
+        output = self.directory / "initial-wardrobe"
+        code, log = self.invoke("render", ["--scene-script", self.source(value), "--offscreen", "--capture", output],
+                                timeout=240)
+        self.assertEqual(code, 0, log[-4000:])
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["status"], "complete")
+        shots = manifest["captures"]
+        self.assertEqual([(shot["tick"], shot["clock_ns"]) for shot in shots], [(0, "0"), (1, "50000000")])
+        for shot, z in zip(shots, (0, 0.0275), strict=True):
+            actors = {actor["id"]: actor for actor in shot["actors"]}
+            a, b = actors["duelist"], actors["switched"]
+            self.assertEqual(a["resolved_key"], b["resolved_key"], "both actors must wear the same final layers")
+            self.assertEqual(b["composition"]["outfit"], "sylvan-duelist")
+            self.assertEqual(b["composition"]["equipment"], ["boots"])
+            self.assertAlmostEqual(b["position"][0], 1)
+            self.assertAlmostEqual(b["position"][2], z)
+            self.assertEqual(a["yaw"], b["yaw"])
+            self.assertAlmostEqual(b["yaw"], 0)
+            for joint in ("Torso", "Head", "HandR", "FootL"):
+                for i, (expected, actual) in enumerate(zip(a["joints"][joint], b["joints"][joint], strict=True)):
+                    self.assertAlmostEqual(actual, expected + (i == 12), places=5,
+                                           msg=f"{joint} rest basis must match at tick {shot['tick']}")
+
     def test_existing_output_is_refused_without_touching_sentinel(self):
         source = self.source()
         output = self.directory / "existing"

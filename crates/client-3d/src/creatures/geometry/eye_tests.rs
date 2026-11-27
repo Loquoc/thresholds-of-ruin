@@ -582,3 +582,43 @@ fn art_contract_upper_lash_line_has_visible_width_above_the_opening() {
         }
     }
 }
+
+#[test]
+fn hobgoblin_eye_aperture_reads_as_a_squint_in_both_body_cuts() {
+    for woman in [false, true] {
+        for build in 0..3 {
+            let look = Look::with_choice(
+                CreatureModel::Hobgoblin,
+                42,
+                Some(Variant {
+                    woman,
+                    build,
+                    ..default()
+                }),
+            );
+            let head = face_shape(&look, false).form;
+            let mut parts = Parts::default();
+            parts.soften();
+            soft_eyes(
+                &mut parts,
+                Vec3::new(0.0, 0.16, 0.088),
+                0.038,
+                if woman { 0.0158 } else { 0.0145 },
+                IRIS,
+                &look,
+                &head,
+            );
+            let eyes = emit(parts);
+            let white = painted(&eyes, WHITE);
+            for direction in [-1.0, 1.0] {
+                let (min, max) = bounds(&side(&white, direction));
+                let size = max - min;
+                let aspect = size.y / size.x;
+                assert!(
+                    (0.20..=0.30).contains(&aspect),
+                    "Hobgoblin eye should be narrow but readable: {aspect:.3}/{woman}/{build}"
+                );
+            }
+        }
+    }
+}

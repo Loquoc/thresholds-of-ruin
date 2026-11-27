@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [1060, 560],
+  "actors": [
+    {
+      "id": "idle-restart",
+      "model": "Hobgoblin",
+      "seed": 31,
+      "body": {
+        "woman": false,
+        "build": 1
+      },
+      "outfit": "native",
+      "equipment": [],
+      "position": [
+        -1.11,
+        -0.5,
+        -0.44
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "during-recovery",
+      "model": "Hobgoblin",
+      "seed": 31,
+      "body": {
+        "woman": false,
+        "build": 1
+      },
+      "outfit": "native",
+      "equipment": [],
+      "position": [
+        -0.37,
+        -0.5,
+        -0.44
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "after-recovery",
+      "model": "Hobgoblin",
+      "seed": 31,
+      "body": {
+        "woman": false,
+        "build": 1
+      },
+      "outfit": "native",
+      "equipment": [],
+      "position": [
+        0.37,
+        -0.5,
+        -0.44
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "stationary-strike",
+      "model": "Hobgoblin",
+      "seed": 31,
+      "body": {
+        "woman": false,
+        "build": 1
+      },
+      "outfit": "native",
+      "equipment": [],
+      "position": [
+        1.11,
+        -0.5,
+        -0.44
+      ],
+      "yaw": 0
+    }
+  ],
+  "cameras": [
+    {"id": "comparison", "position": [0, 0.68, 3.05], "target": [0, 0.25, 0.15], "fov_degrees": 39}
+  ],
+  "events": [
+    {"tick": 4, "actor": "idle-restart", "operation": {"type": "velocity", "value": [0, 0, 0.55]}},
+    {"tick": 4, "actor": "during-recovery", "operation": {"type": "velocity", "value": [0, 0, 0.55]}},
+    {"tick": 4, "actor": "after-recovery", "operation": {"type": "velocity", "value": [0, 0, 0.55]}},
+    {"tick": 4, "actor": "stationary-strike", "operation": {"type": "velocity", "value": [0, 0, 0.55]}},
+    {"tick": 72, "actor": "idle-restart", "operation": {"type": "velocity", "value": [0, 0, 0]}},
+    {"tick": 72, "actor": "during-recovery", "operation": {"type": "velocity", "value": [0, 0, 0]}},
+    {"tick": 72, "actor": "after-recovery", "operation": {"type": "velocity", "value": [0, 0, 0]}},
+    {"tick": 72, "actor": "stationary-strike", "operation": {"type": "velocity", "value": [0, 0, 0]}},
+    {"tick": 82, "actor": "during-recovery", "operation": {"type": "action", "name": "strike"}},
+    {"tick": 82, "actor": "after-recovery", "operation": {"type": "action", "name": "strike"}},
+    {"tick": 82, "actor": "stationary-strike", "operation": {"type": "action", "name": "strike"}},
+    {"tick": 103, "actor": "idle-restart", "operation": {"type": "velocity", "value": [0, 0, 0.55]}},
+    {"tick": 103, "actor": "during-recovery", "operation": {"type": "velocity", "value": [0, 0, 0.55]}},
+    {"tick": 116, "actor": "after-recovery", "operation": {"type": "velocity", "value": [0, 0, 0.55]}}
+  ],
+  "captures": [
+    {"tick": 72, "name": "brake", "camera": "comparison"},
+    {"tick": 82, "name": "strike-start", "camera": "comparison"},
+    {"tick": 100, "name": "follow-through", "camera": "comparison"},
+    {"tick": 103, "name": "restart-boundary", "camera": "comparison"},
+    {"tick": 110, "name": "recovery-before", "camera": "comparison"},
+    {"tick": 112, "name": "recovery-after", "camera": "comparison"},
+    {"tick": 116, "name": "late-restart-boundary", "camera": "comparison"},
+    {"tick": 126, "name": "walking-again", "camera": "comparison"}
+  ]
+}

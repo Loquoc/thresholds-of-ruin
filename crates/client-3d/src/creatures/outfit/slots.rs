@@ -229,6 +229,29 @@ impl SecondaryClaim {
     }
 }
 
+/// The wearer may have permanent anatomy in the space a raised hood needs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum HoodClearance {
+    Standard,
+    PermanentCrown,
+}
+
+impl HoodClearance {
+    pub(super) fn for_style(style: Style) -> Self {
+        match style {
+            Style::Medusa => Self::PermanentCrown,
+            _ => Self::Standard,
+        }
+    }
+
+    pub(super) fn fit(self, requested: OuterwearHood) -> OuterwearHood {
+        match (self, requested) {
+            (Self::PermanentCrown, OuterwearHood::Raised) => OuterwearHood::Lowered,
+            _ => requested,
+        }
+    }
+}
+
 pub(super) fn admit_hood(primary: Claims, hood: OuterwearHood) -> Claims {
     use Slot::*;
     SecondaryClaim {
@@ -236,7 +259,9 @@ pub(super) fn admit_hood(primary: Claims, hood: OuterwearHood) -> Claims {
         claims: match hood {
             OuterwearHood::None => Claims::default(),
             OuterwearHood::Lowered => Claims::new(&[HoodCollar], &[HoodCollar], &[]),
-            OuterwearHood::Raised => Claims::new(&[Head, HoodCollar], &[Head, HoodCollar], &[Veil]),
+            OuterwearHood::Raised => {
+                Claims::new(&[Head, HoodCollar], &[Head, HoodCollar], &[Veil, Earrings])
+            }
         },
     }
     .admit(primary)
@@ -646,6 +671,33 @@ mod tests {
                 assert_eq!(outfit.details.hip, original.details.hip, "{model:?}/{item}");
             }
         }
+    }
+
+    #[test]
+    fn raised_hood_clears_the_wearer_without_hiding_permanent_anatomy() {
+        let nymph = study(CreatureModel::Nymph, Wardrobe::Native, true);
+        let medusa = study(CreatureModel::Medusa, Wardrobe::Native, true);
+        let cloak = gear(&["hooded-cloak"]);
+        let nymph_before = Outfit::worn(&nymph);
+        let medusa_before = Outfit::worn(&medusa);
+        assert!(nymph_before.trimmings.earrings.is_some());
+        assert!(medusa_before.trimmings.earrings.is_some());
+        let below = Outfit::worn(&medusa.clone().equipped(cloak));
+        assert!(matches!(below.head, Headwear::HoodDown(_)));
+        assert!(below.cloak.is_some());
+        assert_eq!(below.trimmings.earrings, medusa_before.trimmings.earrings);
+        let raised = Outfit::worn(&nymph.clone().equipped(cloak));
+        assert!(matches!(raised.head, Headwear::Hood { .. }));
+        assert!(raised.cloak.is_some());
+        assert!(raised.trimmings.earrings.is_none());
+        let with_hat = Outfit::worn(&nymph.clone().equipped(gear(&["hooded-cloak", "fedora"])));
+        assert!(matches!(
+            with_hat.head,
+            Headwear::Equipment(HeadwearKind::Fedora)
+        ));
+        assert_eq!(with_hat.trimmings.earrings, nymph_before.trimmings.earrings);
+        assert_eq!(Outfit::worn(&nymph), nymph_before);
+        assert_eq!(Outfit::worn(&medusa), medusa_before);
     }
 
     #[test]

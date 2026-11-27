@@ -419,7 +419,7 @@ impl Script {
             {
                 return Err("body variation outside supported bounds".into());
             }
-            actor.look()?;
+            let look = actor.look()?;
             if actor
                 .held_asset
                 .as_deref()
@@ -430,10 +430,14 @@ impl Script {
             }
             if let Some(kind) = &actor.held_item {
                 item_model(kind)?;
-                if timeline == Timeline::Live
-                    || !matches!(actor.model.as_str(), "Human" | "Centaur")
-                {
-                    return Err("held item review requires a capture-only Human or Centaur".into());
+                if timeline == Timeline::Live {
+                    return Err("held item review is capture-only".into());
+                }
+                if !matches!(
+                    look.plan,
+                    crate::creatures::Plan::Biped | crate::creatures::Plan::Centaur
+                ) {
+                    return Err("held item review requires a model with a hand grip".into());
                 }
             }
         }

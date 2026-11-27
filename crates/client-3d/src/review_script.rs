@@ -5,7 +5,7 @@ mod schema;
 #[cfg(test)]
 mod tests;
 use crate::{
-    creatures::{self, Anim, Look, Rig, J},
+    creatures::{self, Anim, Rig, J},
     props::{PropLibrary, PropMaterials},
 };
 use bevy::{
@@ -326,40 +326,49 @@ fn setup(
     let mut library = PropLibrary::new(PropMaterials::new(&mut materials));
     for spec in &run.script.actors {
         let at = Vec3::from_array(spec.position);
-        let anim = spec.animation(at, spec.yaw);
+        let mut anim = spec.animation(at, spec.yaw);
+        let mut transform = Transform::from_translation(at);
+        let mut actor = ActorState {
+            spec: spec.clone(),
+            velocity: Vec3::ZERO,
+        };
+        // Initial events describe the assembled rest pose, not a swap
+        // mid-animation. Resolve them before allocating the first rig.
+        for event in run
+            .script
+            .events
+            .iter()
+            .take_while(|event| event.tick == 0)
+            .filter(|event| event.actor == spec.id)
+        {
+            apply_operation(
+                &mut actor.spec,
+                &mut actor.velocity,
+                &mut anim,
+                &mut transform,
+                &event.operation,
+            );
+        }
+        let facing = Quat::from_rotation_y(anim.yaw);
         let entity = commands
-            .spawn((
-                ActorState {
-                    spec: spec.clone(),
-                    velocity: Vec3::ZERO,
-                },
-                anim,
-                Transform::from_translation(at),
-                Visibility::default(),
-            ))
+            .spawn((anim, transform, Visibility::default()))
             .id();
-        let rig = creatures::spawn(
+        let rig = spawn_capture_rig(
             &mut commands,
             &mut library,
             &mut meshes,
             entity,
-            &spec.look().expect("validated actor"),
+            &actor.spec,
         );
-        if let Some(kind) = &spec.held_item {
-            let hand = rig.joint(J::HandR).expect("validated actor hand");
-            crate::scene::spawn_held_item(
-                &mut commands,
-                &mut library,
-                &mut meshes,
-                hand,
-                item_model(kind).expect("validated held model"),
-                tor_client_3d_model::item_surface(
-                    item_model(kind).expect("validated held model"),
-                    spec.held_asset.as_deref().unwrap_or(""),
-                ),
-            );
+        // Tick zero holds the generated rest pose without advancing animation.
+        // Turn the same joint animation uses, preserving its scale and rest pose.
+        if let Some(lift) = rig.joint(J::Lift) {
+            commands
+                .entity(lift)
+                .entry::<Transform>()
+                .and_modify(move |mut transform| transform.rotation = facing);
         }
-        commands.entity(entity).insert(rig);
+        commands.entity(entity).insert((actor, rig));
     }
     let mut groups = std::collections::BTreeMap::new();
     for spec in &run.script.ground_items {
@@ -485,6 +494,37 @@ fn setup(
         Transform::from_xyz(0.0, 1.5, 4.0).looking_at(Vec3::Y * 0.5, Vec3::Y),
     ));
 }
+/// Use the same rig and grip construction for the initial actor and wardrobe swaps.
+fn spawn_capture_rig(
+    commands: &mut Commands,
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    actor: Entity,
+    spec: &Actor,
+) -> Rig {
+    let rig = creatures::spawn(
+        commands,
+        library,
+        meshes,
+        actor,
+        &spec.look().expect("validated composition"),
+    );
+    if let Some(kind) = &spec.held_item {
+        let kind = item_model(kind).expect("validated held model");
+        let surface =
+            tor_client_3d_model::item_surface(kind, spec.held_asset.as_deref().unwrap_or(""));
+        crate::scene::spawn_held_item(
+            commands,
+            library,
+            meshes,
+            rig.joint(J::HandR).expect("validated actor hand"),
+            kind,
+            surface,
+        );
+    }
+    rig
+}
+
 fn ground_cell([x, y, z]: [f32; 3]) -> tor_protocol::Position {
     tor_protocol::Position {
         x: x.round() as i32,
@@ -668,6 +708,12 @@ fn apply(
             std::time::Duration::ZERO,
         );
     }
+    // Setup has already applied all tick-zero actor events. Effects still
+    // have to enter the live stage above, before the first pose is captured.
+    if run.tick == 0 {
+        run.phase = Phase::Pose;
+        return;
+    }
     for (entity, mut actor, mut anim, mut transform, rig) in &mut actors {
         let mut rebuild = false;
         for event in run.script.events.iter().filter(|e| e.tick == run.tick) {
@@ -688,8 +734,13 @@ fn apply(
             if let Some(lift) = rig.joint(J::Lift) {
                 commands.entity(lift).despawn();
             }
-            let look: Look = actor.spec.look().expect("validated composition event");
-            let rig = creatures::spawn(&mut commands, &mut library, &mut meshes, entity, &look);
+            let rig = spawn_capture_rig(
+                &mut commands,
+                &mut library,
+                &mut meshes,
+                entity,
+                &actor.spec,
+            );
             commands
                 .entity(entity)
                 .insert((rig, creatures::PoseRefresh));

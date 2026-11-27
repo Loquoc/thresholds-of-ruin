@@ -365,6 +365,17 @@ Vulkan passed a first-red backend-selection regression and completed the matched
 capture runs. Hardware/backend exclusion controls remain. No hardware timing or
 performance improvement is claimed from that capture fix.
 
+### Baldric stand-off from the torso
+
+A Ranger fit witness samples emitted strap faces against the retained torso
+support rather than trusting the already offset ribbon path. The old maximum
+exceeded 0.017 model units against a 0.012 bound. Deriving the fit from the ribbon thickness
+plus a small allowance corrects the excess while leaving the cloak's reserve
+and the heraldry overlay intact. Existing loop, fold, buckle, apron, and
+layer-order checks cover the adjacent contracts. Matched visual samples support
+the closer fit; they do not establish universally flush contact or continuous
+clearance against every piece of trim.
+
 ## Fixtures, tooling and evidence integrity
 
 ### Performance evidence locations
@@ -1728,6 +1739,74 @@ negative oracle checks the covered head, since the uncovered Troll rightly
 has its own crest. Positive witnesses retain that uncovered crest and require
 Human braid and Human/Wraith lock geometry in the appropriate regions.
 
+The headwear fit audit reproduced raised-cloak fabric clipping the Medusa's
+serpent crown and the Nymph's earrings. The composition regression first
+failed because the permanent crown still received a raised hood. It now
+checks folded and raised states, preservation of the cloak and underlying
+jewelry, and priority of a separate open hat.
+
+A separate head-mesh witness found the Hobgoblin still emitted the mohawk
+(140 sampled faces) or topknot (364) with either a steel helm or a raised
+hood. The shared species coverage rule now suppresses the crest and folds
+the ear tips under closed headwear. Bare heads and lowered hoods retain
+the original silhouette.
+
+The open-hat comparison exposed the inverse coverage problem for ears:
+the fedora hid the crest correctly but selected the closed-helm ear
+shape. A silhouette regression now requires exposed ear geometry under
+each of the six open-ear equipment recipes while keeping the crest hidden.
+The shared low sweep clears the fitted hats in an emitted-triangle test;
+the unsupported bare sweep deliberately fails that clearance under the
+fedora. Bare, uncovered and closed-headwear witnesses keep their roles.
+
+The Hobgoblin portrait test measures the central bridge and tip in the
+continuous face surface for both cuts and three builds. The old head with
+a separately drawn nose failed at 95 mm of projection against the 112 mm
+bridge minimum. The new sculpt has enough projection to read, with a
+bounded front so it does not protrude beyond the steel helm.
+
+### Hobgoblin idle and lookout poses
+
+Two pose regressions reproduced one shared assumption: both the idle and rare
+antic rotated the equipment arm even though a Hobgoblin does not necessarily
+hold a club. The tests failed on the right-arm joint before either pose was
+changed. The replacement gestures leave the grip alone, keep a readable head
+motion, and do not depend on whether the head is covered.
+
+### Hobgoblin strikes during braking
+
+A real-client comparison replayed the same approach with no attack, a strike
+at the stop, one during the settling steps, and one after a full stop. The
+old early strike moved one ankle 0.122 world units between 40 ms samples,
+against 0.027 for braking alone. An actual gameplay-frame test independently
+reproduced the ankle jump. Hobgoblin strikes now carry the already-solved
+feet into the shared short handoff. During braking, landing and remaining
+on the ground are determined by the settling steps, not the last walk phase.
+The matched review retained the full-stop and no-attack controls, action
+phases and post-handoff pose. This is local motion evidence, not a timing
+or floor-contact guarantee for all actors and speeds.
+
+A separate restart comparison found the inverse discontinuity: returning to
+walking just before a Hobgoblin strike ended made the feet jump once as action
+support faded and again as world support was created. Restarting after the
+strike did not reproduce it. The new gameplay-frame test preserves ordinary
+and delayed restart controls. A moving Hobgoblin now establishes normal
+world footing during the last support fade instead of rebuilding it after the
+strike timer expires. Stationary strikes, action phases and root motion stay
+unchanged in the matched review.
+
+### Hobgoblin eye aperture
+
+The emitted white of the old Hobgoblin eye measured 0.511 times as tall
+as it was wide on the first male fixture, outside the authored squint
+band. The regression checks real eye geometry on both body cuts and three
+builds, requiring enough opening to stay readable.
+
+The eye pass also reran the neck-root tests and exposed a stale idle-pose
+fixture after the listening tilt changed. The six neutral Head matrices were
+recaptured from the native client. The Torso and walking matrices were kept,
+as were the mesh-depth oracle and all its tolerances.
+
 ### Extended model materials in darkness
 
 A native fixed-camera probe ran the live model-shading system on a steel
@@ -1737,6 +1816,38 @@ now skips both lighting and surface detail for unlit materials, then uses
 the normal fog and post-processing. The dark patch's mean-channel brightness varied by 26.45
 8-bit levels before the fix and 0.27 after (standard deviation). The lit
 comparison stayed unchanged. The ordinary bright-only shader smoke did not expose the defect.
+
+### Held props in scripted model review
+
+Two capture-only failures interrupted an armed Hobgoblin review. The script
+rejected the model even though its biped rig has a right-hand attachment, and
+an armor swap removed a Human's held sword with the old rig. The validation
+test now distinguishes grip-capable body plans from handless ones and keeps
+live playlists out of scope. The scripted scene test checks the initial prop
+and the replacement grip in the same scene, including removal of the old prop
+and preservation of the item's attachment transform. This does not change
+gameplay equipment or require pixel-identical captures.
+
+### Buried neck root after a wardrobe swap
+
+A near-front Hobgoblin review showed skin through the closed bib just after
+putting on a breastplate. Reprojecting the emitted head and torso triangles
+with the independently captured joint frames reproduced the penetration and
+separately confirmed that the exposed throat remained visible. The neck fit
+now leaves more overlap only at the buried lowest ring. Native idle and
+walking witnesses, already-supported roots, and open necklines keep their
+existing checks. The offscreen review compares the settled, swap and strike
+poses visually; it does not require matching image pixels.
+
+### Measuring retained parts under replacement armor
+
+The armor-and-cloak test compared a Knight's equipped breastplate against
+nonmetal surfaces from the unequipped outfit, including trim on the
+decorative cuirass that equipment replaces. The old check failed identically
+with and without the neck-root change. The corrected witness samples metal
+and retained underlayers from the same equipped torso. It still excludes
+the intentionally over-armor baldric and retains the original coverage,
+clearance and cloak-motion checks. No production change was needed.
 
 ### Readable dungeon darkness
 
@@ -1751,3 +1862,16 @@ systems with authored disclosure snapshots, not a live playthrough.
 The spectral material regression reproduced an emissive rim even after its
 base emission was cleared. The dark material now suppresses that shader
 contribution without removing the normal detail or mutating the lit recipe.
+
+### Bridal veil floor contact before the final fall
+
+The old floor test sampled the later stages of a fall. Extending the same
+weighted-mesh witness to earlier frames reproduced a 44 mm penetration during
+the stagger and measured up to 195 mm under the floor during the dramatic
+wind-up. The torso can already bend while the final fall clock is zero.
+The existing train support now handles the whole active death performance,
+with a small allowance near its start. The check still covers cloth, trim and
+gems, the settled floor and the pinned attachment. The living and
+corridor-facing train poses remain unchanged. Matched native captures of all
+three death variants kept body timing and joint poses while the trailing veil
+cleared the floor.

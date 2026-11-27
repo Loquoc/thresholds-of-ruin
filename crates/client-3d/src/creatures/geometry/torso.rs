@@ -36,11 +36,11 @@ pub(in crate::creatures) fn supported_neck_profile(body: HumanoidBody) -> [(Vec3
     let support = torso_shape(body, None, false);
     let (center, radii) = profile[0];
     let origin = (center * head_scale + body.head) / torso_scale;
-    // The buried overlap accommodates the native head turn: its lower front
-    // advances about 6 mm in the ordinary neutral pose. Leave another 2 mm
-    // for the independently sampled torso surface, without changing the
-    // exposed neck or making any pose-time adjustment.
-    const ROOT_OVERLAP: f32 = 0.008;
+    // Budget for the lower ring moving independently of the torso during a
+    // head tilt, including the pose immediately after a wardrobe swap. Leave
+    // a little reserve for the separately sampled torso skin surface. This
+    // only shrinks a root that does not already have the necessary overlap.
+    const ROOT_OVERLAP: f32 = 0.014;
     let mut fit = 1.0_f32;
     let mut needs_overlap = false;
     for sample in 0..32 {

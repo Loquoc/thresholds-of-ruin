@@ -6,7 +6,7 @@ use super::super::geometry::equipment_gloves::GloveAppearance;
 use super::super::geometry::equipment_headwear::HeadwearKind;
 use super::outerwear::{OuterwearAppearance, OuterwearCut, OuterwearHood};
 use super::shirts::ShirtAppearance;
-use super::slots::{self, Claims, GearPiece, Slot};
+use super::slots::{self, Claims, GearPiece, HoodClearance, Slot};
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -157,7 +157,9 @@ impl Composition {
                 skirt.color = outfit.tunic * shade;
             }
         }
-        let mut outfit = look.equipment.compose(outfit);
+        let mut outfit = look
+            .equipment
+            .compose_with_clearance(outfit, HoodClearance::for_style(look.style));
         let body = look.equipment.body;
         let mut armor_panel = None;
         if let Some(color) = body.and_then(BodyItem::tassets) {
@@ -277,17 +279,21 @@ impl Equipment {
         Ok(())
     }
 
-    pub(super) fn compose(self, mut base: Outfit) -> Outfit {
+    #[cfg(test)]
+    pub(super) fn compose(self, base: Outfit) -> Outfit {
+        self.compose_with_clearance(base, HoodClearance::Standard)
+    }
+
+    fn compose_with_clearance(self, mut base: Outfit, clearance: HoodClearance) -> Outfit {
         let back_recipe = self.outerwear().map(OuterwearAppearance::recipe);
         let head_claim = self
             .head
             .map(GearPiece::Head)
             .map(GearPiece::claims)
             .unwrap_or_default();
-        let hood_claim = slots::admit_hood(
-            head_claim,
-            back_recipe.map_or(OuterwearHood::None, |recipe| recipe.hood),
-        );
+        let requested_hood = back_recipe.map_or(OuterwearHood::None, |recipe| recipe.hood);
+        let fitted_hood = clearance.fit(requested_hood);
+        let hood_claim = slots::admit_hood(head_claim, fitted_hood);
         let mut claims = Claims::default();
         for gear in [
             self.body.map(GearPiece::Body),
@@ -368,6 +374,9 @@ impl Equipment {
                             color: recipe.cloth,
                             pointed: false,
                         };
+                        base.head_mount = Some(mount);
+                    } else if requested_hood != fitted_hood && base.head == Headwear::Bare {
+                        base.head = Headwear::HoodDown(recipe.cloth);
                         base.head_mount = Some(mount);
                     }
                 }
