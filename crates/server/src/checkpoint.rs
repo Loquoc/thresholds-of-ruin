@@ -362,6 +362,86 @@ mod saved_boundaries {
     }
 }
 
+/// A rewind boundary's record must follow exactly from the previous boundary,
+/// after replaying the private-only records between them.
+fn check_boundary_transition(
+    record: &Record,
+    previous: &Boundary,
+    gap: &[Record],
+    game: &Game,
+    records_by_id: &BTreeMap<EntryId, &Record>,
+) -> Result<(), Failure> {
+    let recovered = if !gap.is_empty() {
+        let mut preceding = previous.game.clone();
+        for hidden in gap {
+            replay_private_boundary(&mut preceding, hidden)?;
+        }
+        Some(preceding)
+    } else {
+        None
+    };
+    let preceding = recovered.as_ref().unwrap_or(&previous.game);
+    if !record.valid_action_resolution_at(preceding)
+        || record.before_tick != preceding.tick()
+        || record.after_tick != game.tick()
+    {
+        return Err(invalid_archive());
+    }
+    if !record.entry.content.rewindable() {
+        let mut expected = preceding.clone();
+        replay_private_boundary(&mut expected, record)?;
+        if expected != *game {
+            return Err(invalid_archive());
+        }
+    }
+    let same_branch = previous
+        .id
+        .as_ref()
+        .and_then(|id| records_by_id.get(id))
+        .is_none_or(|before| before.entry.branch == record.entry.branch);
+    let changes =
+        super::intention::derive_intention_changes(preceding, game, &record.entry, same_branch);
+    if changes.suspensions != record.entry.intention_suspensions {
+        return Err(invalid_archive());
+    }
+    if changes.ends != record.entry.intention_ends {
+        return Err(invalid_archive());
+    }
+    Ok(())
+}
+
+/// A boundary that resolves an intention leaves none pending, and one that
+/// admits an intention holds exactly that queued work.
+fn check_boundary_intentions(record: &Record, game: &Game) -> Result<(), Failure> {
+    if record.resolution().is_some()
+        && game
+            .pending_intention(SimActor(record.entry.actor.0))
+            .is_some()
+    {
+        return Err(invalid_archive());
+    }
+    if let Some((intention, work)) = record.entry.content.admission() {
+        if game
+            .pending_intention(SimActor(record.entry.actor.0))
+            .is_none_or(|queued| {
+                queued.id != intention
+                    || queued.origin != work.origin()
+                    || !work.matches(queued.work.clone())
+                    || match &record.entry.content {
+                        JournalContent::IntentionAdmitted { human_operands, .. } => {
+                            queued.human_operands.as_ref() != Some(human_operands)
+                        }
+                        _ => queued.human_operands.is_some(),
+                    }
+                    || queued.state != tor_simulation::IntentionState::Queued
+            })
+        {
+            return Err(invalid_archive());
+        }
+    }
+    Ok(())
+}
+
 /// Journal records indexed while checking each against the prefix before it.
 struct JournalIndex<'a> {
     /// Accepted request receipts by (user, request ID), to their record index.
@@ -676,73 +756,10 @@ impl DiskCheckpoint {
                     // gameplay transaction is invalid, not an approximate proof.
                     let start = previous_record_index.map_or(0, |index| index + 1);
                     let end = record_index.ok_or_else(invalid_archive)?;
-                    let recovered = if start < end {
-                        let mut preceding = previous.game.clone();
-                        for hidden in &archive.records[start..end] {
-                            replay_private_boundary(&mut preceding, hidden)?;
-                        }
-                        Some(preceding)
-                    } else {
-                        None
-                    };
-                    let preceding = recovered.as_ref().unwrap_or(&previous.game);
-                    if !record.valid_action_resolution_at(preceding)
-                        || record.before_tick != preceding.tick()
-                        || record.after_tick != game.tick()
-                    {
-                        return Err(invalid_archive());
-                    }
-                    if !record.entry.content.rewindable() {
-                        let mut expected = preceding.clone();
-                        replay_private_boundary(&mut expected, record)?;
-                        if expected != game {
-                            return Err(invalid_archive());
-                        }
-                    }
-                    let same_branch = previous
-                        .id
-                        .as_ref()
-                        .and_then(|id| records_by_id.get(id))
-                        .is_none_or(|before| before.entry.branch == record.entry.branch);
-                    let changes = super::intention::derive_intention_changes(
-                        preceding,
-                        &game,
-                        &record.entry,
-                        same_branch,
-                    );
-                    if changes.suspensions != record.entry.intention_suspensions {
-                        return Err(invalid_archive());
-                    }
-                    if changes.ends != record.entry.intention_ends {
-                        return Err(invalid_archive());
-                    }
+                    let gap = archive.records.get(start..end).unwrap_or_default();
+                    check_boundary_transition(record, previous, gap, &game, &records_by_id)?;
                 }
-                if record.resolution().is_some()
-                    && game
-                        .pending_intention(SimActor(record.entry.actor.0))
-                        .is_some()
-                {
-                    return Err(invalid_archive());
-                }
-                if let Some((intention, work)) = record.entry.content.admission() {
-                    if game
-                        .pending_intention(SimActor(record.entry.actor.0))
-                        .is_none_or(|queued| {
-                            queued.id != intention
-                                || queued.origin != work.origin()
-                                || !work.matches(queued.work.clone())
-                                || match &record.entry.content {
-                                    JournalContent::IntentionAdmitted {
-                                        human_operands, ..
-                                    } => queued.human_operands.as_ref() != Some(human_operands),
-                                    _ => queued.human_operands.is_some(),
-                                }
-                                || queued.state != tor_simulation::IntentionState::Queued
-                        })
-                    {
-                        return Err(invalid_archive());
-                    }
-                }
+                check_boundary_intentions(record, &game)?;
             }
             boundaries.push_back(Arc::new(Boundary {
                 id: boundary.id,
