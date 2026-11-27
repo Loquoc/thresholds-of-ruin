@@ -1784,6 +1784,444 @@ pub struct Ruleset {
     references: ReferenceSets,
 }
 
+/// Catalogs a talent may name beyond the shared references.
+#[derive(Clone, Copy)]
+struct TalentReferences<'a> {
+    expertises: &'a BTreeSet<ExpertiseId>,
+    forms: &'a BTreeSet<FormId>,
+    talents: &'a BTreeSet<TalentId>,
+}
+
+/// Check one condition definition's timing, stacking, modifiers and
+/// references, interning its identifiers.
+fn validate_condition(
+    d: &mut ConditionDef,
+    refs: &References<'_>,
+    pool: &mut Interner,
+) -> Result<(), RulesetError> {
+    d.family.intern(pool);
+    bound(
+        !d.timing.permits_persistent()
+            || (d.lifecycle == ConditionLifecycle::Timed && d.stacking == Stacking::Keep),
+        "persistent_condition_shape",
+    )?;
+    let unique: BTreeSet<_> = d.restrictions.iter().copied().collect();
+    bound(
+        d.restrictions.len() <= 3 && unique.len() == d.restrictions.len(),
+        "condition_restrictions",
+    )?;
+    d.restrictions.sort();
+    bound(
+        d.preparation != ConditionPreparation::Pause || !d.restrictions.is_empty(),
+        "condition_pause_scope",
+    )?;
+    // Protected operations cannot be removed by capacity/reconciliation
+    // pressure. Only the bounded confusion probability is also safe:
+    // it cannot invalidate numeric stats, reach, grants or interactions.
+    // Other modifier folds still require an ordinary evictable source.
+    // Restrictions without follow-up protection can extend their bounded
+    // duration; protection-bearing entries remain nonrefreshing.
+    bound(
+        !d.protected_lifecycle()
+            || (d.lifecycle == ConditionLifecycle::Timed
+                && !d.source_scoped
+                && (d.stacking == Stacking::Keep
+                    || (d.stacking == Stacking::Extend && d.timing.protection().is_none()))
+                && d.modifiers.iter().all(|modifier| {
+                    matches!(
+                        modifier,
+                        Modifier {
+                            scope: Scope::Always,
+                            op: ModifierOp::Locomotion {
+                                value: crate::locomotion::LocomotionValue::Confused { .. }
+                            },
+                            ..
+                        }
+                    )
+                })),
+        "protected_condition_shape",
+    )?;
+    bound(
+        d.lifecycle == ConditionLifecycle::Timed
+            || (!d.source_scoped && !matches!(d.stacking, Stacking::Stack { .. })),
+        "token_shape",
+    )?;
+    refs.modifiers(&mut d.modifiers, pool)?;
+    if d.lifecycle != ConditionLifecycle::Timed {
+        bound(
+            !d.modifiers.is_empty()
+                && d.modifiers.iter().all(|modifier| {
+                    modifier.scope == Scope::Always
+                        && matches!(
+                            (&d.lifecycle, &modifier.op),
+                            (
+                                ConditionLifecycle::NextCheck,
+                                ModifierOp::Add {
+                                    stat: Stat::CheckEdge,
+                                    value: -1 | 1
+                                }
+                            ) | (
+                                ConditionLifecycle::NextCheckAgainst,
+                                ModifierOp::Add {
+                                    stat: Stat::IncomingEdge { defense: None },
+                                    value: -1 | 1
+                                }
+                            )
+                        )
+                }),
+            "token_modifiers",
+        )?;
+    }
+    if let Stacking::Stack { maximum } = d.stacking {
+        bound(
+            maximum > 0
+                && usize::from(maximum) <= crate::limits::CONDITIONS
+                && usize::from(maximum).saturating_mul(d.modifiers.len())
+                    <= crate::limits::MODIFIERS_PER_SOURCE,
+            "condition_stack",
+        )?;
+    }
+    bound(
+        d.source_scoped || d.modifiers.iter().all(|m| m.scope != Scope::VersusSource),
+        "condition_scope",
+    )?;
+    refs.descriptors(&mut d.descriptors, pool)?;
+    Ok(())
+}
+
+/// Check one talent definition against the catalog, interning its identifiers.
+fn validate_talent(
+    d: &mut TalentDef,
+    known: TalentReferences<'_>,
+    refs: &References<'_>,
+    pool: &mut Interner,
+) -> Result<(), RulesetError> {
+    bound(
+        d.expertise_grants.len() <= crate::limits::MODIFIERS_PER_SOURCE,
+        "talent_expertise_grants",
+    )?;
+    let mut seen_expertises = BTreeSet::new();
+    for expertise in &mut d.expertise_grants {
+        reference(known.expertises, expertise, "expertise")?;
+        if !seen_expertises.insert(expertise.clone()) {
+            return Err(RulesetError::DuplicateId(expertise.to_string()));
+        }
+        expertise.intern(pool);
+    }
+    bound(
+        d.form_choices.len() <= crate::limits::FORMS_PER_TALENT,
+        "form_choices",
+    )?;
+    bound(
+        d.form_choices.is_empty() || d.modifiers.len() < crate::limits::MODIFIERS_PER_SOURCE,
+        "form_grant_capacity",
+    )?;
+    let mut chosen = BTreeSet::new();
+    for form in &mut d.form_choices {
+        reference(known.forms, form, "form")?;
+        if !chosen.insert(form.clone()) {
+            return Err(RulesetError::DuplicateId(form.to_string()));
+        }
+        form.intern(pool);
+    }
+    bound(
+        d.prerequisites.len() <= crate::limits::MODIFIERS_PER_SOURCE,
+        "prerequisites",
+    )?;
+    let mut seen = BTreeSet::new();
+    for id in &mut d.prerequisites {
+        reference(known.talents, id, "talent")?;
+        if !seen.insert(id.clone()) {
+            return Err(RulesetError::DuplicateId(id.to_string()));
+        }
+        id.intern(pool);
+    }
+    refs.requirement(&mut d.requirement, pool, 0, &mut 0)?;
+    refs.modifiers(&mut d.modifiers, pool)?;
+    Ok(())
+}
+
+/// Check one ability definition's shape, timing, strikes and references,
+/// interning its identifiers.
+fn validate_ability(
+    d: &mut AbilityDef,
+    refs: &References<'_>,
+    supplies: &BTreeSet<SupplyId>,
+    pool: &mut Interner,
+) -> Result<(), RulesetError> {
+    bound(d.spatial_shape_valid(), "ability_spatial_shape")?;
+    bound(
+        effect_style_valid(d.effect_style.as_deref()),
+        "ability_effect_style",
+    )?;
+    let detects = match &d.strikes {
+        StrikeSource::Authored { strikes } => strikes
+            .iter()
+            .flat_map(|strike| {
+                strike
+                    .on_success
+                    .iter()
+                    .chain(&strike.on_failure)
+                    .chain(strike.riders.iter().flat_map(|rider| &rider.effects))
+            })
+            .any(crate::detection_lifecycle::is_effect),
+        StrikeSource::NaturalMelee { additional_riders } => additional_riders
+            .iter()
+            .flat_map(|rider| &rider.effects)
+            .any(crate::detection_lifecycle::is_effect),
+        StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
+    };
+    bound(
+        !detects
+            || (d.invocation == crate::abilities::InvocationKind::ActorTarget
+                && d.reach == Reach::SelfOnly
+                && d.interaction == Interaction::NonHostile
+                && matches!(&d.strikes, StrikeSource::Authored { strikes }
+                if matches!(strikes.as_slice(), [StrikeDef { offset:0, unlock:None, check:None,
+                    on_success, on_failure, riders, .. }] if on_success.len() == 1
+                        && on_success.iter().all(crate::detection_lifecycle::is_effect)
+                        && on_failure.is_empty() && riders.is_empty()))),
+        "detection_self_only",
+    )?;
+    let lights = match &d.strikes {
+        StrikeSource::Authored { strikes } => strikes.iter().any(|strike| {
+            strike
+                .on_success
+                .iter()
+                .chain(&strike.on_failure)
+                .chain(strike.riders.iter().flat_map(|rider| &rider.effects))
+                .any(|effect| matches!(effect, Effect::RoomLight))
+        }),
+        StrikeSource::NaturalMelee { additional_riders } => additional_riders
+            .iter()
+            .flat_map(|rider| &rider.effects)
+            .any(|effect| matches!(effect, Effect::RoomLight)),
+        StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
+    };
+    bound(
+        !lights
+            || (d.invocation == crate::abilities::InvocationKind::ActorTarget
+                && d.reach == Reach::SelfOnly
+                && d.interaction == Interaction::NonHostile),
+        "room_light_self_only",
+    )?;
+    bound(
+        !lights
+            || matches!(&d.strikes, StrikeSource::Authored { strikes }
+            if matches!(strikes.as_slice(), [StrikeDef { offset: 0, unlock: None, check: None, on_failure, riders, .. }]
+                if on_failure.is_empty() && riders.is_empty())),
+        "room_light_checkless",
+    )?;
+    let drains = match &d.strikes {
+        StrikeSource::Authored { strikes } => strikes
+            .iter()
+            .flat_map(|s| {
+                s.on_success
+                    .iter()
+                    .chain(&s.on_failure)
+                    .chain(s.riders.iter().flat_map(|r| &r.effects))
+            })
+            .any(|effect| matches!(effect, Effect::DrainLife)),
+        StrikeSource::NaturalMelee { additional_riders } => additional_riders
+            .iter()
+            .flat_map(|r| &r.effects)
+            .any(|effect| matches!(effect, Effect::DrainLife)),
+        StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
+    };
+    bound(
+        !drains
+            || (d.invocation == crate::abilities::InvocationKind::ActorTarget
+                && d.reach == Reach::SelfOnly
+                && d.interaction == Interaction::NonHostile
+                && matches!(&d.strikes, StrikeSource::Authored { strikes }
+                if matches!(strikes.as_slice(), [StrikeDef { offset:0, unlock:None, check:None, on_success, on_failure, riders, .. }]
+                    if matches!(on_success.as_slice(), [Effect::DrainLife]) && on_failure.is_empty() && riders.is_empty()))),
+        "drain_life_self_only",
+    )?;
+    // Haste overdose is a self-consumption consequence, not a route
+    // around direct-harm validation for targeted restrictions. Keep the
+    // dose in the existing ordered checkless authored self payload.
+    let haste_dose = match &d.strikes {
+        StrikeSource::Authored { strikes } => strikes
+            .iter()
+            .flat_map(|s| {
+                s.on_success
+                    .iter()
+                    .chain(&s.on_failure)
+                    .chain(s.riders.iter().flat_map(|r| &r.effects))
+            })
+            .any(|effect| matches!(effect, Effect::HasteDose { .. })),
+        StrikeSource::NaturalMelee { additional_riders } => additional_riders
+            .iter()
+            .flat_map(|r| &r.effects)
+            .any(|effect| matches!(effect, Effect::HasteDose { .. })),
+        StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
+    };
+    bound(
+        !haste_dose
+            || (d.invocation == crate::abilities::InvocationKind::ActorTarget
+                && d.reach == Reach::SelfOnly
+                && d.interaction == Interaction::NonHostile
+                && matches!(&d.strikes, StrikeSource::Authored { strikes }
+                if matches!(strikes.as_slice(), [StrikeDef { offset:0, unlock:None, check:None, on_success, on_failure, riders, .. }]
+                    if on_success.iter().any(|effect| matches!(effect, Effect::HasteDose { .. })) && on_failure.is_empty() && riders.is_empty()))),
+        "haste_dose_self_only",
+    )?;
+    let searches = match &d.strikes {
+        StrikeSource::Authored { strikes } => strikes.iter().any(|strike| {
+            strike
+                .on_success
+                .iter()
+                .chain(&strike.on_failure)
+                .chain(strike.riders.iter().flat_map(|rider| &rider.effects))
+                .any(|effect| matches!(effect, Effect::SearchAdjacentGuises))
+        }),
+        StrikeSource::NaturalMelee { additional_riders } => additional_riders
+            .iter()
+            .flat_map(|rider| &rider.effects)
+            .any(|effect| matches!(effect, Effect::SearchAdjacentGuises)),
+        StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
+    };
+    bound(
+        !searches || (d.reach == Reach::SelfOnly && d.interaction == Interaction::NonHostile),
+        "search_self_only",
+    )?;
+    bound(
+        !searches
+            || matches!(&d.strikes, StrikeSource::Authored { strikes }
+            if matches!(strikes.as_slice(), [StrikeDef { offset: 0, unlock: None, check: None, on_success, on_failure, riders, .. }]
+                if matches!(on_success.as_slice(), [Effect::SearchAdjacentGuises]) && on_failure.is_empty() && riders.is_empty())),
+        "search_single_check",
+    )?;
+    if let StrikeSource::Authored { strikes } = &d.strikes {
+        bound(
+            !strikes.iter().any(|strike| {
+                strike
+                    .on_success
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::HoldDamage { .. }))
+            }) || (d.reach == Reach::Melee && d.interaction == Interaction::HostileToTarget),
+            "hold_damage_melee",
+        )?;
+    }
+    if let TimingSource::SelectedWeaponAdjusted {
+        preparation,
+        recovery,
+    } = d.timing.source
+    {
+        bound(
+            preparation <= crate::limits::NUMERIC as u64
+                && recovery <= crate::limits::NUMERIC as u64,
+            "timing_adjustment",
+        )?;
+    }
+    bound(
+        d.reach != Reach::UntilObstruction
+            || (d.invocation == crate::abilities::InvocationKind::DirectionalContactRay
+                && crate::abilities::ray_definition_shape_valid(d)),
+        "until_obstruction_delivery",
+    )?;
+    let cancellation = match &d.strikes {
+        StrikeSource::Authored { strikes } => strikes.iter().any(|strike| {
+            strike
+                .on_success
+                .iter()
+                .chain(&strike.on_failure)
+                .chain(strike.riders.iter().flat_map(|rider| &rider.effects))
+                .any(|effect| matches!(effect, Effect::CancelSpecials))
+        }),
+        StrikeSource::NaturalMelee { additional_riders } => additional_riders
+            .iter()
+            .flat_map(|rider| &rider.effects)
+            .any(|effect| matches!(effect, Effect::CancelSpecials)),
+        _ => false,
+    };
+    bound(
+        !cancellation
+            || (d.reach == Reach::UntilObstruction
+                && crate::abilities::ray_definition_shape_valid(d)),
+        "cancellation_contact_source",
+    )?;
+    bound(
+        d.tags.len() <= crate::limits::TAGS_PER_ABILITY,
+        "ability_tags",
+    )?;
+    let mut seen = BTreeSet::new();
+    for tag in &mut d.tags {
+        reference(refs.ability_tags, tag, "ability_tag")?;
+        if !seen.insert(tag.clone()) {
+            return Err(RulesetError::DuplicateId(tag.to_string()));
+        }
+        tag.intern(pool);
+    }
+    bound(
+        !d.basic_attack || !matches!(d.reach, Reach::SelfOnly | Reach::SelfOrAlly { .. }),
+        "basic_attack_reach",
+    )?;
+    bound(d.ai.minimum_resource_percent <= 100, "ai_resource_percent")?;
+    if let TimingSource::Fixed { prepare, recover } = d.timing.source {
+        bound(
+            prepare > 0
+                && recover > 0
+                && prepare <= crate::limits::NUMERIC as u64
+                && recover <= crate::limits::NUMERIC as u64,
+            "timing",
+        )?;
+    }
+    if let Some(cooldown) = d.cooldown {
+        bound(cooldown.get() <= crate::limits::NUMERIC as u64, "cooldown")?;
+    }
+    bound(
+        d.supply_costs.len() <= crate::limits::SUPPLY_COSTS,
+        "supply_costs",
+    )?;
+    bound(
+        d.supply_costs
+            .windows(2)
+            .all(|pair| (pair[0].spend_at, &pair[0].supply) < (pair[1].spend_at, &pair[1].supply)),
+        "supply_cost_order",
+    )?;
+    for cost in &mut d.supply_costs {
+        reference(supplies, &cost.supply, "supply")?;
+        cost.supply.intern(pool);
+        bound(
+            (1..=crate::limits::NUMERIC as u64).contains(&cost.quantity),
+            "supply_quantity",
+        )?;
+        bound(
+            cost.spend_at == SupplySpendAt::FirstResolution,
+            "ability_supply_stage",
+        )?;
+    }
+    if let Some(cost) = &d.cost {
+        bound(
+            u64::from(cost.start) + u64::from(cost.resolution) <= crate::limits::NUMERIC as u64,
+            "cost",
+        )?;
+    }
+    if let Reach::Sight { range }
+    | Reach::MutualSight { range }
+    | Reach::SelfOrAlly {
+        range: AllyRange::Sight { range },
+    } = d.reach
+    {
+        bound(range > 0 && range <= crate::limits::SIGHT_RANGE, "range")?;
+    }
+    match &mut d.strikes {
+        StrikeSource::Authored { strikes } => {
+            refs.strikes(strikes, pool)?;
+            if let TimingSource::Fixed { prepare, recover } = d.timing.source {
+                validate_strike_horizon(strikes, prepare, recover)?;
+            }
+        }
+        StrikeSource::NaturalMelee { additional_riders } => {
+            refs.riders(additional_riders, pool)?;
+        }
+        StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => {}
+    }
+    Ok(())
+}
+
 /// Owned identifier sets for validating references against a ruleset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ReferenceSets {
@@ -2289,139 +2727,19 @@ impl Ruleset {
             refs.modifiers(&mut d.modifiers, &mut pool)?;
         }
         for d in &mut document.talents {
-            bound(
-                d.expertise_grants.len() <= crate::limits::MODIFIERS_PER_SOURCE,
-                "talent_expertise_grants",
+            validate_talent(
+                d,
+                TalentReferences {
+                    expertises: &expertises,
+                    forms: &forms,
+                    talents: &talents,
+                },
+                &refs,
+                &mut pool,
             )?;
-            let mut seen_expertises = BTreeSet::new();
-            for expertise in &mut d.expertise_grants {
-                reference(&expertises, expertise, "expertise")?;
-                if !seen_expertises.insert(expertise.clone()) {
-                    return Err(RulesetError::DuplicateId(expertise.to_string()));
-                }
-                expertise.intern(&mut pool);
-            }
-            bound(
-                d.form_choices.len() <= crate::limits::FORMS_PER_TALENT,
-                "form_choices",
-            )?;
-            bound(
-                d.form_choices.is_empty()
-                    || d.modifiers.len() < crate::limits::MODIFIERS_PER_SOURCE,
-                "form_grant_capacity",
-            )?;
-            let mut chosen = BTreeSet::new();
-            for form in &mut d.form_choices {
-                reference(&forms, form, "form")?;
-                if !chosen.insert(form.clone()) {
-                    return Err(RulesetError::DuplicateId(form.to_string()));
-                }
-                form.intern(&mut pool);
-            }
-            bound(
-                d.prerequisites.len() <= crate::limits::MODIFIERS_PER_SOURCE,
-                "prerequisites",
-            )?;
-            let mut seen = BTreeSet::new();
-            for id in &mut d.prerequisites {
-                reference(&talents, id, "talent")?;
-                if !seen.insert(id.clone()) {
-                    return Err(RulesetError::DuplicateId(id.to_string()));
-                }
-                id.intern(&mut pool);
-            }
-            refs.requirement(&mut d.requirement, &mut pool, 0, &mut 0)?;
-            refs.modifiers(&mut d.modifiers, &mut pool)?;
         }
         for d in &mut document.conditions {
-            d.family.intern(&mut pool);
-            bound(
-                !d.timing.permits_persistent()
-                    || (d.lifecycle == ConditionLifecycle::Timed && d.stacking == Stacking::Keep),
-                "persistent_condition_shape",
-            )?;
-            let unique: BTreeSet<_> = d.restrictions.iter().copied().collect();
-            bound(
-                d.restrictions.len() <= 3 && unique.len() == d.restrictions.len(),
-                "condition_restrictions",
-            )?;
-            d.restrictions.sort();
-            bound(
-                d.preparation != ConditionPreparation::Pause || !d.restrictions.is_empty(),
-                "condition_pause_scope",
-            )?;
-            // Protected operations cannot be removed by capacity/reconciliation
-            // pressure. Only the bounded confusion probability is also safe:
-            // it cannot invalidate numeric stats, reach, grants or interactions.
-            // Other modifier folds still require an ordinary evictable source.
-            // Restrictions without follow-up protection can extend their bounded
-            // duration; protection-bearing entries remain nonrefreshing.
-            bound(
-                !d.protected_lifecycle()
-                    || (d.lifecycle == ConditionLifecycle::Timed
-                        && !d.source_scoped
-                        && (d.stacking == Stacking::Keep
-                            || (d.stacking == Stacking::Extend
-                                && d.timing.protection().is_none()))
-                        && d.modifiers.iter().all(|modifier| {
-                            matches!(
-                                modifier,
-                                Modifier {
-                                    scope: Scope::Always,
-                                    op: ModifierOp::Locomotion {
-                                        value: crate::locomotion::LocomotionValue::Confused { .. }
-                                    },
-                                    ..
-                                }
-                            )
-                        })),
-                "protected_condition_shape",
-            )?;
-            bound(
-                d.lifecycle == ConditionLifecycle::Timed
-                    || (!d.source_scoped && !matches!(d.stacking, Stacking::Stack { .. })),
-                "token_shape",
-            )?;
-            refs.modifiers(&mut d.modifiers, &mut pool)?;
-            if d.lifecycle != ConditionLifecycle::Timed {
-                bound(
-                    !d.modifiers.is_empty()
-                        && d.modifiers.iter().all(|modifier| {
-                            modifier.scope == Scope::Always
-                                && matches!(
-                                    (&d.lifecycle, &modifier.op),
-                                    (
-                                        ConditionLifecycle::NextCheck,
-                                        ModifierOp::Add {
-                                            stat: Stat::CheckEdge,
-                                            value: -1 | 1
-                                        }
-                                    ) | (
-                                        ConditionLifecycle::NextCheckAgainst,
-                                        ModifierOp::Add {
-                                            stat: Stat::IncomingEdge { defense: None },
-                                            value: -1 | 1
-                                        }
-                                    )
-                                )
-                        }),
-                    "token_modifiers",
-                )?;
-            }
-            if let Stacking::Stack { maximum } = d.stacking {
-                bound(
-                    maximum > 0
-                        && usize::from(maximum) <= crate::limits::CONDITIONS
-                        && usize::from(maximum).saturating_mul(d.modifiers.len())
-                            <= crate::limits::MODIFIERS_PER_SOURCE,
-                    "condition_stack",
-                )?;
-            }
-            bound(
-                d.source_scoped || d.modifiers.iter().all(|m| m.scope != Scope::VersusSource),
-                "condition_scope",
-            )?;
-            refs.descriptors(&mut d.descriptors, &mut pool)?;
+            validate_condition(d, &refs, &mut pool)?;
         }
         let mut families = BTreeMap::new();
         for definition in &document.conditions {
@@ -2438,279 +2756,7 @@ impl Ruleset {
             "basic_attack",
         )?;
         for d in &mut document.abilities {
-            bound(d.spatial_shape_valid(), "ability_spatial_shape")?;
-            bound(
-                effect_style_valid(d.effect_style.as_deref()),
-                "ability_effect_style",
-            )?;
-            let detects = match &d.strikes {
-                StrikeSource::Authored { strikes } => strikes
-                    .iter()
-                    .flat_map(|strike| {
-                        strike
-                            .on_success
-                            .iter()
-                            .chain(&strike.on_failure)
-                            .chain(strike.riders.iter().flat_map(|rider| &rider.effects))
-                    })
-                    .any(crate::detection_lifecycle::is_effect),
-                StrikeSource::NaturalMelee { additional_riders } => additional_riders
-                    .iter()
-                    .flat_map(|rider| &rider.effects)
-                    .any(crate::detection_lifecycle::is_effect),
-                StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
-            };
-            bound(
-                !detects
-                    || (d.invocation == crate::abilities::InvocationKind::ActorTarget
-                        && d.reach == Reach::SelfOnly
-                        && d.interaction == Interaction::NonHostile
-                        && matches!(&d.strikes, StrikeSource::Authored { strikes }
-                    if matches!(strikes.as_slice(), [StrikeDef { offset:0, unlock:None, check:None,
-                        on_success, on_failure, riders, .. }] if on_success.len() == 1
-                            && on_success.iter().all(crate::detection_lifecycle::is_effect)
-                            && on_failure.is_empty() && riders.is_empty()))),
-                "detection_self_only",
-            )?;
-            let lights = match &d.strikes {
-                StrikeSource::Authored { strikes } => strikes.iter().any(|strike| {
-                    strike
-                        .on_success
-                        .iter()
-                        .chain(&strike.on_failure)
-                        .chain(strike.riders.iter().flat_map(|rider| &rider.effects))
-                        .any(|effect| matches!(effect, Effect::RoomLight))
-                }),
-                StrikeSource::NaturalMelee { additional_riders } => additional_riders
-                    .iter()
-                    .flat_map(|rider| &rider.effects)
-                    .any(|effect| matches!(effect, Effect::RoomLight)),
-                StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
-            };
-            bound(
-                !lights
-                    || (d.invocation == crate::abilities::InvocationKind::ActorTarget
-                        && d.reach == Reach::SelfOnly
-                        && d.interaction == Interaction::NonHostile),
-                "room_light_self_only",
-            )?;
-            bound(
-                !lights
-                    || matches!(&d.strikes, StrikeSource::Authored { strikes }
-                if matches!(strikes.as_slice(), [StrikeDef { offset: 0, unlock: None, check: None, on_failure, riders, .. }]
-                    if on_failure.is_empty() && riders.is_empty())),
-                "room_light_checkless",
-            )?;
-            let drains = match &d.strikes {
-                StrikeSource::Authored { strikes } => strikes
-                    .iter()
-                    .flat_map(|s| {
-                        s.on_success
-                            .iter()
-                            .chain(&s.on_failure)
-                            .chain(s.riders.iter().flat_map(|r| &r.effects))
-                    })
-                    .any(|effect| matches!(effect, Effect::DrainLife)),
-                StrikeSource::NaturalMelee { additional_riders } => additional_riders
-                    .iter()
-                    .flat_map(|r| &r.effects)
-                    .any(|effect| matches!(effect, Effect::DrainLife)),
-                StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
-            };
-            bound(
-                !drains
-                    || (d.invocation == crate::abilities::InvocationKind::ActorTarget
-                        && d.reach == Reach::SelfOnly
-                        && d.interaction == Interaction::NonHostile
-                        && matches!(&d.strikes, StrikeSource::Authored { strikes }
-                    if matches!(strikes.as_slice(), [StrikeDef { offset:0, unlock:None, check:None, on_success, on_failure, riders, .. }]
-                        if matches!(on_success.as_slice(), [Effect::DrainLife]) && on_failure.is_empty() && riders.is_empty()))),
-                "drain_life_self_only",
-            )?;
-            // Haste overdose is a self-consumption consequence, not a route
-            // around direct-harm validation for targeted restrictions. Keep the
-            // dose in the existing ordered checkless authored self payload.
-            let haste_dose = match &d.strikes {
-                StrikeSource::Authored { strikes } => strikes
-                    .iter()
-                    .flat_map(|s| {
-                        s.on_success
-                            .iter()
-                            .chain(&s.on_failure)
-                            .chain(s.riders.iter().flat_map(|r| &r.effects))
-                    })
-                    .any(|effect| matches!(effect, Effect::HasteDose { .. })),
-                StrikeSource::NaturalMelee { additional_riders } => additional_riders
-                    .iter()
-                    .flat_map(|r| &r.effects)
-                    .any(|effect| matches!(effect, Effect::HasteDose { .. })),
-                StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
-            };
-            bound(
-                !haste_dose
-                    || (d.invocation == crate::abilities::InvocationKind::ActorTarget
-                        && d.reach == Reach::SelfOnly
-                        && d.interaction == Interaction::NonHostile
-                        && matches!(&d.strikes, StrikeSource::Authored { strikes }
-                    if matches!(strikes.as_slice(), [StrikeDef { offset:0, unlock:None, check:None, on_success, on_failure, riders, .. }]
-                        if on_success.iter().any(|effect| matches!(effect, Effect::HasteDose { .. })) && on_failure.is_empty() && riders.is_empty()))),
-                "haste_dose_self_only",
-            )?;
-            let searches = match &d.strikes {
-                StrikeSource::Authored { strikes } => strikes.iter().any(|strike| {
-                    strike
-                        .on_success
-                        .iter()
-                        .chain(&strike.on_failure)
-                        .chain(strike.riders.iter().flat_map(|rider| &rider.effects))
-                        .any(|effect| matches!(effect, Effect::SearchAdjacentGuises))
-                }),
-                StrikeSource::NaturalMelee { additional_riders } => additional_riders
-                    .iter()
-                    .flat_map(|rider| &rider.effects)
-                    .any(|effect| matches!(effect, Effect::SearchAdjacentGuises)),
-                StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => false,
-            };
-            bound(
-                !searches
-                    || (d.reach == Reach::SelfOnly && d.interaction == Interaction::NonHostile),
-                "search_self_only",
-            )?;
-            bound(
-                !searches
-                    || matches!(&d.strikes, StrikeSource::Authored { strikes }
-                if matches!(strikes.as_slice(), [StrikeDef { offset: 0, unlock: None, check: None, on_success, on_failure, riders, .. }]
-                    if matches!(on_success.as_slice(), [Effect::SearchAdjacentGuises]) && on_failure.is_empty() && riders.is_empty())),
-                "search_single_check",
-            )?;
-            if let StrikeSource::Authored { strikes } = &d.strikes {
-                bound(
-                    !strikes.iter().any(|strike| {
-                        strike
-                            .on_success
-                            .iter()
-                            .any(|effect| matches!(effect, Effect::HoldDamage { .. }))
-                    }) || (d.reach == Reach::Melee
-                        && d.interaction == Interaction::HostileToTarget),
-                    "hold_damage_melee",
-                )?;
-            }
-            if let TimingSource::SelectedWeaponAdjusted {
-                preparation,
-                recovery,
-            } = d.timing.source
-            {
-                bound(
-                    preparation <= crate::limits::NUMERIC as u64
-                        && recovery <= crate::limits::NUMERIC as u64,
-                    "timing_adjustment",
-                )?;
-            }
-            bound(
-                d.reach != Reach::UntilObstruction
-                    || (d.invocation == crate::abilities::InvocationKind::DirectionalContactRay
-                        && crate::abilities::ray_definition_shape_valid(d)),
-                "until_obstruction_delivery",
-            )?;
-            let cancellation = match &d.strikes {
-                StrikeSource::Authored { strikes } => strikes.iter().any(|strike| {
-                    strike
-                        .on_success
-                        .iter()
-                        .chain(&strike.on_failure)
-                        .chain(strike.riders.iter().flat_map(|rider| &rider.effects))
-                        .any(|effect| matches!(effect, Effect::CancelSpecials))
-                }),
-                StrikeSource::NaturalMelee { additional_riders } => additional_riders
-                    .iter()
-                    .flat_map(|rider| &rider.effects)
-                    .any(|effect| matches!(effect, Effect::CancelSpecials)),
-                _ => false,
-            };
-            bound(
-                !cancellation
-                    || (d.reach == Reach::UntilObstruction
-                        && crate::abilities::ray_definition_shape_valid(d)),
-                "cancellation_contact_source",
-            )?;
-            bound(
-                d.tags.len() <= crate::limits::TAGS_PER_ABILITY,
-                "ability_tags",
-            )?;
-            let mut seen = BTreeSet::new();
-            for tag in &mut d.tags {
-                reference(&ability_tags, tag, "ability_tag")?;
-                if !seen.insert(tag.clone()) {
-                    return Err(RulesetError::DuplicateId(tag.to_string()));
-                }
-                tag.intern(&mut pool);
-            }
-            bound(
-                !d.basic_attack || !matches!(d.reach, Reach::SelfOnly | Reach::SelfOrAlly { .. }),
-                "basic_attack_reach",
-            )?;
-            bound(d.ai.minimum_resource_percent <= 100, "ai_resource_percent")?;
-            if let TimingSource::Fixed { prepare, recover } = d.timing.source {
-                bound(
-                    prepare > 0
-                        && recover > 0
-                        && prepare <= crate::limits::NUMERIC as u64
-                        && recover <= crate::limits::NUMERIC as u64,
-                    "timing",
-                )?;
-            }
-            if let Some(cooldown) = d.cooldown {
-                bound(cooldown.get() <= crate::limits::NUMERIC as u64, "cooldown")?;
-            }
-            bound(
-                d.supply_costs.len() <= crate::limits::SUPPLY_COSTS,
-                "supply_costs",
-            )?;
-            bound(
-                d.supply_costs.windows(2).all(|pair| {
-                    (pair[0].spend_at, &pair[0].supply) < (pair[1].spend_at, &pair[1].supply)
-                }),
-                "supply_cost_order",
-            )?;
-            for cost in &mut d.supply_costs {
-                reference(&supplies, &cost.supply, "supply")?;
-                cost.supply.intern(&mut pool);
-                bound(
-                    (1..=crate::limits::NUMERIC as u64).contains(&cost.quantity),
-                    "supply_quantity",
-                )?;
-                bound(
-                    cost.spend_at == SupplySpendAt::FirstResolution,
-                    "ability_supply_stage",
-                )?;
-            }
-            if let Some(cost) = &d.cost {
-                bound(
-                    u64::from(cost.start) + u64::from(cost.resolution)
-                        <= crate::limits::NUMERIC as u64,
-                    "cost",
-                )?;
-            }
-            if let Reach::Sight { range }
-            | Reach::MutualSight { range }
-            | Reach::SelfOrAlly {
-                range: AllyRange::Sight { range },
-            } = d.reach
-            {
-                bound(range > 0 && range <= crate::limits::SIGHT_RANGE, "range")?;
-            }
-            match &mut d.strikes {
-                StrikeSource::Authored { strikes } => {
-                    refs.strikes(strikes, &mut pool)?;
-                    if let TimingSource::Fixed { prepare, recover } = d.timing.source {
-                        validate_strike_horizon(strikes, prepare, recover)?;
-                    }
-                }
-                StrikeSource::NaturalMelee { additional_riders } => {
-                    refs.riders(additional_riders, &mut pool)?;
-                }
-                StrikeSource::SelectedMelee | StrikeSource::Projectile { .. } => {}
-            }
+            validate_ability(d, &refs, &supplies, &mut pool)?;
         }
         let talent_order = topological(
             document
