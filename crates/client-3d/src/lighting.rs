@@ -141,9 +141,7 @@ impl<M: ShadeMaterial> MaterialShadeState<M> {
             Entry::Vacant(slot) => {
                 let mut copy = assets.get(source)?.clone();
                 let source_alpha = copy.base().base_color.alpha();
-                copy.base_mut()
-                    .base_color
-                    .set_alpha(source_alpha * opacity);
+                copy.base_mut().base_color.set_alpha(source_alpha * opacity);
                 // Recipe transparency still contributes to the dissolve.
                 copy.base_mut().alpha_mode = AlphaMode::Blend;
                 let handle = assets.add(copy);

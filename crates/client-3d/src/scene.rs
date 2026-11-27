@@ -421,7 +421,7 @@ fn build_cells(
         let at = ivec(cell.position) + game.offset;
         if cell.wall && cell.door.is_none() {
             // Visible cells come first, so a fresh sighting wins.
-            solids.entry(bevy_cell(at)).or_insert(Solid {
+            solids.entry(bevy_cell(at)).or_insert_with(|| Solid {
                 seen,
                 lit: cell.lit,
                 key: hash(cell.key),

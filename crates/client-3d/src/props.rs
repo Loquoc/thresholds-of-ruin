@@ -172,7 +172,8 @@ impl PropMaterials {
             skin: materials.add(crate::surface::SurfaceRecipe::SKIN.to_standard_material()),
             wood: materials.add(crate::surface::SurfaceRecipe::WOOD.to_standard_material()),
             chitin: materials.add(crate::surface::SurfaceRecipe::CHITIN.to_standard_material()),
-            steel: materials.add(crate::surface::SurfaceRecipe::POLISHED_STEEL.to_standard_material()),
+            steel: materials
+                .add(crate::surface::SurfaceRecipe::POLISHED_STEEL.to_standard_material()),
             gold: materials.add(crate::surface::SurfaceRecipe::GOLD.to_standard_material()),
             stone: materials.add(crate::surface::SurfaceRecipe::STONE.to_standard_material()),
             glass: materials.add(crate::surface::SurfaceRecipe::GLASS.to_standard_material()),
@@ -1114,8 +1115,7 @@ fn mace(p: &mut Parts) {
     let b = Vec3::new(0.26, 0.072, 0.0);
     let at = |t: f32| a.lerp(b, t);
     let axis = (b - a).normalize();
-    p.wood
-        .prism(at(0.05), at(0.72), 0.024, 0.027, 6, WOOD, 0.0);
+    p.wood.prism(at(0.05), at(0.72), 0.024, 0.027, 6, WOOD, 0.0);
     p.satin
         .prism(at(0.04), at(0.27), 0.031, 0.031, 6, LEATHER, 0.5);
     for t in [0.08, 0.15, 0.22] {

@@ -2776,7 +2776,7 @@ fn redressing_reuses_the_head_and_hair_the_outfit_leaves_alone() {
             ..Default::default()
         }),
     );
-    let mut current = base.clone();
+    let mut current = base;
     let mut dress = |wardrobe: Wardrobe| {
         current = current.clone().dressed(wardrobe);
         let parent = world.spawn(Transform::default()).id();

@@ -552,7 +552,7 @@ mod tests {
             200.
         );
         app.world_mut().resource_mut::<Game>().typed = "draft".into();
-        let mut up = event.clone();
+        let mut up = event;
         up.logical_key = Key::PageUp;
         app.world_mut().send_event(up.clone());
         app.update();

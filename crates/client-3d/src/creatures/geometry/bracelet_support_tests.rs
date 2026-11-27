@@ -323,7 +323,7 @@ fn support_choice_is_bounded_and_missing_selected_support_does_not_fallback() {
         Plan::resolve(&fur, &outfit).bracelet.unwrap().support,
         BraceletSupport::ForearmAndCuff
     );
-    let mut bare = look.clone();
+    let mut bare = look;
     bare.equipment = Equipment::default();
     assert_eq!(
         Plan::resolve(&bare, &Composition::resolve(&bare).outfit)

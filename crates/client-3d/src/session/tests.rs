@@ -178,7 +178,7 @@ fn the_title_precedes_the_menu_and_waits_for_presented_frames() {
 #[test]
 fn a_new_game_loads_in_named_steps_then_saves_and_returns_cleanly() {
     let saves = scratch();
-    let mut app = app(saves.clone());
+    let mut app = app(saves);
     until(&mut app, "the menu", |app| stage(app) == "menu");
     assert_eq!(leftovers(&mut app), BTreeSet::new());
     {

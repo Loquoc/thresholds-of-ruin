@@ -1074,6 +1074,7 @@ impl Kit<'_, '_, '_> {
     }
 
     /// Mutable short garments own meshes, while their materials stay cached.
+    #[allow(clippy::too_many_arguments)]
     fn short_garment(
         &mut self,
         parent: Entity,

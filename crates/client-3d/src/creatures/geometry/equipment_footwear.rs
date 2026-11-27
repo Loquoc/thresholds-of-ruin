@@ -1019,8 +1019,9 @@ mod tests {
                         for trousered in [false, true] {
                             let native = BootShape::fitted(body.build, -0.24);
                             if candidate {
-                                let fit =
-                                    fit_shin(appearance, native, body.shin, trousered, body.build, None);
+                                let fit = fit_shin(
+                                    appearance, native, body.shin, trousered, body.build, None,
+                                );
                                 std::hint::black_box(fit.envelope());
                                 for _side in [-1.0, 1.0] {
                                     std::hint::black_box(&fit.riding);
@@ -1066,8 +1067,9 @@ mod tests {
                             let expected = legacy_fit_shin(
                                 appearance, native, body.shin, trousered, body.build,
                             );
-                            let fit =
-                                fit_shin(appearance, native, body.shin, trousered, body.build, None);
+                            let fit = fit_shin(
+                                appearance, native, body.shin, trousered, body.build, None,
+                            );
                             assert_eq!(envelope_values(fit.envelope()), envelope_values(expected));
                             assert_eq!(
                                 fit.riding.is_some(),

@@ -219,7 +219,7 @@ fn fallen_aquator_keeps_its_webbed_feet_above_the_floor() {
                         ));
                     }
                 }
-                if phase == 1.0 && (flank > 0.06 || flank < -0.03 || low > 0.055) {
+                if phase == 1.0 && (!(-0.03..=0.06).contains(&flank) || low > 0.055) {
                     failures.push(format!(
                         "settled {seed}, {motion:?}: flank {flank:.3}, lowest foot {low:.3}"
                     ));

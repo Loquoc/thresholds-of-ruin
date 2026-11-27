@@ -2254,6 +2254,8 @@ fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) {
                     p.r(J::Head, Quat::from_rotation_y(dart * k));
                     p.o(J::Lift, Vec3::Y * -0.03 * k);
                     let lift = every(time, 5.5, 3.0, 4.2) * k;
+                    // A start time in seconds within the 5.5 s cycle, not π.
+                    #[allow(clippy::approx_constant)]
                     let turn = every(time, 5.5, 3.14, 4.06) * k;
                     p.r(
                         J::ArmR,
