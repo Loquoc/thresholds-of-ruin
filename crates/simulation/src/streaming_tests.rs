@@ -817,7 +817,7 @@ fn record_ids_are_never_reused_across_a_rewind() {
 
     // Rewinding to `earlier` and detaching again must not reuse the
     // later records' identities, which retained boundaries may hold.
-    let mut rewound = earlier.clone();
+    let mut rewound = earlier;
     rewound.continue_record_ids(&game);
     rewound
         .transition_regions(&sets(&[1, 2, 3, 4], &[1, 2, 3, 4]), &mut records)

@@ -470,7 +470,7 @@ fn fixed_resource_cost_bundle_is_complete_canonical_and_bounded() {
     wrong_label["focus"]["resource"]["id"] = serde_json::json!("mana");
     let mut overflow = canonical.clone();
     overflow["focus"]["resolution"] = serde_json::json!(1_000_000);
-    let mut unnamed = canonical.clone();
+    let mut unnamed = canonical;
     unnamed["focus"] = serde_json::json!([content("focus"), 1, 2]);
     for bad in [
         wrong_label,

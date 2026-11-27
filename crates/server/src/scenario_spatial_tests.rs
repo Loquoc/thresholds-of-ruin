@@ -486,7 +486,7 @@ fn compiler_source_work_and_exact_output_limits_are_independent() {
         RoomId::new(1).unwrap(),
     );
     assert!(compile(&world, &foreign, &budget(), &work_budget()).is_err());
-    let mut solid = source.clone();
+    let mut solid = source;
     solid.doorways.insert(at(0, 0, 0), RoomId::new(1).unwrap());
     assert!(compile(&world, &solid, &budget(), &work_budget()).is_err());
 }

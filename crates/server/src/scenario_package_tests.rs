@@ -403,7 +403,7 @@ fn phase5_authoring_package_rejects_positional_ally_range_alias() {
 fn phase5_container_archetype_rejects_positional_fields() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/two-room");
     let package = read_package(&root).unwrap();
-    let mut manifest = package.manifest.clone();
+    let mut manifest = package.manifest;
     manifest.archetypes.insert(
         "bandage".into(),
         Archetype {

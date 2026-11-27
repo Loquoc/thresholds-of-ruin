@@ -1272,7 +1272,7 @@ fn recovered_queued_gameplay_is_suspended_before_control_can_restart_it() {
             branch: service.engine.branch().clone(),
             command: Command::CancelIntention {
                 step: None,
-                intention: IntentionId(admitted.entry.id.0.clone()),
+                intention: IntentionId(admitted.entry.id.0),
             },
         },
     );

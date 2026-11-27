@@ -500,7 +500,7 @@ fn replacing_paid_work_can_use_the_hold_released_by_that_replacement() {
     game.execute_next_intention().unwrap().outcome.unwrap();
     game.cancel_intention(actor, first).unwrap();
     let original = game
-        .admit_intention(actor, action.clone(), IntentionOrigin::Human)
+        .admit_intention(actor, action, IntentionOrigin::Human)
         .unwrap();
     game.execute_next_intention().unwrap().outcome.unwrap();
     game.pause_preparation(actor).unwrap();
@@ -962,7 +962,7 @@ fn combat_capture_preserves_resumed_receipt_and_original_payment_owner() {
     game.execute_next_intention().unwrap().outcome.unwrap();
     game.pause_preparation(actor).unwrap();
     let resumed = game
-        .admit_intention(actor, action.clone(), IntentionOrigin::Human)
+        .admit_intention(actor, action, IntentionOrigin::Human)
         .unwrap();
     game.execute_next_intention().unwrap().outcome.unwrap();
     assert_ne!(original, resumed);

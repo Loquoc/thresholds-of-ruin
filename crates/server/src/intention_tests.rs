@@ -2013,7 +2013,7 @@ mod intention_admission_tests {
                 &engine.branch().clone(),
                 Command::ResumeIntention {
                     expected_boundary: engine.causal_boundary(actor).unwrap(),
-                    admission: admitted.entry.id.clone(),
+                    admission: admitted.entry.id,
                 },
             )
             .unwrap();
@@ -2207,7 +2207,7 @@ mod intention_admission_tests {
                 Command::CancelIntention {
                     step: None,
                     expected_boundary: engine.causal_boundary(actor).unwrap(),
-                    admission: admitted.entry.id.clone(),
+                    admission: admitted.entry.id,
                 },
             )
             .unwrap();
@@ -2518,7 +2518,7 @@ mod intention_admission_tests {
                 &engine.branch().clone(),
                 Command::ResumeIntention {
                     expected_boundary: engine.causal_boundary(actor).unwrap(),
-                    admission: admitted.entry.id.clone(),
+                    admission: admitted.entry.id,
                 },
             )
             .unwrap();
@@ -2586,7 +2586,7 @@ mod intention_admission_tests {
                 Command::CancelIntention {
                     step: None,
                     expected_boundary: engine.causal_boundary(actor).unwrap(),
-                    admission: admitted.entry.id.clone(),
+                    admission: admitted.entry.id,
                 },
             )
             .unwrap();

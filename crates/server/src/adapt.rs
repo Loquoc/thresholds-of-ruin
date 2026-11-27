@@ -1534,15 +1534,7 @@ pub fn cell_key(salt: &str, actor: u64, location: w::Location) -> String {
 }
 
 fn cell_key_hex(digest: [u8; 20]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = [0_u8; 40];
-    for (index, byte) in digest.iter().copied().enumerate() {
-        encoded[index * 2] = HEX[usize::from(byte >> 4)];
-        encoded[index * 2 + 1] = HEX[usize::from(byte & 15)];
-    }
-    std::str::from_utf8(&encoded)
-        .expect("ASCII cell key encoding")
-        .to_owned()
+    tor_protocol::lower_hex(&digest)
 }
 
 #[cfg(test)]
@@ -1713,6 +1705,8 @@ mod cell_key_tests {
                 next = next.wrapping_add(1);
                 byte
             });
+            // An independent oracle, not the shared encoder under test elsewhere.
+            #[allow(clippy::format_collect)]
             let expected: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
             assert_eq!(cell_key_hex(digest), expected, "digest starting at {first}");
         }

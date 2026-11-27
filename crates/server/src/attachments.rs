@@ -39,11 +39,7 @@ fn invalid() -> Failure {
 pub(crate) fn validate_payload(meta: &AttachmentMetadata, bytes: &[u8]) -> Result<(), Failure> {
     if !tor_protocol::valid_attachment_metadata(meta)
         || bytes.len() != meta.byte_len as usize
-        || Sha256::digest(bytes)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-            != meta.sha256
+        || tor_protocol::lower_hex(&Sha256::digest(bytes)) != meta.sha256
     {
         return Err(invalid());
     }
@@ -172,10 +168,7 @@ mod tests {
         let mut meta = AttachmentMetadata {
             media_type: AttachmentMediaType::Text,
             byte_len: bytes.len() as u32,
-            sha256: Sha256::digest(bytes)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>(),
+            sha256: tor_protocol::lower_hex(&Sha256::digest(bytes)),
         };
         assert!(validate_payload(&meta, bytes).is_ok());
         meta.sha256.replace_range(..1, "x");
@@ -187,10 +180,7 @@ mod tests {
         let meta = AttachmentMetadata {
             media_type: AttachmentMediaType::Png,
             byte_len: 8,
-            sha256: Sha256::digest(bytes)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>(),
+            sha256: tor_protocol::lower_hex(&Sha256::digest(bytes)),
         };
         assert!(validate_payload(&meta, bytes).is_err());
     }

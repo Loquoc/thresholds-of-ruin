@@ -1090,7 +1090,7 @@ fn checkpoint_rejects_expired_population_item_receipt_using_starting_kit_identit
     let package = scenario.package.as_ref().unwrap();
     let mut source = serde_json::to_value(&package.manifest).unwrap();
     let kit_item = json!({"archetype":"marker","quantity":1});
-    source["characters"][0]["loadout"] = json!([kit_item.clone(), kit_item.clone()]);
+    source["characters"][0]["loadout"] = json!([kit_item.clone(), kit_item]);
     source["characters"].as_array_mut().unwrap().push(json!({
         "id":2,"anchor":"dungeon/1/start","unselected":"omit",
         "loadout":[kit_item.clone(), kit_item.clone(), kit_item.clone(), kit_item]
@@ -1564,7 +1564,7 @@ fn checkpoint_cannot_inject_scenario_policy_into_a_nonpackage_game() {
         boundary["game"]["scenario_policy"] = injected.clone();
     }
     let disk: DiskCheckpoint = serde_json::from_value(saved).unwrap();
-    assert!(disk.restore(engine.archive.clone()).is_err());
+    assert!(disk.restore(engine.archive).is_err());
 }
 
 #[test]

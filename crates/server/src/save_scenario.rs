@@ -6867,7 +6867,7 @@ mod nutrition_trigger_schema_tests {
         let trigger = json!({"kind":"on_empty_depletion","condition":"fixture_stupor",
             "chance":{"one_in":5},"duration":{"kind":"rolled","dice":{"count":1,"sides":8,"bonus":3}},
             "ticks_per_unit":100});
-        saved["nutrition_condition_trigger"] = trigger.clone();
+        saved["nutrition_condition_trigger"] = trigger;
         let decoded: Owned<RulesetDocument> = serde_json::from_value(saved.clone()).unwrap();
         assert_eq!(serde_json::to_value(decoded).unwrap(), saved);
         for value in [
@@ -8514,7 +8514,7 @@ mod first_contact_schema_tests {
         let strike = json!({"offset":0,"unlock":null,"check":null,"on_success":[],"on_failure":[],"descriptors":[],"riders":[]});
         let rider = json!({"trigger":"success","condition":null,"check":null,"effects":[],"descriptors":[]});
         let authored_modifier: crate::creature_authoring::Modifier =
-            serde_json::from_value(modifier.clone()).unwrap();
+            serde_json::from_value(modifier).unwrap();
         let authored_strike: crate::creature_authoring::Strike =
             serde_json::from_value(strike.clone()).unwrap();
         let authored_rider: crate::creature_authoring::Rider =

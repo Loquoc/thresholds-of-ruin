@@ -305,7 +305,7 @@ fn identified_self_device_uses_disclosed_mode_without_direction_prompt() {
         valid.validate().is_ok(),
         "valid disclosed self device premise"
     );
-    let mut unknown = valid.clone();
+    let mut unknown = valid;
     unknown.observation.inventory[1].identified = false;
     unknown.observation.inventory[1].identity =
         unknown.observation.inventory[1].class.unknown_identity();
@@ -520,7 +520,7 @@ fn dual_device_discloses_both_aims_only_when_identified() {
         }
     );
     assert!(tor_client_common::items::zap_action(&view, target(2), Direction::East).is_ok());
-    let mut unknown = valid.clone();
+    let mut unknown = valid;
     unknown.observation.inventory[1].identified = false;
     unknown.observation.inventory[1].identity =
         unknown.observation.inventory[1].class.unknown_identity();

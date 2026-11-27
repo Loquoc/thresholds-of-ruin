@@ -2989,7 +2989,7 @@ impl App {
                 let confirmed = self
                     .state
                     .as_ref()
-                    .ok_or("No current observation.".into())
+                    .ok_or_else(|| "No current observation.".into())
                     .and_then(|state| preview.confirm(state));
                 match confirmed {
                     Ok(action) => return self.act_confirmed(action),

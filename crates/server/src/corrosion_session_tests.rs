@@ -379,7 +379,7 @@ fn encoded_co1_changes_one_item_once_with_retry_disclosure_and_source_free_reope
     }
     let state = wire.saved();
     assert_eq!(ack(wire.send(AQUATOR, &id, request.clone())), receipt);
-    let mut conflict = request.clone();
+    let mut conflict = request;
     let Request::Command {
         command:
             Command::Act {

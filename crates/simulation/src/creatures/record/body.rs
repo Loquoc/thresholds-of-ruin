@@ -848,7 +848,7 @@ mod tests {
             choose["body_build"]["personal_restoration"],
             serde_json::json!({"kind":"choose_again"})
         );
-        let valid: super::super::BuildRecord = serde_json::from_value(choose.clone()).unwrap();
+        let valid: super::super::BuildRecord = serde_json::from_value(choose).unwrap();
         assert_eq!(valid.restore(original.content().clone()).unwrap(), original);
         original.body_build.as_mut().unwrap().personal_restoration =
             PersonalRestorationPolicy::Authored([(id, declared)].into());
@@ -961,7 +961,7 @@ mod tests {
         let invalid: super::super::BuildRecord = serde_json::from_value(invalid).unwrap();
         assert!(invalid.restore(changed.content().clone()).is_err());
 
-        let mut drained = original.clone();
+        let mut drained = original;
         drained.remove_latest().unwrap();
         let encoded = serde_json::to_value(super::super::BuildRecord::capture(&drained)).unwrap();
         let valid: super::super::BuildRecord = serde_json::from_value(encoded.clone()).unwrap();

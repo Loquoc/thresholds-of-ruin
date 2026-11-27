@@ -33,7 +33,7 @@ fn object_presentation_is_strict_named_bounded_and_required_nullable() {
         json!({"kind":"stairs"}),
         json!({"kind":"item","class":"potion"}),
     ] {
-        for name in ["".to_owned(), "painted stairs".into(), "n".repeat(256)] {
+        for name in [String::new(), "painted stairs".into(), "n".repeat(256)] {
             let value = json!({"name":name,"asset":null,"kind":kind});
             let decoded: ObjectPresentation = serde_json::from_value(value.clone()).unwrap();
             assert_eq!(serde_json::to_value(decoded).unwrap(), value);

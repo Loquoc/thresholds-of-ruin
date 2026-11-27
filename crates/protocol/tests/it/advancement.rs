@@ -456,7 +456,7 @@ fn owner_advancement_u64_id_and_source_bounds_are_strict_at_byte_decode() {
         bad["request"]["command"]["action"]["purchase"]["owner"] = value;
         assert!(decode_request(&bad.to_string()).is_err());
     }
-    for value in ["".into(), "bad id".into(), "a".repeat(61)] {
+    for value in [String::new(), "bad id".into(), "a".repeat(61)] {
         let mut bad = good.clone();
         bad["request"]["command"]["action"]["purchase"]["pool"] = json!(value);
         assert!(decode_request(&bad.to_string()).is_err());
@@ -693,7 +693,7 @@ fn owner_form_operands_roundtrip_exactly_and_reject_lossy_or_positional_aliases(
     let selection =
         json!({"kind":"talent_form","talent":"evocation_initiate","form":"spark_lance.cold"});
     let mut operation = purchase();
-    operation["selection"] = selection.clone();
+    operation["selection"] = selection;
     let good = request(json!({"type":"act","action":{
         "type":"purchase","basis":basis(),"purchase":operation}}));
     assert_eq!(

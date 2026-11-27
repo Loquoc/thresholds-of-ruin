@@ -995,7 +995,7 @@ fn discovery_stages_preserve_geometry_stairs_and_each_others_streams() {
     };
     let mut secret_recipe = baseline_recipe.clone();
     secret_recipe.version = 3;
-    secret_recipe.stages.push(secret.clone());
+    secret_recipe.stages.push(secret);
     let mut trap_recipe = baseline_recipe.clone();
     trap_recipe.version = 3;
     trap_recipe.stages.push(traps.clone());

@@ -162,7 +162,7 @@ impl Game {
                 .intention;
             return self.cancel_preparation_with_step(id, old, direction, movement_context, ai);
         }
-        let mut prepared = self.prepare_action(id, action.clone(), plan, entry)?;
+        let mut prepared = self.prepare_action(id, action, plan, entry)?;
         if let Some(queued) = self.pending_intention(id).filter(|queued| {
             Some(queued.id) == intention
                 && queued.origin == crate::IntentionOrigin::Human

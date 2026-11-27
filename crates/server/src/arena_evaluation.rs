@@ -320,10 +320,7 @@ pub fn run_with(scenario: Scenario, options: RunOptions) -> Result<ArenaEvaluati
         streaming: scenario.streaming,
     };
     let bytes = serde_json::to_vec(&input).map_err(|_| invalid("Invalid arena inputs"))?;
-    let input_hash = Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+    let input_hash = tor_protocol::lower_hex(&Sha256::digest(bytes));
     let mut engine = Engine::memory(scenario)?;
     let mut consecutive_failures = 0_u32;
     let mut participants = ids
@@ -487,7 +484,7 @@ mod recovery_measurement_tests {
             ],
             vec![
                 ResolvedEffect::ApplyCondition {
-                    id: frozen.clone(),
+                    id: frozen,
                     duration: 100,
                 },
                 ResolvedEffect::Theft {

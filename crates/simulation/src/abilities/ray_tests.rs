@@ -519,7 +519,7 @@ fn current_interceptor_checks_live_agility_against_the_frozen_launch() {
     assert_eq!(outcomes(&baseline), outcomes(&changed_source));
     assert_eq!(baseline.rules_rng, changed_source.rules_rng);
     assert!(outcomes(&baseline).iter().all(|o| o.check.unwrap().success));
-    let mut intercepted = game.clone();
+    let mut intercepted = game;
     let old = intercepted.actors[&ActorId(2)].clone();
     intercepted.actors.get_mut(&ActorId(2)).unwrap().location = Location {
         position: Position { x: 3, y: 2, z: 0 },
@@ -727,7 +727,7 @@ fn ray_release_failure_rolls_back_rng_effects_and_local_encounter_state() {
     });
     assert!(result.is_err());
     assert_eq!(game, before);
-    let mut expected = before.clone();
+    let mut expected = before;
     game.resolve_ray(captured.as_ray().unwrap(), None).unwrap();
     expected
         .resolve_ray(captured.as_ray().unwrap(), None)

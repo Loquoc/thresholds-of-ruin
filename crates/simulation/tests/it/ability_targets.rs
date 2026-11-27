@@ -45,10 +45,7 @@ fn fixture_with_factions(
             at(1, 1, 1, 0),
             super::abilities::build(content.clone(), true),
         ),
-        (
-            at(1, 7, 1, 0),
-            super::abilities::build(content.clone(), false),
-        ),
+        (at(1, 7, 1, 0), super::abilities::build(content, false)),
     ] {
         let id = game
             .spawn_actor(location, NonZeroU64::new(100).unwrap())

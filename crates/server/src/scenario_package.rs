@@ -1127,10 +1127,7 @@ pub struct Package {
 }
 
 fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    tor_protocol::lower_hex(&Sha256::digest(bytes))
 }
 
 /// Package source identities use repository LF bytes. Comments and all other
@@ -2041,7 +2038,7 @@ impl Package {
             selected: manifest.default_character,
             rules_document,
             rules_source: rules_source.to_owned(),
-            resolved_rules_source: resolved.materialized.clone(),
+            resolved_rules_source: resolved.materialized,
             rules_cache: Arc::new(std::sync::Mutex::new(Some(CachedRules {
                 source_hash: certificate.ruleset_hash.clone(),
                 rules,

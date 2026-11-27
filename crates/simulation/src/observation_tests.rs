@@ -1371,7 +1371,7 @@ fn phase5_scene_membership_deduplicates_occurrences_without_granting_stair_touch
     ));
     // Cache membership depends on physical locations, never occurrence offsets.
     // Explicitly exercise duplicate projected occurrences at distinct offsets.
-    let mut repeated = scene.clone();
+    let mut repeated = scene;
     let mut duplicate = repeated[0];
     duplicate.offset.x += 100;
     repeated.push(duplicate);

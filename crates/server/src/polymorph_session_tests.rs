@@ -49,8 +49,8 @@ fn source(root: &Path, blocked: bool) -> crate::Scenario {
     let base_body = json!({"cells":[[0,0,0]],"eye":[0,0,0],"mass":80});
     let new_body = json!({"cells":if blocked {json!([[0,0,0],[8,0,0]])} else {json!([[0,0,0],[0,0,1]])},"eye":[0,0,0],"mass":120});
     manifest["creatures"]["body_packages"] = json!({
-        BASE:{"species":"figure","body":base_body,"hit_dice":[racial.clone()],"polymorph_eligible":false},
-        FORM:{"species":"changed","body":new_body,"hit_dice":[racial.clone(),racial.clone()],"polymorph_eligible":true}
+        BASE:{"species":"figure","body":base_body,"hit_dice":[racial],"polymorph_eligible":false},
+        FORM:{"species":"changed","body":new_body,"hit_dice":[racial.clone(),racial],"polymorph_eligible":true}
     });
     let creature = &mut manifest["characters"][0]["creature"];
     creature["body_package"] = json!(BASE);

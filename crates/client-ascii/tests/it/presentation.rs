@@ -1446,7 +1446,7 @@ fn resized_clicks_use_the_rendered_cell_layout_and_ignore_far_heights() {
     let mut landing = view.visible_cells[0].clone();
     landing.key = "landing".into();
     landing.position = Position { x: 2, y: 1, z: -17 };
-    view.visible_cells.push(landing.clone());
+    view.visible_cells.push(landing);
     let mut snapshot = state().reset_snapshot().unwrap();
     Arc::make_mut(&mut snapshot.state).observation = view.clone();
     assert!(!tor_client_ascii::render::map_tiles(

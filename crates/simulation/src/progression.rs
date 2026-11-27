@@ -677,7 +677,7 @@ mod tests {
             .unwrap();
         let person = HitDie::with_health_policy(HdSource::Racial, seed, HealthRollPolicy::Seeded);
         let body = HitDie::with_health_policy(HdSource::Racial, 23, HealthRollPolicy::Maximized);
-        let mut before = HdLedger::composed(vec![body.clone(), person.clone()]).unwrap();
+        let mut before = HdLedger::composed(vec![body.clone(), person]).unwrap();
         before.bind_health_origins(&kind, &[], &rules).unwrap();
         let original = before.health_provenance(&kind, &rules).unwrap();
         assert_eq!(original[0].health, 8);
@@ -778,7 +778,7 @@ mod tests {
             .unwrap();
         assert_eq!(row.owner(), Some(&owner));
         assert_eq!(row.health_policy(), Some(HealthRollPolicy::Seeded));
-        assert_eq!(row.clone().with_owner(owner.clone()), Ok(row.clone()));
+        assert_eq!(row.clone().with_owner(owner), Ok(row.clone()));
         assert_eq!(
             row.clone()
                 .with_health_roll_policy(HealthRollPolicy::Maximized),

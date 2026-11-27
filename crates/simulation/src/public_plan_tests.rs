@@ -266,7 +266,7 @@ fn retain_unobserved_synthetic_event(game: &mut Game, event: crate::combat::Comb
 fn public_plan_restore_requires_knowledge_of_current_own_grants() {
     let (game, actor) = observer();
     assert!(restored(&game).is_ok(), "untampered current actor is valid");
-    let mut missing = game.clone();
+    let mut missing = game;
     missing
         .actors
         .get_mut(&actor)
@@ -503,7 +503,6 @@ fn public_plan_storage_application_context_and_outcome_clones_share_offsets() {
     assert_eq!(
         aim_storage(
             context
-                .clone()
                 .source
                 .as_ref()
                 .unwrap()
@@ -527,7 +526,7 @@ fn public_plan_storage_application_context_and_outcome_clones_share_offsets() {
             observation: stored.clone(),
         }],
     };
-    let retained = outcome.clone();
+    let retained = outcome;
     let ResolvedEffect::ObservePublicPlan { observation } = &retained.effects[0] else {
         unreachable!()
     };
@@ -915,7 +914,7 @@ fn public_plan_status_review_typed_restore_rejects_noncanonical_results() {
     damage_unaffected.participation = AttemptedParticipation::target();
     damage_unaffected.effects = vec![ResolvedEffect::Damage { amount: 1 }];
     invalid.push(("positive damage Unaffected", damage_unaffected));
-    let mut failed_empty = base.clone();
+    let mut failed_empty = base;
     failed_empty.check = Some(ResolvedCheck {
         actor: crate::rules::CheckActor::User,
         success: false,

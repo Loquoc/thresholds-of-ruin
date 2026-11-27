@@ -371,7 +371,7 @@ fn cancellation_suppression_and_return_share_one_final_health_boundary() {
 #[test]
 fn blocked_cast_is_atomic_and_frail_form_death_is_not_reversed() {
     let (mut game, actor, base, weak, _) = fixture();
-    game.polymorph_creature(actor, weak.clone()).unwrap();
+    game.polymorph_creature(actor, weak).unwrap();
     game.spawn_actor(at(2), NonZeroU64::new(100).unwrap())
         .unwrap();
     let before = game.clone();

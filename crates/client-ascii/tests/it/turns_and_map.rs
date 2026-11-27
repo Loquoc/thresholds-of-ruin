@@ -116,7 +116,7 @@ fn update(app: &mut App, sequence: u64, change: impl FnOnce(&mut Observation)) {
             epoch: 0,
         },
         actor: initial.actor,
-        branch: initial.branch.clone(),
+        branch: initial.branch,
         cursor: StreamCursor { sequence, tick },
         body: UpdateBody::Observation {
             state: state.into(),

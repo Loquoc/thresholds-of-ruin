@@ -1669,7 +1669,7 @@ fn public_plan_recipient_self_alias_applies_once() {
     ability.target = ability.actor;
     let outcome = resolve(&ability, &target, &mut 7, &mut ()).unwrap();
     assert_eq!(outcome.effects.len(), 1);
-    let mut actual = source.creature.clone();
+    let mut actual = source.creature;
     for effect in &outcome.effects {
         effect
             .apply_to(

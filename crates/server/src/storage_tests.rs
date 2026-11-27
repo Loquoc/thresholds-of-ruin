@@ -354,7 +354,7 @@ fn region_rows_commit_with_their_checkpoint_and_are_collected_after() {
         record
     );
     assert!(decode_region(&row, 8, package.content().unwrap()).is_err());
-    let mut damaged = row.clone();
+    let mut damaged = row;
     *damaged.last_mut().unwrap() ^= 1;
     assert!(decode_region(&damaged, 7, package.content().unwrap()).is_err());
     // Rows the checkpoint still refers to stay without being rewritten;

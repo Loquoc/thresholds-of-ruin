@@ -115,7 +115,7 @@ fn monster_tuple_bound_covers_json_escaping_and_component_row_overhead() {
 #[test]
 fn monster_tuple_grammar_reuses_existing_cosmetic_contract() {
     for (name, asset, valid) in [
-        ("".to_owned(), None, true),
+        (String::new(), None, true),
         ("a".repeat(crate::limits::DISPLAY_NAME_BYTES), None, true),
         (
             "a".repeat(crate::limits::DISPLAY_NAME_BYTES + 1),

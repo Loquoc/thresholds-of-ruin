@@ -592,7 +592,7 @@ fn a_delta_rejects_any_other_base() {
     // Preserve the issued base identity but corrupt its payload: after the
     // capability check succeeds, the removals must still be validated.
     let mut other = room(10, 10, 1);
-    other.snapshot = base.snapshot.clone();
+    other.snapshot = base.snapshot;
     other.observation.visible_cells.truncate(10);
     assert_eq!(delta.apply(&other), Err(DeltaError::InvalidChange));
 }
@@ -834,7 +834,7 @@ fn complete_encoding_prefers_full_when_every_cell_changes_or_base_is_wrong() {
         assert_eq!(selected.observation, Some(ObservationEncoding::Full));
         assert_eq!(selected.text, serde_json::to_string(&message).unwrap());
     }
-    let mut other = base.clone();
+    let mut other = base;
     other.observation.actor = ActorId(2);
     let selected = encode_response(
         &message,
@@ -876,8 +876,7 @@ fn equal_complete_encoded_sizes_prefer_full() {
         if serde_json::to_vec(&candidate).unwrap().len() == serde_json::to_vec(&full).unwrap().len()
         {
             let selected =
-                encode_response(&full, Some((previous.clone(), &base)), MAX_RESPONSE_BYTES)
-                    .unwrap();
+                encode_response(&full, Some((previous, &base)), MAX_RESPONSE_BYTES).unwrap();
             assert_eq!(selected.observation, Some(ObservationEncoding::Full));
             assert_eq!(selected.text, serde_json::to_string(&full).unwrap());
             found = true;

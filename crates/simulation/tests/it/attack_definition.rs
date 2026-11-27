@@ -18,7 +18,7 @@ fn rolled() -> DamageSpec {
             ),
             primary,
         ],
-        Some(key.clone()),
+        Some(key),
     )
     .unwrap()
 }
@@ -260,7 +260,7 @@ fn fixed_primary_record_keeps_descriptor_and_never_invents_damage_dice() {
         -1,
         60,
         40,
-        DamageSpec::new(vec![primary], Some(key.clone())).unwrap(),
+        DamageSpec::new(vec![primary], Some(key)).unwrap(),
     )
     .unwrap();
     let encoded = serde_json::to_value(MeleeAttackRecord::capture(&original)).unwrap();

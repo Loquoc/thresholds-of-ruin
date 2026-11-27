@@ -2823,7 +2823,7 @@ async fn chart_continuations_are_pure_atomic_and_old_generation_pages_do_not_res
                     component: 0,
                     position: Some([4, -2, 8]),
                     mark: ChartMark::Monster {
-                        name: "".into(),
+                        name: String::new(),
                         asset: None
                     }
                 });

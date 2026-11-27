@@ -677,7 +677,7 @@ fn pooled_records_reject_missing_unused_duplicate_and_malformed_entries() {
         Game::restore_checkpoint(snapshot, &shared, game.content().clone()),
         Err(PersistError::RecordPool)
     ));
-    let mut excessive = good.clone();
+    let mut excessive = good;
     excessive[1]["actors"] = serde_json::Value::Array(
         (0..=MAX_CHECKPOINT_ROOTS)
             .map(|i| serde_json::json!({(i+1).to_string():0}))

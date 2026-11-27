@@ -162,6 +162,34 @@ broader performance and scaling work is finished.
   [combat workload](performance.md#combat-workload-v1) for both runs and their
   unexplained client-apply shift.
 
+### CH-024: Workspace-wide stricter-lint audit
+
+- **Category/status:** maintainability and small-scale performance; applied on
+  branch `claude/code-docs-refactor-ovqedk` (pending hosted CI and merge).
+- **Method:** every non-3D workspace target was linted with sixteen extra
+  Clippy lints beyond the CI set (among them `redundant_clone`,
+  `needless_collect`, `format_collect`, `or_fun_call`, `set_contains_or_insert`
+  and `manual_string_new`), producing 495 distinct findings.
+- **Applied:** 151 of 152 redundant clones (production values now move where
+  the original was dead) and the manual empty strings. Seventeen copies of
+  per-byte `format!("{byte:02x}")` digest encoding, which allocated 64 strings
+  per SHA-256, now use one `tor_protocol::lower_hex`, and the server's separate
+  cell-key encoder delegates to it. Its exhaustive test keeps an independent
+  `format!` oracle. Of the 21 eager `or`/`map_or` arguments, only one allocated
+  (a status `String` in the ASCII weapon-preview path) and is now lazy; the rest
+  build cheap pure values, and none consumes randomness.
+- **Rejected, with reasons:** all production `needless_collect` findings. Each
+  collect ends a borrow before the loop mutates its owner, or collects into a
+  `BTreeSet` for deduplication and deterministic order. Two automatic fixes
+  failed to compile for exactly that reason. All ten
+  `set_contains_or_insert` findings are validation memos that insert a key
+  only after its check succeeds; inserting first would leave a failed key
+  marked valid. One `redundant_clone` suggestion in
+  a test removed the copy that made a value mutable and was restored.
+  `redundant_closure_for_method_calls` (160) and `trivially_copy_pass_by_ref`
+  (19) are style-only and were left as written. These nursery lints are not
+  added to CI because of such false positives.
+
 ### CH-022: Mirrored protocol/simulation sources had no drift guard
 
 - **Category/status:** maintainability; confirmed byte-identical duplication,

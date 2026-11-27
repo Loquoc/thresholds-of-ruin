@@ -196,7 +196,7 @@ fn presentation_freshness_requires_the_exact_context_and_explicit_validity() {
         !invalidated.is_current(&context()),
         "invalidation at the same revision is stale"
     );
-    let mut redacted = pages.clone();
+    let mut redacted = pages;
     redacted.observe(&context(), false);
     assert!(!redacted.is_current(&context()));
     assert!(!AdvancementPages::default().is_current(&context()));

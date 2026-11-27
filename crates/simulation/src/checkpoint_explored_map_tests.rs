@@ -456,7 +456,7 @@ fn explored_map_region_pool_restores_exact_stale_values_and_sharing() {
     let mut after = before.clone();
     after.cells.insert(at(1, 1), appearance("newly seen wood"));
     let original = Maps {
-        maps: vec![before.clone(), after.clone()],
+        maps: vec![before, after.clone()],
     };
     let bytes = serde_json::to_vec(&original).unwrap();
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();

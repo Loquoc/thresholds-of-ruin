@@ -470,7 +470,7 @@ fn cadence_horizon_uses_expiry_and_unmarked_owners_cannot_keep_clock() {
     actor.active_since = u64::MAX - 4;
     assert!(!valid_for(&actor), "the actual earliest boundary must fit");
     let mut ordinary = game.actors[&SUBJECT].clone();
-    ordinary.hallucination = actor.hallucination.clone();
+    ordinary.hallucination = actor.hallucination;
     assert!(!valid_for(&ordinary));
 }
 

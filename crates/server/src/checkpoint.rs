@@ -965,7 +965,7 @@ mod tests {
         assert_eq!(valid.boundaries.len(), 1);
         let boundary = value["boundaries"][0].clone();
         assert!(boundary.is_object());
-        let mut exact = value.clone();
+        let mut exact = value;
         exact["boundaries"] =
             serde_json::Value::Array(vec![boundary.clone(); MAX_RETAINED_BOUNDARIES]);
         let exact_bytes = serde_json::to_vec(&exact).unwrap();
@@ -1163,7 +1163,7 @@ mod tests {
             }
         }
         let disk: DiskCheckpoint = serde_json::from_value(saved).unwrap();
-        assert!(disk.restore(engine.archive.clone()).is_err());
+        assert!(disk.restore(engine.archive).is_err());
     }
 
     #[test]

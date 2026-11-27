@@ -831,7 +831,7 @@ fn room_gold_source_free_metadata(omissions: Option<u32>, mazes: bool) {
         .activation_scope("dungeon/2", 2, &definitions, &generated.rooms)
         .unwrap()
         .unwrap();
-    warm.register_activation_scope(unentered.clone()).unwrap();
+    warm.register_activation_scope(unentered).unwrap();
     assert_eq!(warm.activation_count(), 1);
     let configuration = restored.population_configuration(42).unwrap();
     assert!(configuration.valid_game(&warm));

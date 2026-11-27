@@ -1670,7 +1670,7 @@ mod tests {
     #[test]
     fn anonymous_combat_never_acquires_assets_from_unreferenced_visible_figures() {
         let before = OutcomeObservation::from(&observation());
-        let mut after = before.clone();
+        let mut after = before;
         after.visible_actors.push(OutcomeActorName {
             id: ActorTarget::from_digest([93; 32]),
             name: String::new(),
