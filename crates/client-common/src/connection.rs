@@ -211,6 +211,18 @@ fn shown(message: &ServerMessage) -> bool {
     )
 }
 
+/// How [`Connection::next`] treats a message after query-reply routing.
+enum QueryReply {
+    /// The message answers the current query; present it now.
+    Deliver,
+    /// The message answers no current query; drop it.
+    Skip,
+    /// The answer is accepted but waits for a palette request first.
+    Hold,
+    /// The message is not a chart or map query reply.
+    Other,
+}
+
 impl Connection {
     pub async fn connect(
         address: SocketAddr,
@@ -911,6 +923,105 @@ impl Connection {
         valid.map_err(|error| format!("Invalid {payload}: {error}").into())
     }
 
+    /// Route a chart or map page, or an error answering one of those
+    /// queries. Late or superseded answers are skipped, never turned into
+    /// a live-stream repair request.
+    fn route_query_reply(
+        &mut self,
+        message: &ServerMessage,
+        response_bytes: usize,
+    ) -> Result<QueryReply, ConnectionError> {
+        if let ServerMessage::ChartPage {
+            context,
+            request_id,
+            page,
+        } = message
+        {
+            if !self.is_synchronized()
+                || page.base != self.state.observation_base()
+                || page.branch != *self.state.branch()
+                || page.context != *self.state.context()
+                || !self.chart_request.as_ref().is_some_and(|(pending, query)| {
+                    pending.request_id == *request_id && self.charts.pending(request_id, query)
+                })
+            {
+                return Ok(QueryReply::Skip);
+            }
+            self.charts
+                .accept(context, request_id, page, response_bytes, &self.state)?;
+            self.chart_request = None;
+            return Ok(QueryReply::Deliver);
+        }
+        if let ServerMessage::MapPage {
+            context,
+            request_id,
+            page,
+        } = message
+        {
+            // A newer observation cancels the old assembly. Late pages are
+            // discarded, never turned into a live-stream repair request.
+            if !self.is_synchronized()
+                || page.base != self.state.observation_base()
+                || page.branch != *self.state.branch()
+                || context.input.stream != *self.state.context()
+                || !self.map_request.as_ref().is_some_and(|(pending, query)| {
+                    pending.request_id == *request_id
+                        && self.state.map_query_pending(request_id, query)
+                })
+            {
+                return Ok(QueryReply::Skip);
+            }
+            self.state
+                .accept_map_page(context, request_id, page, response_bytes)?;
+            self.map_request = None;
+            let ask = self.palette.notice(crate::palette::map_assets(&page.cells));
+            if ask {
+                self.palette_request = Some(PendingQuery::new());
+                return Ok(QueryReply::Hold);
+            }
+            return Ok(QueryReply::Deliver);
+        }
+        if let ServerMessage::Error {
+            request_id: Some(id),
+            ..
+        } = message
+        {
+            if self.chart_request.as_ref().is_some_and(|(pending, query)| {
+                pending.request_id == *id && self.charts.pending(id, query)
+            }) {
+                let context = message
+                    .reply_context()
+                    .ok_or("Chart error has no attachment context")?;
+                self.state
+                    .validate_reply_context(context)
+                    .map_err(|_| "Invalid chart error context")?;
+                self.charts.reject(id);
+                self.chart_request = None;
+                return Ok(QueryReply::Deliver);
+            }
+            if id.starts_with("chart-") {
+                return Ok(QueryReply::Skip);
+            }
+            if self.map_request.as_ref().is_some_and(|(pending, query)| {
+                pending.request_id == *id && self.state.map_query_pending(id, query)
+            }) {
+                let context = message
+                    .reply_context()
+                    .ok_or("Map error has no attachment context")?;
+                self.state
+                    .validate_reply_context(context)
+                    .map_err(|e| format!("Invalid map error context: {e:?}"))?;
+                self.state.reject_map_query(id);
+                self.map_request = None;
+                return Ok(QueryReply::Deliver);
+            }
+            if id.starts_with("map-") {
+                return Ok(QueryReply::Skip);
+            }
+        }
+        Ok(QueryReply::Other)
+    }
+
     /// Apply ordered updates and palettes before presentation. A palette that
     /// misses a revision, or an observation naming an asset the palette
     /// lacks, sends a `palette` request; its answer is an ordinary palette
@@ -979,94 +1090,14 @@ impl Connection {
             {
                 return Err("Private projectile choices sent without current control".into());
             }
-            if let ServerMessage::ChartPage {
-                context,
-                request_id,
-                page,
-            } = &message
-            {
-                if !self.is_synchronized()
-                    || page.base != self.state.observation_base()
-                    || page.branch != *self.state.branch()
-                    || page.context != *self.state.context()
-                    || !self.chart_request.as_ref().is_some_and(|(pending, query)| {
-                        pending.request_id == *request_id && self.charts.pending(request_id, query)
-                    })
-                {
-                    continue;
-                }
-                self.charts
-                    .accept(context, request_id, page, response_bytes, &self.state)?;
-                self.chart_request = None;
-                return Ok(message);
-            }
-            if let ServerMessage::MapPage {
-                context,
-                request_id,
-                page,
-            } = &message
-            {
-                // A newer observation cancels the old assembly. Late pages are
-                // discarded, never turned into a live-stream repair request.
-                if !self.is_synchronized()
-                    || page.base != self.state.observation_base()
-                    || page.branch != *self.state.branch()
-                    || context.input.stream != *self.state.context()
-                    || !self.map_request.as_ref().is_some_and(|(pending, query)| {
-                        pending.request_id == *request_id
-                            && self.state.map_query_pending(request_id, query)
-                    })
-                {
-                    continue;
-                }
-                self.state
-                    .accept_map_page(context, request_id, page, response_bytes)?;
-                self.map_request = None;
-                let ask = self.palette.notice(crate::palette::map_assets(&page.cells));
-                if ask {
+            match self.route_query_reply(&message, response_bytes)? {
+                QueryReply::Deliver => return Ok(message),
+                QueryReply::Skip => continue,
+                QueryReply::Hold => {
                     self.pending_presentation = Some(message);
-                    self.palette_request = Some(PendingQuery::new());
                     continue;
                 }
-                return Ok(message);
-            }
-            if let ServerMessage::Error {
-                request_id: Some(id),
-                ..
-            } = &message
-            {
-                if self.chart_request.as_ref().is_some_and(|(pending, query)| {
-                    pending.request_id == *id && self.charts.pending(id, query)
-                }) {
-                    let context = message
-                        .reply_context()
-                        .ok_or("Chart error has no attachment context")?;
-                    self.state
-                        .validate_reply_context(context)
-                        .map_err(|_| "Invalid chart error context")?;
-                    self.charts.reject(id);
-                    self.chart_request = None;
-                    return Ok(message);
-                }
-                if id.starts_with("chart-") {
-                    continue;
-                }
-                if self.map_request.as_ref().is_some_and(|(pending, query)| {
-                    pending.request_id == *id && self.state.map_query_pending(id, query)
-                }) {
-                    let context = message
-                        .reply_context()
-                        .ok_or("Map error has no attachment context")?;
-                    self.state
-                        .validate_reply_context(context)
-                        .map_err(|e| format!("Invalid map error context: {e:?}"))?;
-                    self.state.reject_map_query(id);
-                    self.map_request = None;
-                    return Ok(message);
-                }
-                if id.starts_with("map-") {
-                    continue;
-                }
+                QueryReply::Other => {}
             }
             let reply_context = message.reply_context();
             if let Some(context) = reply_context {
