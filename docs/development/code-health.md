@@ -123,6 +123,48 @@ broader performance and scaling work is finished.
 
 ## Retained or resolved findings
 
+### CH-025: Oversized dispatch and validation functions
+
+- **Category/status:** maintainability; partly corrected on branch
+  `claude/code-docs-refactor-ovqedk` (pending hosted CI and merge). No
+  gameplay, wire or save change.
+- **Source/trigger:** a line-count inventory of every production function in
+  the main workspace and the 3D workspace. The largest mixed several
+  independent concerns behind one `match` or one long sequence of checks.
+- **Correction:** each split is a pure extraction. Arms and checks keep their
+  order, early returns and messages. Among them:
+  - `Service::apply_wizard` drops from 521 to 262 lines. Creature advancement,
+    template toggling, room placement, item stock, creature spawning and rewind
+    are now methods; rewind still returns before observer revalidation.
+  - Intention-admission refusals are mapped by `intention_refusal`.
+  - The text client's `Engine::play` drops from 343 to 114 lines.
+    `direct_goal`, `resume_pending` and `read_sentence` hold the lone
+    hold/magic shortcuts, answers to earlier questions and per-sentence
+    interpretation.
+  - `Connection::next` routes chart and map query replies through
+    `route_query_reply`.
+  - Earlier commits on the branch split `App::input`, `window_loop`,
+    `Ruleset::validate`, `StateView::validate`, `AbilityPlan::valid`,
+    scripting `invoke` and the others listed in the pull request.
+- **Retained, with reasons:** eight main-workspace functions remain at 300 or
+  more lines.
+  - `advance_preparation` and `apply_outcome_effects` are ordered state
+    machines; their checks and effects run in an order replay depends on.
+  - `Ruleset::validate` (394) builds the interned catalogs, checks the
+    constants, calls one validator per definition kind and derives the talent
+    order, flag graph and indexes. Each stage needs the catalogs built before
+    it.
+  - `parse_wizard_with_origin` is one flat grammar table.
+  - The creature-inspection and combat-diagnostics views are linear view
+    builders.
+  - `capture_selected` and `roll_planned_effect` were already narrowed and keep
+    their remaining steps together.
+  - The fourteen 3D functions of that size, mostly mesh and outfit
+    composition, belong to the 3D geometry work, which has its own open fitting
+    failures.
+- **Evidence:** each change passed its crate's tests and the process tests of
+  the affected binaries; see the pull request's verification section.
+
 ### CH-021: Client map memory rescanned every placement on each update
 
 - **Category/status:** performance; confirmed per-update cost proportional to

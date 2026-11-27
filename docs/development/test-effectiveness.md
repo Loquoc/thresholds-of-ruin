@@ -427,6 +427,16 @@ with `OSError: No space left on device`. Local build caches had filled the
 session disk, and fail-fast left 3,334 tests unstarted. Classification:
 harness/infrastructure, not a product or test defect. After the caches were
 cleared, the full 3,553-test run had no failures on the same commit.
+A second exhaustion happened later the same day: Cargo's incremental cache grew
+by about 23 GB across repeated clippy, test and binary builds and filled the disk
+during a selected process-test run. That run's log was truncated, so it counts
+as neither a pass nor a failure. After the cache was removed, the same selection
+was rerun; later builds in the session disabled incremental compilation.
+Classification: harness/infrastructure. The full run on `0472df4` had
+already finished before the disk filled. It ran 3,553 tests, and its only
+errors were the same four arena-search owners, which failed with
+`PackageNotFoundError: optuna`. All 17 tests in those three modules passed in
+the pinned environment.
 
 ### Pre-existing 3D library failures, 27 November
 
