@@ -304,6 +304,46 @@ def python_failures(log):
     return sorted(set(re.findall(r"^(?:FAIL|ERROR): \S+ \(([\w.]+)\)", log, re.MULTILINE)))
 
 
+FAILURE_DETAIL_TESTS = 5
+FAILURE_DETAIL_LINES = 40
+_FAILURE_HEADER = re.compile(r"^(?:FAIL|ERROR): \S+ \([\w.]+\)$")
+_SEPARATOR = re.compile(r"^(?:={20,}|-{20,})$")
+
+
+def python_failure_excerpts(log, *, tests=FAILURE_DETAIL_TESTS, lines=FAILURE_DETAIL_LINES):
+    """The traceback tail of each failed or errored unittest, bounded for a job log.
+
+    A CI job log shows only the step summary; the full log is an uploaded
+    artifact. Each excerpt keeps the failure header and the last `lines` lines
+    of its traceback, where the assertion is. A run of identical lines, such as
+    X server warnings interleaved from native processes, prints once with its
+    count.
+    """
+    rows = log.splitlines()
+    starts = [index for index, row in enumerate(rows) if _FAILURE_HEADER.match(row)]
+    excerpts = []
+    for index in starts[:tests]:
+        body = []
+        for row in rows[index + 1:]:
+            if _SEPARATOR.match(row):
+                if body:
+                    break
+                continue  # The rule directly under the header.
+            if body and body[-1][0] == row:
+                body[-1][1] += 1
+            else:
+                body.append([row, 1])
+        text = [row if count == 1 else f"{row}  [repeated {count} times]" for row, count in body]
+        while text and not text[-1].strip():
+            text.pop()
+        omitted = len(text) - lines
+        excerpt = [rows[index]] + ([f"  ... {omitted} lines omitted"] if omitted > 0 else []) + text[-lines:]
+        excerpts.append("\n".join(excerpt))
+    if len(starts) > tests:
+        excerpts.append(f"... {len(starts) - tests} more failed tests; see the step log")
+    return excerpts
+
+
 def environment_hint(log):
     return next((hint for text, hint in ENVIRONMENT_HINTS.items() if text in log), None)
 
@@ -945,6 +985,13 @@ def main(argv=None):
     evidence["evidence_origin"] = "fresh"
     (logs / "summary.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     print(summary)
+    for result in results:
+        if result["code"] in (0, None) or result["log"] is None \
+                or python_test_prefix(commands[result["step"]]) is None:
+            continue
+        for excerpt in python_failure_excerpts(
+                Path(result["log"]).read_text(encoding="utf-8", errors="replace")):
+            print(f"--- {result['step']} failure detail ---\n{excerpt}")
     return 1 if failed else 0
 
 

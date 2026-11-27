@@ -18,5 +18,5 @@
   "scripts/ci_test_plan.py": "5e4bb4146f4b35cd50c0ca348bb3121a61637285a88ddb009aaec54297e14950",
   "scripts/ci_usage_review.py": "2844832a48ddee0e84b940cd1ec44735713bb0708c1dc079f0a54e0508f4de04",
   "scripts/test_runner.py": "114ef8b4da80b5297cae808119e6aebc2e129ad8169f9314b723061286526528",
-  "scripts/verify.py": "ab87138b36c2db8fa86ea8b84217684e61fd1c7c69b9f33079cb118790d42d55"
+  "scripts/verify.py": "e4d90f464e5507b7120f25660e8531c001797e49899a50fa934b7a7e8391a218"
 }

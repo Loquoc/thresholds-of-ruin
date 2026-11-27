@@ -319,3 +319,14 @@ reaches no network destination and produces no artifact. No workflow commands,
 runners, triggers, permissions, dependencies, caches, retention or budgets
 change. Updated only the reviewed `ci_test_contracts.py` hash after this source
 review.
+
+## November 27 failure details in the job log
+
+`scripts/verify.py` now prints a bounded excerpt of each failed unittest after
+its summary: the failure header and the last 40 traceback lines of at most five
+tests, with runs of identical lines collapsed. Reviewed the change: it reads
+the failed step's log that the same run already wrote, and writes only to
+stdout, so the excerpt appears in the hosted job log. It starts no process,
+reaches no network destination, and adds no artifact, upload, cache, runner,
+trigger, permission or dependency. `summary.json` receipts keep their schema.
+Updated only the reviewed `verify.py` hash after this source review.

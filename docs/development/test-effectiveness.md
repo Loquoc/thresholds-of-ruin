@@ -469,6 +469,23 @@ still-running controls. Before the fix, the resolved and ending cases failed at
 their receipt-phase assertions and the running controls passed. The ready-frame
 wait stays as an ordinary readiness check, not as the fix.
 
+### Headless fight wait read a compact frame, 27 November
+
+A local run of CI debug Python shard 2 errored
+`test_rogue_perception_process.RoguePerceptionProcesses.test_exploration_medusa_does_not_gaze_through_opaque_partition`
+with `KeyError: 'state'`. The method passed three isolated reruns. The headless
+client's stdout showed the cause. In compact background mode it writes a
+`waiting` message without the derived state, marked `"state_omitted": true`.
+`headless_fight_completion` indexed `frame["state"]` without checking that
+marker, so a waiting message during a loaded run ended the wait with an error
+instead of letting it read the next full frame. Other harness waits already
+skipped compact frames.
+
+Classification: harness defect (one root cause, one distinct method, one failing
+execution). The predicate now returns false for compact frames. Its new unit
+test failed with the same `KeyError` before the fix. Four other process-test
+modules use the predicate and share the fix.
+
 ### Pre-existing 3D library failures, 27 November
 
 A local `cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d --lib`
