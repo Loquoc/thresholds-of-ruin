@@ -863,6 +863,26 @@ impl App {
         };
     }
 
+    /// Whether typed text goes to an open editor or letter-chosen menu.
+    pub fn accepts_text(&self) -> bool {
+        self.note.is_some()
+            || (self.advancement_open && self.supply_selection.is_none())
+            || self.wizard_command.is_some()
+            || self.command_line.is_some()
+            || self.place_name.is_some()
+            || !self.pickup.is_empty()
+            || self.identification_choice().is_some()
+    }
+
+    /// Whether a typed `_` means Travel rather than editor text.
+    pub fn accepts_typed_travel(&self) -> bool {
+        self.note.is_none()
+            && !self.advancement_open
+            && self.wizard_command.is_none()
+            && self.command_line.is_none()
+            && !self.places_open
+    }
+
     /// Conservative run eligibility from the current picture, never map art.
     fn open_ahead(&self, direction: Direction) -> bool {
         let Some(state) = &self.state else {
@@ -3990,6 +4010,34 @@ const RUN_KEYS: [(Key, Direction); 8] = [
 #[cfg(test)]
 mod cosmetic_tests {
     use super::*;
+
+    #[test]
+    fn typed_text_reaches_only_open_editors_and_underscore_otherwise_travels() {
+        let mut app = App::new();
+        assert!(!app.accepts_text());
+        assert!(app.accepts_typed_travel());
+        app.note = Some(NoteDraft {
+            report: false,
+            text: String::new(),
+            audience: Audience::Private,
+            snapshot: SnapshotId("fixture".into()),
+        });
+        assert!(app.accepts_text());
+        assert!(!app.accepts_typed_travel());
+        app.note = None;
+        app.command_line = Some(String::new());
+        assert!(app.accepts_text());
+        assert!(!app.accepts_typed_travel());
+        app.command_line = None;
+        app.places_open = true;
+        assert!(
+            !app.accepts_text(),
+            "the places list takes no text until renaming"
+        );
+        assert!(!app.accepts_typed_travel());
+        app.place_name = Some(String::new());
+        assert!(app.accepts_text());
+    }
 
     #[test]
     fn current_factual_stairs_do_not_resurrect_remembered_cosmetics() {

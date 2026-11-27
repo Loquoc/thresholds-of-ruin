@@ -12,6 +12,25 @@ thread_local! {
     static TOKEN_PLAN_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// Who caused a resolved batch, for damage activity and fatal attribution.
+struct EffectAttribution<'a> {
+    activity: &'a mut DamageActivityGuard,
+    origin: Option<&'a crate::earned_growth::FatalOrigin>,
+    strike: Option<u16>,
+    disclosure_origin: &'a crate::event_history::EventOrigin,
+}
+
+/// A recipient's staged state after applying one resolved batch.
+struct EffectApplication {
+    transition: ActorOutcome,
+    placement: crate::abilities::Placement,
+    /// A forced translation moved the recipient.
+    forced: bool,
+    /// Some effect caused actual damage or health loss.
+    damaged: bool,
+    created_hold: Option<crate::linked_hold::HoldId>,
+}
+
 /// Transient once-per-publication damage activity, including area recipients.
 /// Entries are actual owned actors, never retained in a frozen or saved plan.
 #[derive(Default)]
@@ -739,11 +758,103 @@ impl Game {
         self.validate_equipment_alterations(recipient_id, &outcome.effects)?;
         let mut transition = self.settled_actor_outcome(recipient_id)?;
         transition.disclosure_origin = Some(disclosure_origin.clone());
-        let mut placement = crate::abilities::Placement {
+        let placement = crate::abilities::Placement {
             location: transition.state.location,
             orientation: transition.state.orientation,
         };
         let original_placement = placement;
+        let EffectApplication {
+            mut transition,
+            placement,
+            forced,
+            damaged,
+            created_hold,
+        } = self.apply_outcome_effects(
+            &mut outcome,
+            recipient_id,
+            transition,
+            placement,
+            EffectAttribution {
+                activity,
+                origin: origin.as_ref(),
+                strike,
+                disclosure_origin: &disclosure_origin,
+            },
+        )?;
+        // Damage components, self-damage and source/target overlap must not
+        // apply percentage quiet resets more than once per strike.
+        let source_id = outcome.actor;
+        let target_id = recipient_id;
+        transition.state.location = placement.location;
+        transition.state.orientation = placement.orientation;
+        if placement != original_placement {
+            transition.state.visited.insert(placement.location.region);
+            if transition.state.motion.active_fall.is_some()
+                && !self.fall_continues(recipient_id, &transition.state)
+            {
+                transition.state.motion.active_fall = None;
+            }
+        }
+        // A resolution event precedes its interruption/death consequences.
+        transition.events.insert(
+            0,
+            CombatEvent::Resolved {
+                outcome,
+                strike,
+                source_disclosure: crate::combat::SourceAbilityDisclosure::Public,
+            },
+        );
+        let receipt = PublishedResolution {
+            chart_completion,
+            created_hold,
+            event: self.event_log.len(),
+            role,
+        };
+        self.commit_actor_outcome(transition)?;
+        if forced {
+            self.physics.displaced.insert(target_id);
+        }
+        if placement != original_placement {
+            self.sync_actor_lifecycle(target_id)?;
+        }
+        // Target death/cancellation can remove source-held token claims.
+        // Capture only after that publication, never overwrite the source
+        // with an older snapshot. Full/dead Health has no banked work.
+        let source_needs_reset = damaged
+            && source_id != target_id
+            && activity.first(source_id)
+            && self
+                .actors
+                .get(&source_id)
+                .and_then(|actor| actor.combat.as_ref())
+                .is_some_and(|combat| {
+                    let creature = combat.creature();
+                    !creature.health().dead()
+                        && creature.health().injury() > 0
+                        && creature.derived().health_recovery_reset_percent > 0
+                });
+        if source_needs_reset {
+            let mut source = self.settled_actor_outcome(source_id)?;
+            if let Some(combat) = source.state.combat.as_mut() {
+                combat.damage_activity();
+            }
+            self.commit_actor_outcome(source)?;
+        }
+        self.published_resolution(receipt)?;
+        Ok(receipt)
+    }
+
+    /// Apply a resolved batch's effects to its recipient in order, staging them
+    /// on `transition`. Effects that did not apply are dropped from
+    /// `outcome.effects`, so event accounting holds only applied amounts.
+    fn apply_outcome_effects(
+        &mut self,
+        outcome: &mut Outcome,
+        recipient_id: ActorId,
+        mut transition: ActorOutcome,
+        mut placement: crate::abilities::Placement,
+        attribution: EffectAttribution<'_>,
+    ) -> Result<EffectApplication, GameError> {
         // Relocation witnesses are live execution facts, not preparation-time
         // destinations. Recheck immediately before publication; a blocked exact
         // endpoint remains a paid failed effect and cannot fall back elsewhere.
@@ -831,7 +942,7 @@ impl Game {
                     created_hold = created_hold.or(applied);
                 }
                 transition = self.actor_outcome(recipient_id)?;
-                transition.disclosure_origin = Some(disclosure_origin.clone());
+                transition.disclosure_origin = Some(attribution.disclosure_origin.clone());
                 transition.events.extend(events);
                 if applied.is_some() {
                     outcome.effects[applied_count] = effect.clone();
@@ -972,11 +1083,11 @@ impl Game {
                     .map_err(|_| GameError::Rule(RuleError::InvalidDefinition))?;
                 transition.fatal_cause = Some(crate::earned_growth::FatalCause {
                     owner: outcome.actor,
-                    origin: origin.clone().unwrap_or_else(|| {
+                    origin: attribution.origin.cloned().unwrap_or_else(|| {
                         crate::earned_growth::FatalOrigin::Direct {
                             ability: outcome.ability.clone(),
                             intention: outcome.intention,
-                            strike,
+                            strike: attribution.strike,
                             effect,
                         }
                     }),
@@ -987,7 +1098,7 @@ impl Game {
             {
                 // The policy at the first actual damage wins; a later
                 // effect cannot retroactively preserve earlier progress.
-                if !damaged && activity.first(recipient_id) {
+                if !damaged && attribution.activity.first(recipient_id) {
                     transition
                         .state
                         .combat
@@ -1018,7 +1129,7 @@ impl Game {
                 self.commit_actor_outcome(transition)?;
                 let events = self.take_event_suffix(event_start)?.0;
                 transition = self.actor_outcome(recipient_id)?;
-                transition.disclosure_origin = Some(disclosure_origin.clone());
+                transition.disclosure_origin = Some(attribution.disclosure_origin.clone());
                 transition.entry_cause = entry_cause;
                 // Publication can emit interruption/sequence consequences.
                 // Keep them behind this batch's one original Resolved event,
@@ -1032,67 +1143,13 @@ impl Game {
         }
         outcome.effects.truncate(applied_count);
         outcome.result = outcome.canonical_result();
-        // Damage components, self-damage and source/target overlap must not
-        // apply percentage quiet resets more than once per strike.
-        let source_id = outcome.actor;
-        let target_id = recipient_id;
-        transition.state.location = placement.location;
-        transition.state.orientation = placement.orientation;
-        if placement != original_placement {
-            transition.state.visited.insert(placement.location.region);
-            if transition.state.motion.active_fall.is_some()
-                && !self.fall_continues(recipient_id, &transition.state)
-            {
-                transition.state.motion.active_fall = None;
-            }
-        }
-        // A resolution event precedes its interruption/death consequences.
-        transition.events.insert(
-            0,
-            CombatEvent::Resolved {
-                outcome,
-                strike,
-                source_disclosure: crate::combat::SourceAbilityDisclosure::Public,
-            },
-        );
-        let receipt = PublishedResolution {
-            chart_completion,
+        Ok(EffectApplication {
+            transition,
+            placement,
+            forced,
+            damaged,
             created_hold,
-            event: self.event_log.len(),
-            role,
-        };
-        self.commit_actor_outcome(transition)?;
-        if forced {
-            self.physics.displaced.insert(target_id);
-        }
-        if placement != original_placement {
-            self.sync_actor_lifecycle(target_id)?;
-        }
-        // Target death/cancellation can remove source-held token claims.
-        // Capture only after that publication, never overwrite the source
-        // with an older snapshot. Full/dead Health has no banked work.
-        let source_needs_reset = damaged
-            && source_id != target_id
-            && activity.first(source_id)
-            && self
-                .actors
-                .get(&source_id)
-                .and_then(|actor| actor.combat.as_ref())
-                .is_some_and(|combat| {
-                    let creature = combat.creature();
-                    !creature.health().dead()
-                        && creature.health().injury() > 0
-                        && creature.derived().health_recovery_reset_percent > 0
-                });
-        if source_needs_reset {
-            let mut source = self.settled_actor_outcome(source_id)?;
-            if let Some(combat) = source.state.combat.as_mut() {
-                combat.damage_activity();
-            }
-            self.commit_actor_outcome(source)?;
-        }
-        self.published_resolution(receipt)?;
-        Ok(receipt)
+        })
     }
 
     /// A paid primary whose frozen target is no longer reachable still owns an

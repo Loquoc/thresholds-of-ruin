@@ -792,6 +792,125 @@ impl Connection {
         Ok(request_id)
     }
 
+    /// The next message: a held update first, otherwise one from the server.
+    /// `None` means a background query deadline passed and was handled.
+    async fn receive_next(&mut self) -> Result<Option<(ServerMessage, usize)>, ConnectionError> {
+        let received = match self.held.take() {
+            Some(message) => (message, 0),
+            None => match &self.recovery {
+                Some(recovery) => tokio::time::timeout_at(
+                    recovery.deadline,
+                    receive_sized(
+                        &mut self.socket,
+                        self.capabilities.max_response_bytes as usize,
+                        &mut self.responses,
+                    ),
+                )
+                .await
+                .map_err(|_| "Stream resynchronization timed out")??,
+                None => {
+                    let deadline = self
+                        .map_request
+                        .as_ref()
+                        .map(|(pending, _)| pending.deadline)
+                        .into_iter()
+                        .chain(
+                            self.chart_request
+                                .as_ref()
+                                .map(|(pending, _)| pending.deadline),
+                        )
+                        .chain(
+                            self.observation_demand
+                                .pending
+                                .as_ref()
+                                .map(|pending| pending.deadline),
+                        )
+                        .chain(self.observation_due())
+                        .min();
+                    let received = self.receive_with_background_queries();
+                    if let Some(deadline) = deadline {
+                        match tokio::time::timeout_at(deadline, received).await {
+                            Ok(result) => result?,
+                            Err(_) => {
+                                self.expire_chart_request();
+                                if self.map_request.as_ref().is_some_and(|(pending, _)| {
+                                    tokio::time::Instant::now() >= pending.deadline
+                                }) {
+                                    if let Some((pending, _)) = self.map_request.take() {
+                                        self.state.reject_map_query(&pending.request_id);
+                                    }
+                                }
+                                return Ok(None);
+                            }
+                        }
+                    } else {
+                        received.await?
+                    }
+                }
+            },
+        };
+        Ok(Some(received))
+    }
+
+    /// Hold a shown update until the pace since the previous one has passed.
+    /// While waiting it stays in `held`, so a cancelled `next` keeps it.
+    async fn pace_shown(&mut self, message: ServerMessage) -> ServerMessage {
+        if !(self.is_synchronized() && shown(&message)) {
+            return message;
+        }
+        let due = self
+            .last_shown
+            .map(|shown| shown + self.pace)
+            .filter(|due| !self.skipping && *due > Instant::now());
+        let message = match due {
+            Some(due) => {
+                self.held = Some(message);
+                tokio::time::sleep_until(due.into()).await;
+                self.held.take().expect("held update")
+            }
+            None => message,
+        };
+        self.last_shown = Some(Instant::now());
+        message
+    }
+
+    /// Privileged replies reach only wizard clients, and only valid ones.
+    fn check_wizard_reply(&self, message: &ServerMessage) -> Result<(), ConnectionError> {
+        // (privileged reply name, invalid payload name, validation)
+        let (reply, payload, valid) = match message {
+            ServerMessage::CreatureCatalog { page, .. } => (
+                "creature catalog",
+                "creature catalog",
+                page.validate().map_err(|e| e.to_string()),
+            ),
+            ServerMessage::WizardReport { report, .. } => (
+                "wizard report",
+                "wizard report",
+                report.validate().map_err(|e| e.to_string()),
+            ),
+            ServerMessage::CreatureInspection { report, .. } => (
+                "inspection",
+                "creature inspection",
+                report.validate().map_err(|e| e.to_string()),
+            ),
+            ServerMessage::CreatureStrikePage { page, .. } => (
+                "strike detail",
+                "strike detail",
+                page.validate().map_err(|e| e.to_string()),
+            ),
+            ServerMessage::CombatDiagnostics { report, .. } => (
+                "combat diagnostics",
+                "combat diagnostics",
+                report.validate().map_err(|e| e.to_string()),
+            ),
+            _ => return Ok(()),
+        };
+        if self.role != AccessRole::Wizard {
+            return Err(format!("Privileged {reply} sent to a non-wizard client").into());
+        }
+        valid.map_err(|error| format!("Invalid {payload}: {error}").into())
+    }
+
     /// Apply ordered updates and palettes before presentation. A palette that
     /// misses a revision, or an observation naming an asset the palette
     /// lacks, sends a `palette` request; its answer is an ordinary palette
@@ -808,72 +927,10 @@ impl Connection {
             if let Some(message) = self.pending_presentation.take() {
                 return Ok(message);
             }
-            let (mut message, response_bytes) = match self.held.take() {
-                Some(message) => (message, 0),
-                None => match &self.recovery {
-                    Some(recovery) => tokio::time::timeout_at(
-                        recovery.deadline,
-                        receive_sized(
-                            &mut self.socket,
-                            self.capabilities.max_response_bytes as usize,
-                            &mut self.responses,
-                        ),
-                    )
-                    .await
-                    .map_err(|_| "Stream resynchronization timed out")??,
-                    None => {
-                        let deadline = self
-                            .map_request
-                            .as_ref()
-                            .map(|(pending, _)| pending.deadline)
-                            .into_iter()
-                            .chain(
-                                self.chart_request
-                                    .as_ref()
-                                    .map(|(pending, _)| pending.deadline),
-                            )
-                            .chain(
-                                self.observation_demand
-                                    .pending
-                                    .as_ref()
-                                    .map(|pending| pending.deadline),
-                            )
-                            .chain(self.observation_due())
-                            .min();
-                        let received = self.receive_with_background_queries();
-                        if let Some(deadline) = deadline {
-                            match tokio::time::timeout_at(deadline, received).await {
-                                Ok(result) => result?,
-                                Err(_) => {
-                                    self.expire_chart_request();
-                                    if self.map_request.as_ref().is_some_and(|(pending, _)| {
-                                        tokio::time::Instant::now() >= pending.deadline
-                                    }) {
-                                        if let Some((pending, _)) = self.map_request.take() {
-                                            self.state.reject_map_query(&pending.request_id);
-                                        }
-                                    }
-                                    continue;
-                                }
-                            }
-                        } else {
-                            received.await?
-                        }
-                    }
-                },
+            let Some((message, response_bytes)) = self.receive_next().await? else {
+                continue;
             };
-            if self.is_synchronized() && shown(&message) {
-                let due = self
-                    .last_shown
-                    .map(|shown| shown + self.pace)
-                    .filter(|due| !self.skipping && *due > Instant::now());
-                if let Some(due) = due {
-                    self.held = Some(message);
-                    tokio::time::sleep_until(due.into()).await;
-                    message = self.held.take().expect("held update");
-                }
-                self.last_shown = Some(Instant::now());
-            }
+            let message = self.pace_shown(message).await;
             if self.timing {
                 if let ServerMessage::Ack { request_id, .. } = &message {
                     self.timing_event("client_ack", request_id, None, None);
@@ -907,44 +964,7 @@ impl Connection {
                 } => self.state.record_server_notice(context, *code, message),
                 _ => {}
             }
-            if let ServerMessage::CreatureCatalog { page, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged creature catalog sent to a non-wizard client".into());
-                }
-                page.validate()
-                    .map_err(|error| format!("Invalid creature catalog: {error}"))?;
-            }
-            if let ServerMessage::WizardReport { report, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged wizard report sent to a non-wizard client".into());
-                }
-                report
-                    .validate()
-                    .map_err(|error| format!("Invalid wizard report: {error}"))?;
-            }
-            if let ServerMessage::CreatureInspection { report, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged inspection sent to a non-wizard client".into());
-                }
-                report
-                    .validate()
-                    .map_err(|error| format!("Invalid creature inspection: {error}"))?;
-            }
-            if let ServerMessage::CreatureStrikePage { page, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged strike detail sent to a non-wizard client".into());
-                }
-                page.validate()
-                    .map_err(|error| format!("Invalid strike detail: {error}"))?;
-            }
-            if let ServerMessage::CombatDiagnostics { report, .. } = &message {
-                if self.role != AccessRole::Wizard {
-                    return Err("Privileged combat diagnostics sent to a non-wizard client".into());
-                }
-                report
-                    .validate()
-                    .map_err(|error| format!("Invalid combat diagnostics: {error}"))?;
-            }
+            self.check_wizard_reply(&message)?;
             // Revocation wins even when the delayed private reply carries the
             // previously valid cursor. Do not turn it into a snapshot-repair
             // request before checking the current controller boundary.

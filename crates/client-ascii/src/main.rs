@@ -346,6 +346,93 @@ fn automation_input() -> mpsc::Receiver<Result<Input, String>> {
     rx
 }
 
+/// Native keys an open advancement screen accepts; everything else is
+/// typed text for its command line. Space also toggles a supply selection.
+fn advancement_key(key: NativeKey, supplies_open: bool) -> bool {
+    matches!(
+        key,
+        NativeKey::F1
+            | NativeKey::Up
+            | NativeKey::Down
+            | NativeKey::PageUp
+            | NativeKey::PageDown
+            | NativeKey::Enter
+            | NativeKey::Escape
+            | NativeKey::Backspace
+            | NativeKey::F8
+            | NativeKey::F9
+            | NativeKey::F10
+    ) || (supplies_open && key == NativeKey::Space)
+}
+
+/// What the shell must do after one turn's effects reached the network worker.
+#[derive(Default)]
+struct Dispatched {
+    screenshot: bool,
+    quit: bool,
+    /// The worker's command queue was unavailable; the app shows a disconnect.
+    failed: bool,
+}
+
+/// Hand one turn's effects to the network worker, in order, until a quit.
+fn dispatch_effects(
+    app: &mut App,
+    network: &Network,
+    effects: Vec<Effect>,
+) -> Result<Dispatched, Error> {
+    let mut dispatched = Dispatched::default();
+    let unavailable = |app: &mut App, dispatched: &mut Dispatched| {
+        app.disconnect("Network command queue unavailable.".into());
+        dispatched.failed = true;
+    };
+    for effect in effects {
+        match effect {
+            Effect::Screenshot => dispatched.screenshot = true,
+            Effect::CancelCharts => {
+                let _ = network.commands.try_send(Command::CancelCharts);
+            }
+            Effect::None => {}
+            Effect::Quit => {
+                dispatched.quit = true;
+                break;
+            }
+            Effect::Skip => {
+                let _ = network.commands.try_send(Command::Skip);
+            }
+            Effect::Pace(ms) => {
+                let _ = network
+                    .commands
+                    .try_send(Command::Pace(Duration::from_millis(ms)));
+            }
+            Effect::OpenOverview(plan) => {
+                if network
+                    .commands
+                    .try_send(Command::OpenOverview(plan))
+                    .is_err()
+                {
+                    unavailable(app, &mut dispatched);
+                }
+            }
+            Effect::Request(request) => {
+                let context = app
+                    .state
+                    .as_ref()
+                    .ok_or("No attached state for request")?
+                    .context()
+                    .clone();
+                if network
+                    .commands
+                    .try_send(Command::Request { context, request })
+                    .is_err()
+                {
+                    unavailable(app, &mut dispatched);
+                }
+            }
+        }
+    }
+    Ok(dispatched)
+}
+
 fn window_loop(
     window: &mut Window,
     network: &Network,
@@ -522,26 +609,12 @@ fn window_loop(
         let typed = std::mem::take(&mut *text.borrow_mut());
         if input.is_none() {
             // Send text only to an already-open editor.
-            if (app.note.is_some()
-                || (app.advancement_open && app.supply_selection.is_none())
-                || app.wizard_command.is_some()
-                || app.command_line.is_some()
-                || app.place_name.is_some()
-                || !app.pickup.is_empty()
-                || app.identification_choice().is_some())
-                && !typed.is_empty()
-            {
+            if app.accepts_text() && !typed.is_empty() {
                 inputs.push(Input::Text {
                     text: typed.clone(),
                 });
             }
-            if app.note.is_none()
-                && !app.advancement_open
-                && app.wizard_command.is_none()
-                && app.command_line.is_none()
-                && !app.places_open
-                && typed.contains('_')
-            {
+            if app.accepts_typed_travel() && typed.contains('_') {
                 inputs.push(Input::Key { key: Key::Travel });
             }
             let pressed = window.get_mouse_down(minifb::MouseButton::Left);
@@ -575,21 +648,7 @@ fn window_loop(
                     })
                     .filter(|key| {
                         !app.advancement_open
-                            || matches!(
-                                key,
-                                NativeKey::F1
-                                    | NativeKey::Up
-                                    | NativeKey::Down
-                                    | NativeKey::PageUp
-                                    | NativeKey::PageDown
-                                    | NativeKey::Enter
-                                    | NativeKey::Escape
-                                    | NativeKey::Backspace
-                                    | NativeKey::F8
-                                    | NativeKey::F9
-                                    | NativeKey::F10
-                            )
-                            || (app.supply_selection.is_some() && *key == NativeKey::Space)
+                            || advancement_key(*key, app.supply_selection.is_some())
                     })
                     .filter_map(|key| {
                         let mapped = native_input_key(
@@ -651,54 +710,10 @@ fn window_loop(
         let fire = app.continue_fire();
         dirty |= fire != Effect::None;
         effects.push(fire);
-        let mut screenshot = false;
-        for effect in effects {
-            match effect {
-                Effect::Screenshot => screenshot = true,
-                Effect::CancelCharts => {
-                    let _ = network.commands.try_send(Command::CancelCharts);
-                }
-                Effect::None => {}
-                Effect::Quit => {
-                    quit = true;
-                    break;
-                }
-                Effect::Skip => {
-                    let _ = network.commands.try_send(Command::Skip);
-                }
-                Effect::Pace(ms) => {
-                    let _ = network
-                        .commands
-                        .try_send(Command::Pace(Duration::from_millis(ms)));
-                }
-                Effect::OpenOverview(plan) => {
-                    if network
-                        .commands
-                        .try_send(Command::OpenOverview(plan))
-                        .is_err()
-                    {
-                        app.disconnect("Network command queue unavailable.".into());
-                        failed = true;
-                    }
-                }
-                Effect::Request(request) => {
-                    let context = app
-                        .state
-                        .as_ref()
-                        .ok_or("No attached state for request")?
-                        .context()
-                        .clone();
-                    if network
-                        .commands
-                        .try_send(Command::Request { context, request })
-                        .is_err()
-                    {
-                        app.disconnect("Network command queue unavailable.".into());
-                        failed = true;
-                    }
-                }
-            }
-        }
+        let dispatched = dispatch_effects(&mut app, network, effects)?;
+        let screenshot = dispatched.screenshot;
+        quit |= dispatched.quit;
+        failed |= dispatched.failed;
         let mut draw_ms = 0.;
         let native_started;
         if dirty {

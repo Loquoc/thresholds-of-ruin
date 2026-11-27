@@ -554,14 +554,15 @@ recovery authority.
 
 ## Source and validation map
 
-Ranges are navigation evidence at the reviewed commit. They are not claims that
-these tests ran during the prose review. Future contract changes need their
+Line ranges are navigation evidence at the reviewed commit; session rows name
+functions instead because that file has since been reorganized. Neither is a
+claim that these tests ran during the prose review. Future contract changes need their
 owning behavioral tests as well as documentation updates. Paths below are under
 `crates/`.
 
 | Contract | Source ranges | Existing witness/owner |
 | --- | --- | --- |
-| Owner loop / session gates | `server/src/runner.rs:139–218`; `server/src/session.rs:1658–1785` | Runner/session and backpressure contracts |
+| Owner loop / session gates | `server/src/runner.rs:139–218`; `server/src/session.rs` `Service::step`, `step_inner` | Runner/session and backpressure contracts |
 | Role, retry, context | `server/src/session.rs` `Service::process`; `server/src/session_commands.rs` `Service::admit_command` | Session request/permission contracts |
 | Admission and actor ordering | `simulation/src/intention.rs:277–332,473–562`; `simulation/src/lib.rs:1268–1302` | `admission_has_no_gameplay_effect_until_simulation_executes`; `queued_actions_follow_actor_scheduler_order_not_submission_order` |
 | Action/deadline walk | `simulation/src/actions.rs:314–344,984–1048` | Action/scheduling contracts |
@@ -570,7 +571,7 @@ owning behavioral tests as well as documentation updates. Paths below are under
 | Preparation ties/payment | `simulation/src/sequence_execution.rs:7–459` | Ability/condition/supply/continuation contracts |
 | Region continuation | `simulation/src/floor_activation.rs:1171–1216`; `server/src/engine.rs:1980–2046,3774–3977` | Activation/region/host-continuation contracts |
 | Save admission/publication | `server/src/engine.rs:4276–4404`; `server/src/storage.rs:1176–1255,1510–1535` | `failed_ai_journal_admission_does_not_publish_candidate_effects` in server performance contracts; storage contracts |
-| Outcomes/lifecycle/readiness | `server/src/session.rs:1272–1299,1337–1463,1658–1661,1758–1767` | Outcome/privacy/session contracts |
+| Outcomes/lifecycle/readiness | `server/src/session.rs` `action_result_update`, `action_update`, `report_execution_failure`, `refresh_readiness` | Outcome/privacy/session contracts |
 
 This execution description is source-backed, not a new benchmark or a promise
 of fixed action/update frequency.

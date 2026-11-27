@@ -123,6 +123,40 @@ broader performance and scaling work is finished.
 
 ## Retained or resolved findings
 
+### CH-021: Client map memory rescanned every placement on each update
+
+- **Category/status:** performance; confirmed per-update cost proportional to
+  retained memory, corrected on branch `claude/code-docs-refactor-ovqedk`
+  (pending hosted CI and merge). No correctness defect was found.
+- **Source/trigger:** [map memory](../../crates/client-common/src/map_memory.rs)
+  `trim` ended every `overlay` by checking each placed cell against the record
+  map, even when nothing was evicted. A callgrind profile of the client
+  workload attributed about 56% of all instructions to that scan.
+- **Correction:** the scan now runs only after an eviction in `trim` or after a
+  bulk snapshot or region install, the only paths that can leave a placement
+  without its record. The invariant is documented on `MapMemory::cells`.
+- **Evidence:** two new unit tests (an orphaned snapshot placement, and evicted
+  placed records over the byte budget) each fail when their reconciliation is
+  removed. A local balanced `perf_compare.py` run is recorded in the
+  [client workload](performance.md#client-workloads): at 20,956 retained cells,
+  apply p50 fell from 1.129 to 0.126 ms per update, with identical memory and
+  chart counts. That is a synthetic stationary workload, not a whole-client or
+  exploration measurement, and has no ledger entry yet.
+
+### CH-022: Mirrored protocol/simulation sources had no drift guard
+
+- **Category/status:** maintainability; confirmed byte-identical duplication,
+  guarded on branch `claude/code-docs-refactor-ovqedk` (pending hosted CI and
+  merge).
+- **Source/trigger:** `item_identity.rs` and `item_knowledge.rs` exist in both
+  `tor-protocol` and `tor-simulation`, which may not depend on each other.
+  Nothing kept the copies identical.
+- **Correction:** [`check_architecture.py`](../../scripts/check_architecture.py)
+  `MIRRORED_SOURCES` now rejects any difference or missing copy, with first-red
+  tests in `test_check_architecture.py`. Both files say they are mirrored.
+- **Open question:** whether to replace the copies with one shared crate is a
+  dependency-policy decision for the maintainer, not part of this guard.
+
 ### CH-019: Checkpoint representation and journal durability at the capacity bound
 
 - **Category/status:** robustness and representation cost; resolved by
