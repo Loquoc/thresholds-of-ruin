@@ -443,15 +443,31 @@ failed one method,
 `test_projectile_process.ProjectileProcesses.test_ascii_secondary_weapon_stays_designated_when_swap_is_blocked`.
 The inventory key returned no `inventory_rows`. The cursed swap is refused before
 equip resolves, so the extracted equip step never runs on that path. The method
-then passed six isolated runs on the same binaries. Root cause: the test opened
-the inventory as soon as the refusal message appeared, before the ASCII window
-could accept another key. Its sibling, the successful swap test, had already
-gained a ready-frame wait for the same race on 25 November (`1ad84e0`); the
-blocked-swap test had not. Classification: stale test (one root cause, one
-distinct method, one failing execution). The fix waits for the same ready frame
-and asserts that the inventory opens. The race could not be made to fail on
-demand, so there is no deterministic first-red; the evidence is the one failure
-under load, the matching sibling fix, and repeated passes afterwards.
+then passed six isolated runs on the same binaries.
+
+A first diagnosis was wrong. It blamed the test for opening the inventory before
+the window could accept a key, and it added the ready-frame wait that its
+successful-swap sibling gained on 25 November (`1ad84e0`). With that wait in
+place, hosted run 230 failed the same method again on `37c7e52`, in both the
+Linux release Python partition and Windows release Python shard 2.
+
+Root cause: a production defect in the ASCII client. The server publishes a
+command's updates before its receipt. The Wield shortcut learns its removal's
+intention only from that receipt, so it ignores a `Resolved`, `Failed` or other
+terminal update that arrives first. `note_admission` also ignored the phase the
+receipt carries. The swap then never advanced or ended, and its input stage
+swallowed every key except Escape. A curse refusal can resolve in the admitting
+commit, so the blocked-swap test hit this race; a removal that takes time does
+not.
+
+Classification: production defect (one root cause, one distinct method, three
+failing executions: one local, two hosted; the platform repeats are not further
+causes). The fix applies the
+receipt's phase when it first names the intention. Three model tests in
+`weapon_swap_admission_tests` cover a resolved removal, every ending phase and
+still-running controls. Before the fix, the resolved and ending cases failed at
+their receipt-phase assertions and the running controls passed. The ready-frame
+wait stays as an ordinary readiness check, not as the fix.
 
 ### Pre-existing 3D library failures, 27 November
 

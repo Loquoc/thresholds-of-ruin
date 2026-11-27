@@ -1015,11 +1015,19 @@ impl App {
     }
 
     pub fn note_admission(&mut self, receipt: &RequestReceipt) {
-        if let (Some(swap), RequestReceipt::Admitted { intention, .. }) =
-            (&mut self.weapon_swap, receipt)
+        if let (
+            Some(swap),
+            RequestReceipt::Admitted {
+                intention, phase, ..
+            },
+        ) = (&mut self.weapon_swap, receipt)
         {
             if swap.intention.is_none() {
                 swap.intention = Some(intention.clone());
+                // Updates precede their receipt, so work that resolved in the
+                // admitting commit was published before the swap knew its
+                // intention. The receipt carries that phase.
+                self.observe_weapon_swap(Some(*phase));
             }
         }
         self.submitted = tor_client_common::compositor::AdmissionBoundary::new(receipt)
@@ -4006,6 +4014,89 @@ const RUN_KEYS: [(Key, Direction); 8] = [
     (Key::RunSouthWest, Direction::SouthWest),
     (Key::RunNorthWest, Direction::NorthWest),
 ];
+
+#[cfg(test)]
+mod weapon_swap_admission_tests {
+    use super::*;
+
+    fn removing_swap() -> PendingWeaponSwap {
+        PendingWeaponSwap {
+            incoming: ItemTarget::from_digest([1; 32]),
+            removing: true,
+            update_secondary: true,
+            outgoing: ItemTarget::from_digest([2; 32]),
+            slot: 0,
+            intention: None,
+            resolved: false,
+        }
+    }
+
+    fn admitted(phase: IntentionPhase) -> RequestReceipt {
+        RequestReceipt::Admitted {
+            actor: ActorId(1),
+            branch: BranchId("main".into()),
+            intention: IntentionId("removal".into()),
+            entry_id: EntryId("entry".into()),
+            phase,
+        }
+    }
+
+    // The server publishes a command's updates before its receipt. Work that
+    // resolves in the same commit therefore reaches the client before the
+    // intention it belongs to is known, so the receipt's phase is the only
+    // record that the removal finished.
+    #[test]
+    fn a_removal_resolved_before_its_receipt_still_advances_the_swap() {
+        let mut app = App::new();
+        app.weapon_swap = Some(removing_swap());
+        app.note_admission(&admitted(IntentionPhase::Resolved));
+        let swap = app
+            .weapon_swap
+            .as_ref()
+            .expect("a resolved removal keeps the swap");
+        assert_eq!(swap.intention, Some(IntentionId("removal".into())));
+        assert!(
+            swap.resolved,
+            "the receipt's Resolved phase must mark the removal resolved"
+        );
+    }
+
+    #[test]
+    fn a_removal_that_ended_before_its_receipt_releases_the_shortcut() {
+        for phase in [
+            IntentionPhase::Failed,
+            IntentionPhase::Cancelled,
+            IntentionPhase::Paused,
+            IntentionPhase::Suspended,
+        ] {
+            let mut app = App::new();
+            app.weapon_swap = Some(removing_swap());
+            app.note_admission(&admitted(phase));
+            // The swap stage intercepts every key exactly while a swap is
+            // pending; the projectile process test witnesses the inventory
+            // opening through a real connected window.
+            assert!(
+                app.weapon_swap.is_none(),
+                "{phase:?} must release the shortcut"
+            );
+        }
+    }
+
+    #[test]
+    fn a_removal_still_running_at_its_receipt_waits_for_its_update() {
+        for phase in [IntentionPhase::Queued, IntentionPhase::Started] {
+            let mut app = App::new();
+            app.weapon_swap = Some(removing_swap());
+            app.note_admission(&admitted(phase));
+            let swap = app
+                .weapon_swap
+                .as_ref()
+                .expect("running work keeps the swap");
+            assert_eq!(swap.intention, Some(IntentionId("removal".into())));
+            assert!(!swap.resolved, "{phase:?} is not a resolution");
+        }
+    }
+}
 
 #[cfg(test)]
 mod cosmetic_tests {
