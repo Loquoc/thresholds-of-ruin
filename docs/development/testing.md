@@ -36,6 +36,7 @@ No tier substitutes for the test-writing obligations below.
 - [Required layers](#required-test-layers): unit through real-process acceptance
 - [Platform requirements](#cross-platform-requirements): native desktop and both profiles
 - [Persistence and formats](#specialized-requirements): faults, replay and fixture updates
+- [When to use TLA+](#when-to-use-tla): optional models for ordering-sensitive contracts
 - [Performance testing](#performance-testing): reproducible release evidence and limits
 
 ## Principles
@@ -1512,6 +1513,26 @@ required on the final commit before merging.
 - Process-kill tests establish transaction recovery, **not** hardware
   power-loss durability. Don't claim otherwise. See
   [background saving](../architecture/persistence.md) for the durability contract.
+
+### When to use TLA+
+
+Use TLA+ when correctness depends on the order of events, such as a save
+finishing as commands arrive, a retry after a restart, or competing claims on
+the same supplies. Start with one invariant and the smallest model that can
+test it. State the bounds, assumptions, and behaviors left out. Pin the TLC
+version, include a local run command, and check that the model both reaches
+the scenario of interest and catches a deliberately broken variant.
+
+Treat a passing model as evidence about the design within those bounds, not
+proof that the Rust implementation matches it. Turn useful findings into
+ordinary regression tests. The [retry and recovery pilot](../../specs/tla/retry-durability/README.md)
+led to a real server test for retrying a saved, suspended action after restart.
+The [ordering experiments](../../specs/tla/ordering-experiments/README.md)
+cover the ASCII weapon handoff and finite supply claims.
+
+TLC is optional and is not a required CI check. Keep the implementation
+regressions in their existing test suites; a passing model does not replace
+those tests or qualify any CI lane.
 
 ### Formats and fixtures
 

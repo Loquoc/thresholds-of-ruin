@@ -117,15 +117,15 @@ async fn actual_server_connection_remains_usable_after_local_request_byte_reject
 }
 
 #[tokio::test]
-async fn actual_server_rejects_new_work_while_recovered_queue_disables_admission() {
+async fn actual_server_retries_only_original_work_while_recovered_queue_disables_admission() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("game.json");
-    {
+    let admitted = {
         let mut engine =
             tor_server::Engine::open(&path, tor_server::Scenario::two_room(42)).unwrap();
-        engine
+        let admitted = engine
             .command(
-                "p",
+                "local",
                 "test",
                 ActorId(1),
                 "original",
@@ -137,7 +137,8 @@ async fn actual_server_rejects_new_work_while_recovered_queue_disables_admission
             )
             .unwrap();
         engine.flush().unwrap();
-    }
+        admitted
+    };
     let (_child, address) = launch(&path);
     let (socket, _) = connect_async(&address).await.unwrap();
     let mut client = WireClient::new(socket);
@@ -175,6 +176,38 @@ async fn actual_server_rejects_new_work_while_recovered_queue_disables_admission
     assert!(!controlled.readiness.admission);
     assert_eq!(controlled.intentions.len(), 1);
     assert_eq!(controlled.intentions[0].phase, IntentionPhase::Suspended);
+    let original = &controlled.intentions[0];
+    assert_eq!(original.entry_id, admitted.entry.id);
+    // The fixture wrote the admission directly, so supply a prior-attachment
+    // context rather than restamping the retry with this attachment's context.
+    let mut original_context = client.input_context();
+    original_context.stream.stream = StreamId("before-restart".into());
+    client
+        .request(
+            "original",
+            Request::Command {
+                context: original_context,
+                branch: controlled.branch.clone(),
+                command: Command::Act {
+                    action: Action::Wait,
+                },
+            },
+        )
+        .await;
+    assert_eq!(
+        next_message(&mut client).await,
+        ServerMessage::Ack {
+            context: controlled.reply_context(),
+            request_id: "original".into(),
+            receipt: RequestReceipt::Admitted {
+                actor: ActorId(1),
+                branch: controlled.branch.clone(),
+                intention: original.intention.clone(),
+                entry_id: admitted.entry.id,
+                phase: IntentionPhase::Suspended,
+            },
+        },
+    );
     client
         .request(
             "disabled",
@@ -211,6 +244,7 @@ async fn actual_server_rejects_new_work_while_recovered_queue_disables_admission
     };
     assert_picture_payload(&after.state, &before.state);
     assert_eq!(after.intentions, controlled.intentions);
+    assert_eq!(after.history, controlled.history);
     assert_eq!(after.cursor.tick, controlled.cursor.tick);
     assert_eq!(after.branch, controlled.branch);
 }

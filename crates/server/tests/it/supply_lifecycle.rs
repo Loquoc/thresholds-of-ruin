@@ -234,6 +234,96 @@ fn cancelling_unpaid_claim_allows_other_actor_without_refunding_cooldown() {
 }
 
 #[test]
+fn paused_claim_allows_only_the_free_unit_to_be_taken_and_then_spends_once() {
+    let mut engine = Engine::memory(scenario(1, 2, Some(false), 1)).unwrap();
+    let source = engine.target_scope(PLAYER).item(tor_simulation::ItemId(10));
+    let ground_quantity = |engine: &Engine| {
+        engine
+            .state(PLAYER)
+            .unwrap()
+            .observation
+            .ground_items
+            .iter()
+            .find(|ground| ground.item.id == source)
+            .map(|ground| ground.item.quantity)
+    };
+    let (admitted, request) = admit(&mut engine, PLAYER, "paused-care");
+    engine.execute_next_intention().unwrap().unwrap();
+    engine.pause_preparation(PLAYER).unwrap().unwrap();
+    let ready_actor = |engine: &mut Engine, target| {
+        for _ in 0..4 {
+            let current = engine.next_actor().expect("one of the two carers is due");
+            if current == target {
+                return;
+            }
+            support::act_as(engine, current, Action::Wait).unwrap();
+        }
+        panic!("carer {target:?} did not become ready");
+    };
+    ready_actor(&mut engine, PARTNER);
+    support::act_as(
+        &mut engine,
+        PARTNER,
+        Action::Move {
+            direction: tor_server::journal::Direction::West,
+        },
+    )
+    .unwrap();
+    ready_actor(&mut engine, PARTNER);
+    let before = engine.state(PARTNER).unwrap();
+    assert_eq!(ground_quantity(&engine), Some(2));
+    assert!(support::act_as(
+        &mut engine,
+        PARTNER,
+        Action::Take {
+            item: 10,
+            quantity: Some(2)
+        },
+    )
+    .is_err());
+    assert_eq!(
+        engine.state(PARTNER).unwrap(),
+        before,
+        "do not silently take one"
+    );
+
+    support::act_as(
+        &mut engine,
+        PARTNER,
+        Action::Take {
+            item: 10,
+            quantity: Some(1),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        ground_quantity(&engine),
+        Some(1),
+        "the held source keeps its identity"
+    );
+    assert_eq!(bandages(&engine, PARTNER), 2);
+
+    ready_actor(&mut engine, PLAYER);
+    let resume = Command::ResumeIntention {
+        expected_boundary: engine.causal_boundary(PLAYER).unwrap(),
+        admission: admitted.entry.id.clone(),
+    };
+    submit(&mut engine, PLAYER, "resume-paused-care", resume);
+    engine.execute_next_intention().unwrap().unwrap();
+    finish(&mut engine, PLAYER);
+    assert_eq!(ground_quantity(&engine), None);
+    assert_eq!(
+        bandages(&engine, PARTNER),
+        1,
+        "the transferred unit was not spent"
+    );
+    let retry = submit(&mut engine, PLAYER, "paused-care", request);
+    assert!(retry.duplicate);
+    assert_eq!(retry.entry, admitted.entry);
+    assert_eq!(bandages(&engine, PARTNER), 1);
+}
+
+#[test]
 fn saved_claim_resumes_once_and_spent_source_retry_needs_no_live_item() {
     for checkpoint_interval in [1, 4096] {
         let directory = tempfile::tempdir().unwrap();
