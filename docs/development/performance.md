@@ -1456,6 +1456,25 @@ Keep raw samples, p50/p95/max and operation counts with the feature findings in
 [dungeon gameplay](../play/gameplay.md). Do not mix results collected during builds or
 process-test runs. Existing provisional targets and deferred 3p work still apply.
 
+**Whole-branch latency check (2026-11-27).** A local `perf_compare.py 68bff10
+--case r8-a1-h100-memory --case r64-a8-h100-memory --case r8-a8-h100-durable`
+run (three balanced rounds, machine fingerprint `2fc32b1e6ef5`) compared the
+review branch head `fe2526cd` with its base. Counts were identical in every
+case.
+
+| Case | authoritative_total p50 base → head | restart_replay p50 base → head |
+| --- | --- | --- |
+| r8-a1-h100-memory | 0.885 → 0.869 ms | 246.2 → 241.6 ms |
+| r64-a8-h100-memory | 0.092 → 0.092 ms | 1,211.5 → 1,208.5 ms |
+| r8-a8-h100-durable | 0.117 → 0.116 ms | 216.5 → 226.6 ms |
+
+The branch's measured gains are in the client and combat-restart workloads
+above, not in these ordinary command paths, which stay within noise.
+`wire_encoding` p50 was 1.7–3.0% higher on the head side in all three cases.
+No change on the branch touches wire encoding, and the shift is recorded as
+unexplained rather than attributed. Restart replay with n=3 per side is
+within its run-to-run spread.
+
 **Ruleset reference cache (2026-11-27).** A callgrind profile of engine open
 attributed about 21% of its instructions to `Ruleset::validate_condition_modifiers`.
 Each call rebuilt a dozen identifier sets from every definition in the ruleset,
