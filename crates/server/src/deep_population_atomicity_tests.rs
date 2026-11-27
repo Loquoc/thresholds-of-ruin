@@ -15,7 +15,7 @@ fn joint_fixture(later_count: u32) -> Scenario {
     source["characters"].as_array_mut().unwrap().truncate(1);
     source["archetypes"]["marker"]["stackable"] = json!(true);
     let row = source["archetypes"]["rat"]["creature"]["hit_dice"][0].clone();
-    source["archetypes"]["rat"]["creature"]["hit_dice"] = json!([row.clone()]);
+    source["archetypes"]["rat"]["creature"]["hit_dice"] = json!([row]);
     source["archetypes"]["late_rat"] = source["archetypes"]["rat"].clone();
     source["archetypes"]["late_rat"]["creature"]["hit_dice"] = json!(vec![row; 7]);
     source["floor_activation"]["carried_item_pools"] = json!({

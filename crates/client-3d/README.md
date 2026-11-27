@@ -931,8 +931,8 @@ richer resource presentation and pause/accessibility settings remain unfinished.
 - Idles: at rest everyone breathes, shifts weight and looks about, with a
   fidget of their own every few seconds: the hero checks the blade, casters
   study a raised palm, sentinels settle the shield, the scout flips the dagger,
-  the hobgoblin taps its club, the zombie sways, the yeti beats its chest, the
-  emu pecks, horses graze and stamp, the snake rears to taste the air. The
+  the hobgoblin cocks its head at a sound, the zombie sways, the yeti beats its chest,
+  the emu pecks, horses graze and stamp, the snake rears to taste the air. The
   orc cracks its knuckles, the troll scratches its scalp, the leprechaun flips
   a coin, the nymph opens a welcoming hand, the medusa flexes her claws, the
   wraith reaches, the dragon snorts, the griffin preens and the xeroc gapes.
@@ -1060,9 +1060,11 @@ subsequent captures can inspect fall and settled-corpse composition.
 The wedding pieces use the same body-fitted torso and limb supports as existing
 outfits. Veils and regalia are separate optional recipe slots; an equipment helm
 removes the veil, and replacement body armor removes regalia. Gathered sleeves
-emit one sheer surface per arm joint. The veil is a neutral, torso-anchored drape,
-not a cloth simulation: head-turn attachment and floor contact remain limitations.
-These local outfits do not add new server inventory items.
+emit one sheer surface per arm joint. The veil's attachment follows the head,
+and the sheet, edging and ornaments blend across the head, torso and train.
+During death animations the train uses an animated support pose against a flat
+plane at the actor's feet. It does not simulate cloth or follow uneven terrain.
+These preview outfits do not add new server inventory items.
 
 Gathered sleeve puffs can expose a contrasting lining between raised fabric strips.
 The Bard uses red strips over cream lining on both body cuts, with female bell

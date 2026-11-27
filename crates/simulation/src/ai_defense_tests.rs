@@ -649,7 +649,7 @@ fn paid_prefix_retains_priority(erratic: bool) {
     // Preparation earns ordinary recovery. Compare the complete paid ledger
     // against its independent clock/cost kernel, not a net-balance subtraction
     // that incorrectly ignores that earned recovery.
-    let mut expected_paid = after_start.clone();
+    let mut expected_paid = after_start;
     expected_paid.advance_active(100 - game.tick);
     assert_eq!(expected_paid.finish(hold).unwrap(), cost);
     game.tick = 100;

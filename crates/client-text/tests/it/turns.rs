@@ -2425,7 +2425,7 @@ async fn a_move_told_between_turns_describes_where_it_arrives() {
     let mut engine = Engine::default();
     engine.welcome(&link);
     let before = link.client.state().clone();
-    let after = east(before.clone(), 6);
+    let after = east(before, 6);
     let beats = publish_between_turns(&mut link, &mut engine, after);
     let passage = engine.passage(&link, beats);
     assert!(passage.contains("You are in an open"), "{passage}");
@@ -3673,7 +3673,7 @@ fn a_cold_hydrated_doorway_is_descriptive_and_current_sight_wins() {
         .find(|c| c.door.is_some())
         .unwrap()
         .clone();
-    let mut hidden = full.clone();
+    let mut hidden = full;
     hidden
         .observation
         .visible_cells

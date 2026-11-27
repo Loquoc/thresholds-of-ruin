@@ -39,7 +39,7 @@ fn actual_royal_robe_retains_the_complete_underlying_bracelet() {
             for smooth in [false, true] {
                 for side in [-1., 1.] {
                     let actual = parts(plan, body, side, smooth);
-                    let ring: Vec<_> = actual.metal.surface_triangles().collect();
+                    let ring: Vec<_> = actual.gold.surface_triangles().collect();
                     assert_eq!(
                         ring.len(),
                         384,
@@ -128,25 +128,19 @@ fn actual_royal_robe_retains_the_complete_underlying_bracelet() {
 }
 
 fn assert_unchanged_except_bracelet(actual: &Parts, without: &Parts) {
-    for (a, b) in [
-        &actual.matte,
-        &actual.satin,
-        &actual.sheer,
-        &actual.ghost,
-        &actual.glow,
-    ]
-    .into_iter()
-    .zip([
-        &without.matte,
-        &without.satin,
-        &without.sheer,
-        &without.ghost,
-        &without.glow,
-    ]) {
-        a.assert_same_recipe(b);
+    // Every layer, including later metal glove buckles, matches the plan
+    // without a bracelet. The bracelet is only the gold layer's leading ring.
+    for (a, b) in actual
+        .all_builders()
+        .into_iter()
+        .zip(without.all_builders())
+    {
+        if std::ptr::eq(a, &actual.gold) {
+            a.assert_same_recipe_after(384, b);
+        } else {
+            a.assert_same_recipe(b);
+        }
     }
-    // This also checks later metal glove buckles, not just cloth buckets.
-    actual.metal.assert_same_recipe_after(384, &without.metal);
 }
 
 #[test]
@@ -164,7 +158,7 @@ fn later_gloves_and_outer_robe_keep_geometry_and_clear_underlying_band() {
             let plan = Plan::resolve(&look, &Composition::resolve(&look).outfit);
             for side in [-1., 1.] {
                 let actual = parts(plan, body, side, true);
-                let ring: Vec<_> = actual.metal.surface_triangles().take(384).collect();
+                let ring: Vec<_> = actual.gold.surface_triangles().take(384).collect();
                 let without = parts(
                     Plan {
                         bracelet: None,
@@ -195,7 +189,8 @@ fn later_gloves_and_outer_robe_keep_geometry_and_clear_underlying_band() {
                     &ring,
                 );
                 assert_outside_band(actual.satin.surface_triangles(), &ring);
-                assert_outside_band(actual.metal.surface_triangles().skip(384), &ring);
+                assert_outside_band(actual.metal.surface_triangles(), &ring);
+                assert_outside_band(actual.gold.surface_triangles().skip(384), &ring);
             }
         }
     }
@@ -294,7 +289,7 @@ fn support_choice_is_bounded_and_missing_selected_support_does_not_fallback() {
         true,
     );
     assert_eq!(
-        missing.metal.surface_triangles().count(),
+        missing.gold.surface_triangles().count(),
         0,
         "later robe must not substitute for missing selected base"
     );
@@ -323,7 +318,7 @@ fn support_choice_is_bounded_and_missing_selected_support_does_not_fallback() {
         Plan::resolve(&fur, &outfit).bracelet.unwrap().support,
         BraceletSupport::ForearmAndCuff
     );
-    let mut bare = look.clone();
+    let mut bare = look;
     bare.equipment = Equipment::default();
     assert_eq!(
         Plan::resolve(&bare, &Composition::resolve(&bare).outfit)

@@ -283,6 +283,58 @@ class Reporting(unittest.TestCase):
             ["test_dungeon_process.Dungeon.test_save", "test_travel_process.TravelProcesses.test_click"],
         )
 
+    def test_failure_excerpts_keep_each_assertion_and_collapse_noise(self):
+        rule, dash = "=" * 70, "-" * 70
+        noise = "XGetInputFocus returned the focused window of 1.\n" * 500
+        log = (
+            "ok\n"
+            f"{rule}\nFAIL: test_swap (test_projectile_process.Projectile.test_swap)\n{dash}\n"
+            "Traceback (most recent call last):\n"
+            '  File "test_projectile_process.py", line 590, in test_swap\n'
+            f"{noise}"
+            "AssertionError: inventory did not open\n\n"
+            f"{rule}\nERROR: test_gaze (test_rogue_perception_process.Perception.test_gaze)\n{dash}\n"
+            "Traceback (most recent call last):\n"
+            "KeyError: 'state'\n\n"
+            f"{dash}\nRan 2 tests in 1.0s\n\nFAILED (failures=1, errors=1)\n"
+        )
+        excerpts = verify.python_failure_excerpts(log)
+        self.assertEqual(len(excerpts), 2)
+        swap, gaze = excerpts
+        self.assertTrue(swap.startswith("FAIL: test_swap (test_projectile_process.Projectile.test_swap)"))
+        self.assertIn("AssertionError: inventory did not open", swap)
+        self.assertIn("[repeated 500 times]", swap)
+        self.assertEqual(swap.count("XGetInputFocus"), 1, "a run of identical lines prints once")
+        self.assertIn("KeyError: 'state'", gaze)
+        self.assertNotIn("Ran 2 tests", gaze, "the run summary is not part of a failure")
+        self.assertNotIn("KeyError", swap, "each excerpt stops at the next failure")
+
+    def test_failure_excerpts_are_bounded_for_a_job_log(self):
+        rule, dash = "=" * 70, "-" * 70
+        failure = lambda index: (f"{rule}\nFAIL: test_{index} (test_many.Many.test_{index})\n{dash}\n"
+                                 + "".join(f"frame {line}\n" for line in range(200))
+                                 + f"AssertionError: case {index}\n\n")
+        log = "".join(failure(index) for index in range(9)) + f"{dash}\nRan 9 tests\n"
+        excerpts = verify.python_failure_excerpts(log)
+        self.assertEqual(len(excerpts), verify.FAILURE_DETAIL_TESTS + 1)
+        self.assertIn("4 more failed tests", excerpts[-1])
+        for index, excerpt in enumerate(excerpts[:-1]):
+            self.assertIn(f"AssertionError: case {index}", excerpt, "the tail keeps the assertion")
+            self.assertLessEqual(len(excerpt.splitlines()), verify.FAILURE_DETAIL_LINES + 2)
+            self.assertIn("lines omitted", excerpt)
+        self.assertEqual(verify.python_failure_excerpts("ok\nRan 3 tests\n\nOK\n"), [])
+
+    def test_full_disk_is_named_as_a_machine_problem(self):
+        hint = verify.environment_hint("OSError: [Errno 28] No space left on device: 'game.db'")
+        self.assertIsNotNone(hint)
+        self.assertIn("disk is full", hint)
+
+    def test_low_disk_warning_names_free_space_before_builds_start(self):
+        self.assertIsNone(verify.low_disk_warning(verify.LOW_DISK_GB))
+        warning = verify.low_disk_warning(verify.LOW_DISK_GB - 0.5)
+        self.assertIn(f"{verify.LOW_DISK_GB - 0.5:.1f} GB free", warning)
+        self.assertIn("incremental", warning)
+
     def test_environment_hints_name_the_machine_problem(self):
         self.assertIn("lower --jobs", verify.environment_hint("memory allocation of 4096 bytes failed"))
         self.assertIsNone(verify.environment_hint("assertion failed: left == right"))
@@ -943,6 +995,37 @@ class ExecutionEvidence(unittest.TestCase):
                 self.assertEqual(len(re.findall(r"(?m)^(?:second|third)\s+not run", summary)),
                                  0 if keep_going else 2)
                 self.assertFalse((root / ".local/verify.lock").exists())
+
+    def test_failed_python_step_prints_its_failure_details(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "python-debug.log"
+            log.write_text(f"{'=' * 70}\nFAIL: test_swap (test_projectile_process.P.test_swap)\n"
+                           f"{'-' * 70}\nTraceback (most recent call last):\n"
+                           "AssertionError: inventory did not open\n\n", encoding="utf-8")
+            failed = {"step": "python-debug", "code": 1, "seconds": 1, "log": log,
+                      "note": "failed: test_projectile_process.P.test_swap"}
+            output = StringIO()
+            with patch.object(verify, "ROOT", root), \
+                    patch.object(verify.subprocess, "run") as commands, \
+                    patch.object(verify, "changes", return_value=([], "")), \
+                    patch.object(verify, "free_memory_gb", return_value=8), \
+                    patch.object(verify, "running_builds", return_value=[]), \
+                    patch.object(verify, "plan", return_value=[
+                        ("rust-debug", ["cargo", "test"], {}),
+                        ("python-debug", [sys.executable, "-m", "unittest"], {})]), \
+                    patch.object(verify, "run_step", side_effect=[
+                        {"step": "rust-debug", "code": 1, "seconds": 1, "log": log, "note": ""},
+                        failed]), redirect_stdout(output):
+                commands.return_value.stdout = json.dumps(metadata())
+                self.assertEqual(verify.main(["push", "--jobs", "1", "--keep-going"]), 1)
+            printed = output.getvalue()
+            self.assertIn("--- python-debug failure detail ---", printed)
+            self.assertIn("AssertionError: inventory did not open", printed)
+            self.assertNotIn("--- rust-debug failure detail ---", printed,
+                             "only unittest steps are parsed for tracebacks")
+            data = json.loads(next((root / ".local/verify").glob("*/summary.json")).read_text())
+            self.assertNotIn("excerpts", data["steps"][1], "receipts keep their schema")
 
     def test_machine_summary_distinguishes_a_waived_full_gate_from_clean_evidence(self):
         for waived in (False, True):

@@ -326,7 +326,7 @@ fn exploration_destination_decode_requires_explicit_nullable_strict_location() {
     assert!(serde_json::from_value::<Ai>(omitted).is_err());
     let location = serde_json::to_value(at(6, 1)).unwrap();
     let mut present = source.clone();
-    present["exploration_destination"] = location.clone();
+    present["exploration_destination"] = location;
     assert_eq!(
         serde_json::from_value::<Ai>(present.clone())
             .unwrap()
@@ -711,7 +711,7 @@ fn exploration_retained_goal_requires_matching_disclosed_first_step_frame() {
     let (action, positive) = choose(&view);
     assert_eq!(action, Some(Action::Move(first.direction)));
     assert_eq!(positive.exploration_destination, Some(at(6, 1)));
-    let mut wrong_frame = view.clone();
+    let mut wrong_frame = view;
     for cell in wrong_frame.visible_cells.iter_mut() {
         if cell.location == location {
             cell.frame = (frame + 1) % 24;

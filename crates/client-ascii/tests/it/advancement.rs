@@ -278,7 +278,7 @@ fn a_stale_queued_query_preserves_focus_and_requires_explicit_fresh_navigation()
     app.bind_advancement_request("closing").unwrap();
     assert_eq!(key(&mut app, Key::Escape), Effect::None);
     assert!(!app.advancement_open);
-    let context = fresh_context.clone();
+    let context = fresh_context;
     assert!(app
         .show_advancement_page(&context, "closing", &page(&context))
         .is_err());

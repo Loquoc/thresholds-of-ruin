@@ -811,7 +811,7 @@ fn alternate_target_recovery_preserves_safe_primary_and_hidden_twin_choices() {
         alternate_choice(&game, &sight, &view),
         alternate_choice(&twin, &twin_sight, &twin_view)
     );
-    let mut hidden_blocker = view.clone();
+    let mut hidden_blocker = view;
     hidden_blocker
         .visible_actors
         .retain(|row| row.id != blocker);
@@ -1321,7 +1321,7 @@ fn known_wall_missing_later_prefix_is_unknown_not_early_veto() {
         alternate_choice(&game, &sight, &missing),
         Some(StepDirection::East.into())
     );
-    let mut missing_sight = sight.clone();
+    let mut missing_sight = sight;
     missing_sight.retain(|c| c.location != low_wall_at(4, 2, 0));
     assert_eq!(
         alternate_choice(&game, &missing_sight, &view),

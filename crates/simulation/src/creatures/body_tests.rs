@@ -365,7 +365,7 @@ fn package_and_personal_talent_keep_two_funding_records_but_grant_once() {
         .push(AdvancementPurchase {
             id: None,
             pool: crate::content_ids::PointPoolId::new("advancement").unwrap(),
-            selection: PurchaseSelection::Talent(talent.clone()),
+            selection: PurchaseSelection::Talent(talent),
         });
     let innate = Arc::new(innate);
     let package_only = build.replace_body_package(innate.clone()).unwrap();
@@ -881,7 +881,7 @@ fn original_body_funded_personal_grants_survive_forms_without_becoming_visitor_g
     let mut omitted = grants.clone();
     omitted.remove(&7);
     assert!(enroll(omitted).is_err());
-    let mut wrong_ordinal = grants.clone();
+    let mut wrong_ordinal = grants;
     let moved = wrong_ordinal.remove(&3).unwrap();
     wrong_ordinal.insert(2, moved);
     assert!(enroll(wrong_ordinal).is_err());

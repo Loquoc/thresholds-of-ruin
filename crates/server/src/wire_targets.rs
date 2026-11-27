@@ -83,13 +83,7 @@ impl TargetScope {
         identity: tor_simulation::IntentionId,
     ) -> tor_protocol::IntentionId {
         let digest = self.digest(b'q', identity.0);
-        tor_protocol::IntentionId(format!(
-            "choice:{}",
-            digest
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
-        ))
+        tor_protocol::IntentionId(format!("choice:{}", tor_protocol::lower_hex(&digest)))
     }
 
     pub fn item(&self, identity: ItemId) -> ItemTarget {

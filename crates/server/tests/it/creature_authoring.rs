@@ -229,7 +229,7 @@ fn authored_build_bounds_and_template_conflicts_are_checked_before_spawning() {
 #[test]
 fn authored_schemas_reject_unknown_fields_and_catalog_values() {
     let source = serde_json::to_value(specification()).unwrap();
-    let mut mutated = source.clone();
+    let mut mutated = source;
     mutated["unexpected"] = serde_json::json!(true);
     assert!(serde_json::from_value::<BuildSpec>(mutated).is_err());
     let mut source = serde_json::to_value(catalog()).unwrap();

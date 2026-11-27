@@ -49,7 +49,7 @@ fn ordered_strikes_detail_request_has_strict_source_target_and_required_nullable
         bad["request"]["command"]["source"] = selector;
         assert!(decode_request(&bad.to_string()).is_err());
     }
-    let mut resumed = good.clone();
+    let mut resumed = good;
     resumed["request"]["command"]["cursor"] = cursor();
     assert!(decode_request(&resumed.to_string()).is_ok());
     resumed["request"]["command"]["cursor"]["position"]["index"] = json!(128);
@@ -83,7 +83,7 @@ fn ordered_strikes_detail_page_roundtrips_complete_envelope_and_explicit_continu
             "missing {field}"
         );
     }
-    let mut last = good.clone();
+    let mut last = good;
     last["page"]["start"] = cursor()["position"].clone();
     last["page"]["entries"] = json!([{"kind":"strike_descriptor","strike":0,"index":0,
         "descriptor":{"id":"escaped","name":"\\".repeat(256)}}]);

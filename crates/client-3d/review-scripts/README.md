@@ -32,15 +32,37 @@ with matched bodies/outfits at rest, walking, turning, and settling. Change all
 three actors to another supported outfit to review that outfit without changing
 the motion comparison.
 
+[Hobgoblin strike recovery](hobgoblin-strike-recovery.json) compares the same
+grounded model in four lanes, left to right: restart from idle, restart during
+strike recovery, restart just after the strike, and strike without moving
+again. Compare the supporting foot in `recovery-before` and `recovery-after`;
+use the idle and stationary lanes to distinguish an intentional change of
+stance from a foot snapping as walking resumes. This is a visual review scene,
+not a combat simulation.
+
+For a deterministic capture, set an actor's optional `"held_item"` to a model name
+such as `"LongSword"` or `"Staff"`. Biped and Centaur rigs use the same right-hand
+attachment as exploration. An optional `"held_asset"` selects a visual appearance,
+for example `"item.wand.copper"` with `"held_item": "Wand"`. The held prop stays
+in hand when a `dress` or `equipment` event rebuilds the rig. Live playlists do
+not support these fields.
+
 Each camera specifies position, target and perspective field of view in degrees.
-World Y is up. Actor yaw is in degrees. The initial stage has a fixed neutral
-ground and directional/ambient lighting. Camera projection customization and
-scene lighting controls remain planned.
+World Y is up. Actor yaw is in degrees. The default flat stage has a neutral
+floor at world Y = -0.5 and directional/ambient lighting. The renderer uses the
+authored actor position without snapping it to the floor. For foot, root, or
+cloth contact checks on the flat stage, start grounded actors at Y = -0.5, as in
+[walking-carriage.json](walking-carriage.json), and confirm contact in a side
+view. Leave intentional elevation and custom stage surfaces as authored.
+Camera projection customization and scene lighting controls remain planned.
 
 Events must be ordered by integer `tick`. Operations for an actor at the same
 tick run in source order. Movement reaches that timestamp using the previous
 velocity; boundary events affect the following interval. A teleport is visible at
-its exact requested position at that timestamp, with no extra movement step:
+its exact requested position at that timestamp, with no extra movement step.
+Tick-zero actor events set up the first rest pose before its rig is built. An
+outfit or loadout set at tick zero therefore looks the same as one set directly
+on the actor.
 
 - `action`: `name` can be `jump`, `strike`, `thrust`, `heavy`, `focus`, `gesture`,
   `cancel`, or an exact ability ID with an authored animation recipe. For
@@ -48,10 +70,8 @@ its exact requested position at that timestamp, with no extra movement step:
   corrosion motion. This replays the pose, not a server action, hit, or
   target-dependent effect. Unknown names are rejected. A named action
   starts/restarts at phase zero at its timestamp; the following interval advances
-  it. Action starts require tick 1 or later;
-  tick zero is the generated rest pose. That pose does not yet present the
-  actor's authored `yaw` (the manifest still records it), so capture turned
-  actors at tick 1 or later.
+  it. Action starts require tick 1 or later; tick zero holds the generated
+  rest pose, with the actor facing its authored `yaw`.
 - `death`: optionally set `motion` to `collapse`, `stagger`, or `dramatic`.
   It stops the actor and starts the selected animation at that tick (tick 1
   or later). Omission keeps the original deterministic `collapse` for existing

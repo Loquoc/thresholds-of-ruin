@@ -629,7 +629,7 @@ fn maximum_birth_stock_pools_and_attempt_receipts_fit_the_unchanged_checkpoint_e
             bounds: tor_world::Extent::new(i32::from(MAX_ATTEMPTS) + 2, 3, 1).unwrap(),
         })
         .unwrap();
-    let mut game = Game::new(world, 42, game().content.clone());
+    let mut game = Game::new(world, 42, game().content);
     game.configure_scenario_policy(ScenarioCapabilities::default(), Some(ActorId(1)))
         .unwrap();
     game.spawn_actor(at(1, 0, 1), NonZeroU64::new(100).unwrap())

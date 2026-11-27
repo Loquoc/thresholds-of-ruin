@@ -44,7 +44,7 @@ fn category_bonus_preserves_primary_pool_dice_edge_and_other_components() {
                 DicePool::new(1, 4, 0).unwrap(),
             ),
         ],
-        Some(key.clone()),
+        Some(key),
     )
     .unwrap();
     let boosted = base.with_category_bonus(DamageType::Impact, 3).unwrap();
@@ -94,7 +94,7 @@ fn missing_category_bonus_does_not_change_existing_roll_order_or_bypass_protecti
             primary,
             DamageComponent::rolled(DamageType::Energy, None, DicePool::new(1, 8, 0).unwrap()),
         ],
-        Some(key.clone()),
+        Some(key),
     )
     .unwrap();
     let boosted = base.with_category_bonus(DamageType::Impact, 3).unwrap();
@@ -293,11 +293,7 @@ fn canonical_pools_are_independent_of_content_order_and_splitting() {
         DicePool::new(1, 8, 0).unwrap(),
     );
     let primary = Some(fire.key());
-    let split = DamageSpec::new(
-        vec![cold.clone(), fire.clone(), fire.clone()],
-        primary.clone(),
-    )
-    .unwrap();
+    let split = DamageSpec::new(vec![cold.clone(), fire.clone(), fire], primary.clone()).unwrap();
     let merged = DamageSpec::new(
         vec![
             DamageComponent::rolled(

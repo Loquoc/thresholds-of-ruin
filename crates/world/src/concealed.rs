@@ -604,7 +604,7 @@ mod tests {
         };
         world.place_trap(at, trap.clone()).unwrap();
         let original = world.clone();
-        assert!(world.place_trap(at, trap.clone()).is_err());
+        assert!(world.place_trap(at, trap).is_err());
         assert_eq!(world, original);
         let slice = world.detach_region(at.region).unwrap();
         assert!(slice.valid());

@@ -170,9 +170,9 @@ impl Figure {
                 matches!(outfit.legs, Legs::Trousers(_)),
                 b,
                 // The shaft and cap share a shin frame. Leave room for piping.
-                composition.footwear_below_knee.then_some(
-                    -PLATE_KNEE_COP_RADII.y.max(PLATE_KNEE_WING_RADII.y) - 0.006,
-                ),
+                composition
+                    .footwear_below_knee
+                    .then_some(-PLATE_KNEE_COP_RADII.y.max(PLATE_KNEE_WING_RADII.y) - 0.006),
             )
         });
         let boot_shape = fitted_shin
@@ -601,14 +601,13 @@ fn bust_skin_shade(skin: Vec3, bust: Option<Bust>, at: Vec3, normal: Vec3) -> Ve
         }
 
         let apex_dist = ((dx / radii.x).powi(2) + (dy / radii.y).powi(2)).min(2.0);
-        let superior_slope = (-apex_dist).exp()
-            * smooth(0.05, 0.50, normal.y)
-            * smooth(0.25, 0.70, normal.z);
+        let superior_slope =
+            (-apex_dist).exp() * smooth(0.05, 0.50, normal.y) * smooth(0.25, 0.70, normal.z);
         highlight = highlight.max(superior_slope);
     }
 
-    let crease = (sulcus * 1.32 + inframammary * 1.05 + lateral_contour * 0.85).clamp(0.0, 1.0)
-        * strength;
+    let crease =
+        (sulcus * 1.32 + inframammary * 1.05 + lateral_contour * 0.85).clamp(0.0, 1.0) * strength;
     let luma = skin.dot(Vec3::new(0.2126, 0.7152, 0.0722));
     // Fair skin needs a steeper power curve to read under AmbientLight/tonemapping;
     // mid/darker fantastic skin needs a gentler curve so channels never crush.
@@ -723,9 +722,8 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         }
         None
     };
-    let skin_shade = |at: Vec3, normal: Vec3| -> Vec3 {
-        bust_skin_shade(l.skin, body.bust, at, normal)
-    };
+    let skin_shade =
+        |at: Vec3, normal: Vec3| -> Vec3 { bust_skin_shade(l.skin, body.bust, at, normal) };
     if l.equipment.shirt.is_some() && (native_plate.is_some() || equipped_plate.is_some()) {
         // The historical armored shirt can coincide with skin. Retain only
         // exposed skin there, avoiding coplanar skin/cloth triangles.
@@ -1729,7 +1727,9 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             surface = surface.fit_over(
                 under,
                 Affine3A::from_scale_rotation_translation(skirt_scale, Quat::IDENTITY, -offset),
-                armor_panel.or(outfit.skirt).is_some_and(|skirt| skirt.trim.is_some()),
+                armor_panel
+                    .or(outfit.skirt)
+                    .is_some_and(|skirt| skirt.trim.is_some()),
             );
         }
         if fit_details {
@@ -2493,7 +2493,7 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
                 recipe.reserve_body_layer(armor);
             }
             if outfit.baldric.is_some() {
-                recipe.reserve_back_layer(BALDRIC_SURFACE_OFFSET);
+                recipe.reserve_back_layer(BALDRIC_CLOAK_RESERVATION);
             }
             if extra > 0.0 {
                 recipe.reserve_back_layer(extra);
@@ -2987,7 +2987,10 @@ fn bust_skin_shade_preserves_neutral_and_fantastic_hues() {
             Vec3::new(0.0, -0.6, 0.8).normalize(),
         );
         assert!(luma(sulcus) < luma(skin), "sulcus must darken {skin:?}");
-        assert!(luma(fold) < luma(skin), "inframammary fold must darken {skin:?}");
+        assert!(
+            luma(fold) < luma(skin),
+            "inframammary fold must darken {skin:?}"
+        );
         assert!(sulcus.min_element() > 0.0 && fold.min_element() > 0.0);
     }
 

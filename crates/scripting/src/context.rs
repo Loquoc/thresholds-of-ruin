@@ -145,6 +145,396 @@ fn array(lua: &Lua, items: impl IntoIterator<Item = String>) -> mlua::Result<Tab
     Ok(table)
 }
 
+/// Register one scoped `ctx` method; its closure copies the bindings reference.
+macro_rules! method {
+    ($ctx:ident, $scope:ident, $name:literal, |$lua:ident, $args:ident| $body:expr) => {
+        $ctx.set(
+            $name,
+            $scope.create_function(move |$lua, $args: MultiValue| $body)?,
+        )?;
+    };
+}
+
+/// Borrowed inputs shared by every `ctx` method of one hook call.
+struct Bindings<'a> {
+    view: ScriptView<'a>,
+    meter: &'a Meter,
+    program: &'a Program,
+    config: &'a RuntimeConfig,
+    calls: &'a RefCell<CallState>,
+}
+
+impl Bindings<'_> {
+    /// Charge one query against the call budget.
+    fn query(&self) -> mlua::Result<()> {
+        if self.meter.charge(QUERY_COST) {
+            Ok(())
+        } else {
+            Err(budget_error())
+        }
+    }
+
+    /// Charge and record one effect, within the per-call effect limit.
+    fn effect(&self, effect: ScriptEffect) -> mlua::Result<()> {
+        if !self.meter.charge(EFFECT_COST) {
+            return Err(budget_error());
+        }
+        let mut calls = self.calls.borrow_mut();
+        if calls.effects.len() >= MAX_EFFECTS_PER_CALL {
+            return Err(mlua::Error::runtime("too many effects in one call"));
+        }
+        calls.effects.push(effect);
+        Ok(())
+    }
+}
+
+/// Read-only `ctx` queries over the disclosed script view.
+fn register_queries<'scope>(
+    scope: &'scope mlua::Scope<'scope, '_>,
+    ctx: &Table,
+    b: &'scope Bindings<'_>,
+) -> mlua::Result<()> {
+    method!(ctx, scope, "tick", |lua, _a| {
+        b.query()?;
+        values::exact(lua, b.view.tick())
+    });
+    method!(ctx, scope, "anchor", |lua, a| {
+        b.query()?;
+        let name = values::text(&arg(&a, 0), "anchor")?;
+        let at = b
+            .config
+            .anchors
+            .get(&name)
+            .ok_or_else(|| mlua::Error::runtime(format!("unknown anchor {name}")))?;
+        values::cell(lua, *at)
+    });
+    method!(ctx, scope, "location", |lua, a| {
+        b.query()?;
+        match b.view.actor_location(values::actor(&arg(&a, 0))?) {
+            Some(at) => Ok(LuaValue::Table(values::cell(lua, at)?)),
+            None => Ok(LuaValue::Nil),
+        }
+    });
+    method!(ctx, scope, "alive", |_lua, a| {
+        b.query()?;
+        Ok(b.view.alive(values::actor(&arg(&a, 0))?))
+    });
+    method!(ctx, scope, "is_character", |_lua, a| {
+        b.query()?;
+        Ok(b.view.is_character(values::actor(&arg(&a, 0))?))
+    });
+    method!(ctx, scope, "characters", |lua, _a| {
+        b.query()?;
+        array(lua, b.view.characters().map(|actor| id("actor", actor.0)))
+    });
+    method!(ctx, scope, "selected", |_lua, _a| {
+        b.query()?;
+        Ok(b.view.selected().map(|actor| id("actor", actor.0)))
+    });
+    method!(ctx, scope, "faction", |_lua, a| {
+        b.query()?;
+        Ok(b.view
+            .faction(values::actor(&arg(&a, 0))?)
+            .map(str::to_owned))
+    });
+    method!(ctx, scope, "actors_at", |lua, a| {
+        b.query()?;
+        let at = values::parse_cell(&arg(&a, 0))?;
+        array(
+            lua,
+            b.view
+                .actors_at(at)
+                .into_iter()
+                .map(|actor| id("actor", actor.0)),
+        )
+    });
+    method!(ctx, scope, "health", |lua, a| {
+        b.query()?;
+        match b.view.health(values::actor(&arg(&a, 0))?) {
+            Some((current, max)) => Ok(MultiValue::from_vec(vec![
+                values::exact(lua, current)?,
+                values::exact(lua, max)?,
+            ])),
+            None => Ok(MultiValue::new()),
+        }
+    });
+    method!(ctx, scope, "carried", |lua, a| {
+        b.query()?;
+        let actor = values::actor(&arg(&a, 0))?;
+        array(
+            lua,
+            b.view
+                .carried(actor)
+                .into_iter()
+                .map(|item| id("item", item.0)),
+        )
+    });
+    method!(ctx, scope, "items_at", |lua, a| {
+        b.query()?;
+        let at = values::parse_cell(&arg(&a, 0))?;
+        array(
+            lua,
+            b.view
+                .items_at(at)
+                .into_iter()
+                .map(|item| id("item", item.0)),
+        )
+    });
+    method!(ctx, scope, "item_identity", |_lua, a| {
+        b.query()?;
+        Ok(b.view
+            .item_identity(values::item(&arg(&a, 0))?)
+            .map(|identity| identity.as_str().to_owned()))
+    });
+    method!(ctx, scope, "door_open", |_lua, a| {
+        b.query()?;
+        Ok(b.view.door_open(values::parse_cell(&arg(&a, 0))?))
+    });
+    method!(ctx, scope, "var", |lua, a| {
+        b.query()?;
+        let name = values::text(&arg(&a, 0), "variable")?;
+        match b.view.var(scope_arg(&a, 1)?, &name) {
+            Some(value) => to_lua(lua, value),
+            None => Ok(LuaValue::Nil),
+        }
+    });
+    method!(ctx, scope, "timer_remaining", |lua, a| {
+        b.query()?;
+        match b.view.timer_remaining(values::timer(&arg(&a, 0))?) {
+            Some(left) => values::exact(lua, left),
+            None => Ok(LuaValue::Nil),
+        }
+    });
+    method!(ctx, scope, "random", |_lua, a| {
+        b.query()?;
+        let bound = values::count(&arg(&a, 0), "random bound")?;
+        let mut calls = b.calls.borrow_mut();
+        let draw = script_random(&mut calls.rng, bound)
+            .ok_or_else(|| mlua::Error::runtime("random bound must be at least 1"))?;
+        Ok((draw + 1) as f64)
+    });
+    Ok(())
+}
+
+/// `ctx` effects, recorded for the host to apply after the hook returns.
+fn register_effects<'scope>(
+    scope: &'scope mlua::Scope<'scope, '_>,
+    ctx: &Table,
+    b: &'scope Bindings<'_>,
+) -> mlua::Result<()> {
+    method!(ctx, scope, "message", |_lua, a| {
+        let text = values::text(&arg(&a, 0), "message")?;
+        let options = arg(&a, 1);
+        let (style, audience) = match &options {
+            LuaValue::Nil => (MessageStyle::Tutorial, Audience::Characters),
+            LuaValue::Table(options) => {
+                let style = match options.get::<LuaValue>("style")? {
+                    LuaValue::Nil => MessageStyle::Tutorial,
+                    value => match values::text(&value, "style")?.as_str() {
+                        "tutorial" => MessageStyle::Tutorial,
+                        "hint" => MessageStyle::Hint,
+                        "narration" => MessageStyle::Narration,
+                        other => {
+                            return Err(mlua::Error::runtime(format!("unknown style {other}")))
+                        }
+                    },
+                };
+                let audience = match options.get::<LuaValue>("to")? {
+                    LuaValue::Nil => Audience::Characters,
+                    value => Audience::Actor(values::actor(&value)?),
+                };
+                (style, audience)
+            }
+            _ => return Err(mlua::Error::runtime("message options must be a table")),
+        };
+        b.effect(ScriptEffect::Message {
+            audience,
+            style,
+            segments: segments(&text, &b.config.controls)?,
+        })
+    });
+    method!(ctx, scope, "set_var", |_lua, a| {
+        b.effect(ScriptEffect::SetVar {
+            name: values::text(&arg(&a, 0), "variable")?,
+            value: from_lua(&arg(&a, 1))?,
+            scope: scope_arg(&a, 2)?,
+        })
+    });
+    method!(ctx, scope, "clear_var", |_lua, a| {
+        b.effect(ScriptEffect::ClearVar {
+            name: values::text(&arg(&a, 0), "variable")?,
+            scope: scope_arg(&a, 1)?,
+        })
+    });
+    method!(ctx, scope, "start_timer", |_lua, a| {
+        let name = values::text(&arg(&a, 0), "handler")?;
+        let handler = b
+            .program
+            .handler_id(&name)
+            .ok_or_else(|| mlua::Error::runtime(format!("unknown handler {name}")))?;
+        let after = values::count(&arg(&a, 1), "timer delay")?;
+        let (arg_value, timer_owner) = match arg(&a, 2) {
+            LuaValue::Nil => (0, None),
+            LuaValue::Table(options) => (
+                match options.get::<LuaValue>("arg")? {
+                    LuaValue::Nil => 0,
+                    value => values::integer(&value, "timer arg")?,
+                },
+                owner(&options.get::<LuaValue>("owner")?)?,
+            ),
+            _ => return Err(mlua::Error::runtime("timer options must be a table")),
+        };
+        let timer = {
+            let mut calls = b.calls.borrow_mut();
+            let timer = TimerId(calls.next_timer);
+            calls.next_timer += 1;
+            timer
+        };
+        b.effect(ScriptEffect::StartTimer {
+            id: timer,
+            handler,
+            owner: timer_owner,
+            after,
+            arg: arg_value,
+        })?;
+        Ok(id("timer", timer.0))
+    });
+    method!(ctx, scope, "cancel_timer", |_lua, a| {
+        b.effect(ScriptEffect::CancelTimer {
+            id: values::timer(&arg(&a, 0))?,
+        })
+    });
+    method!(ctx, scope, "bind", |_lua, a| {
+        let LuaValue::Table(spec) = arg(&a, 0) else {
+            return Err(mlua::Error::runtime("bind takes a table"));
+        };
+        let binding = parse_binding(&spec, b.program)?;
+        let binding_id = {
+            let mut calls = b.calls.borrow_mut();
+            let next = BindingId(calls.next_binding);
+            calls.next_binding += 1;
+            next
+        };
+        b.effect(ScriptEffect::Bind {
+            id: binding_id,
+            binding,
+        })?;
+        Ok(id("binding", binding_id.0))
+    });
+    method!(ctx, scope, "unbind", |_lua, a| {
+        b.effect(ScriptEffect::Unbind {
+            id: values::binding(&arg(&a, 0))?,
+        })
+    });
+    method!(ctx, scope, "set_door", |_lua, a| {
+        let open = match arg(&a, 1) {
+            LuaValue::Boolean(open) => open,
+            _ => return Err(mlua::Error::runtime("set_door needs true or false")),
+        };
+        b.effect(ScriptEffect::SetDoor {
+            at: values::parse_cell(&arg(&a, 0))?,
+            open,
+        })
+    });
+    method!(ctx, scope, "place_item", |_lua, a| {
+        let identity: ItemIdentity = values::text(&arg(&a, 0), "item identity")?
+            .parse()
+            .map_err(|_| mlua::Error::runtime("invalid item identity"))?;
+        let name = values::text(&arg(&a, 1), "item name")?;
+        let at = values::parse_cell(&arg(&a, 2))?;
+        let item = {
+            let mut calls = b.calls.borrow_mut();
+            let item = ItemId(calls.next_item);
+            calls.next_item += 1;
+            item
+        };
+        b.effect(ScriptEffect::PlaceItem {
+            id: item,
+            identity,
+            name,
+            at,
+        })?;
+        Ok(id("item", item.0))
+    });
+    method!(ctx, scope, "remove_item", |_lua, a| {
+        b.effect(ScriptEffect::RemoveItem {
+            item: values::item(&arg(&a, 0))?,
+        })
+    });
+    method!(ctx, scope, "teleport", |_lua, a| {
+        b.effect(ScriptEffect::Teleport {
+            actor: values::actor(&arg(&a, 0))?,
+            to: values::parse_cell(&arg(&a, 1))?,
+        })
+    });
+    method!(ctx, scope, "win", |_lua, a| {
+        let actor = optional_actor(&arg(&a, 0))?;
+        let continuing = match arg(&a, 1) {
+            LuaValue::Nil => false,
+            LuaValue::Table(options) => match options.get::<LuaValue>("continue")? {
+                LuaValue::Nil => false,
+                LuaValue::Boolean(continuing) => continuing,
+                _ => return Err(mlua::Error::runtime("continue must be a boolean")),
+            },
+            _ => return Err(mlua::Error::runtime("win options must be a table")),
+        };
+        b.effect(ScriptEffect::EndRun {
+            end: RunEnd::Victory,
+            actor,
+            terminal: !continuing,
+        })
+    });
+    method!(ctx, scope, "lose", |_lua, a| {
+        b.effect(ScriptEffect::EndRun {
+            end: RunEnd::Defeat,
+            actor: optional_actor(&arg(&a, 0))?,
+            terminal: true,
+        })
+    });
+    method!(ctx, scope, "end_arena", |_lua, a| {
+        let winner = match arg(&a, 0) {
+            LuaValue::Nil => None,
+            value => Some(values::text(&value, "winner")?),
+        };
+        b.effect(ScriptEffect::StopArena { winner })
+    });
+    method!(ctx, scope, "set_goal", |_lua, a| {
+        let text = values::text(&arg(&a, 0), "goal")?;
+        let (audience, cell) = match arg(&a, 1) {
+            LuaValue::Nil => (Audience::Characters, None),
+            LuaValue::Table(options) => {
+                let audience = match options.get::<LuaValue>("to")? {
+                    LuaValue::Nil => Audience::Characters,
+                    value => Audience::Actor(values::actor(&value)?),
+                };
+                let cell = match options.get::<LuaValue>("cell")? {
+                    LuaValue::Nil => None,
+                    value => Some(values::parse_cell(&value)?),
+                };
+                (audience, cell)
+            }
+            _ => return Err(mlua::Error::runtime("goal options must be a table")),
+        };
+        b.effect(ScriptEffect::SetGoal {
+            audience,
+            segments: segments(&text, &b.config.controls)?,
+            cell,
+        })
+    });
+    method!(ctx, scope, "clear_goal", |_lua, a| {
+        let audience = match arg(&a, 0) {
+            LuaValue::Nil => Audience::Characters,
+            LuaValue::Table(options) => match options.get::<LuaValue>("to")? {
+                LuaValue::Nil => Audience::Characters,
+                value => Audience::Actor(values::actor(&value)?),
+            },
+            _ => return Err(mlua::Error::runtime("clear_goal options must be a table")),
+        };
+        b.effect(ScriptEffect::ClearGoal { audience })
+    });
+    Ok(())
+}
+
 pub(crate) fn invoke(
     lua: &Lua,
     chunk: &Function,
@@ -160,362 +550,17 @@ pub(crate) fn invoke(
         next_timer: state.next_timer().0,
         next_item: call.view.next_item().0,
     });
-    let view = call.view;
-    let meter = call.meter;
-    let program = call.program;
-    let config = call.config;
-    let query = || {
-        if meter.charge(QUERY_COST) {
-            Ok(())
-        } else {
-            Err(budget_error())
-        }
-    };
-    let effect = |effect: ScriptEffect| -> mlua::Result<()> {
-        if !meter.charge(EFFECT_COST) {
-            return Err(budget_error());
-        }
-        let mut calls = calls.borrow_mut();
-        if calls.effects.len() >= MAX_EFFECTS_PER_CALL {
-            return Err(mlua::Error::runtime("too many effects in one call"));
-        }
-        calls.effects.push(effect);
-        Ok(())
+    let bindings = Bindings {
+        view: call.view,
+        meter: call.meter,
+        program: call.program,
+        config: call.config,
+        calls: &calls,
     };
     lua.scope(|scope| {
         let ctx = lua.create_table()?;
-        macro_rules! method {
-            ($name:literal, |$lua:ident, $args:ident| $body:expr) => {
-                ctx.set(
-                    $name,
-                    scope.create_function(|$lua, $args: MultiValue| $body)?,
-                )?;
-            };
-        }
-
-        // Queries.
-        method!("tick", |lua, _a| {
-            query()?;
-            values::exact(lua, view.tick())
-        });
-        method!("anchor", |lua, a| {
-            query()?;
-            let name = values::text(&arg(&a, 0), "anchor")?;
-            let at = config
-                .anchors
-                .get(&name)
-                .ok_or_else(|| mlua::Error::runtime(format!("unknown anchor {name}")))?;
-            values::cell(lua, *at)
-        });
-        method!("location", |lua, a| {
-            query()?;
-            match view.actor_location(values::actor(&arg(&a, 0))?) {
-                Some(at) => Ok(LuaValue::Table(values::cell(lua, at)?)),
-                None => Ok(LuaValue::Nil),
-            }
-        });
-        method!("alive", |_lua, a| {
-            query()?;
-            Ok(view.alive(values::actor(&arg(&a, 0))?))
-        });
-        method!("is_character", |_lua, a| {
-            query()?;
-            Ok(view.is_character(values::actor(&arg(&a, 0))?))
-        });
-        method!("characters", |lua, _a| {
-            query()?;
-            array(lua, view.characters().map(|actor| id("actor", actor.0)))
-        });
-        method!("selected", |_lua, _a| {
-            query()?;
-            Ok(view.selected().map(|actor| id("actor", actor.0)))
-        });
-        method!("faction", |_lua, a| {
-            query()?;
-            Ok(view.faction(values::actor(&arg(&a, 0))?).map(str::to_owned))
-        });
-        method!("actors_at", |lua, a| {
-            query()?;
-            let at = values::parse_cell(&arg(&a, 0))?;
-            array(
-                lua,
-                view.actors_at(at)
-                    .into_iter()
-                    .map(|actor| id("actor", actor.0)),
-            )
-        });
-        method!("health", |lua, a| {
-            query()?;
-            match view.health(values::actor(&arg(&a, 0))?) {
-                Some((current, max)) => Ok(MultiValue::from_vec(vec![
-                    values::exact(lua, current)?,
-                    values::exact(lua, max)?,
-                ])),
-                None => Ok(MultiValue::new()),
-            }
-        });
-        method!("carried", |lua, a| {
-            query()?;
-            let actor = values::actor(&arg(&a, 0))?;
-            array(
-                lua,
-                view.carried(actor)
-                    .into_iter()
-                    .map(|item| id("item", item.0)),
-            )
-        });
-        method!("items_at", |lua, a| {
-            query()?;
-            let at = values::parse_cell(&arg(&a, 0))?;
-            array(
-                lua,
-                view.items_at(at).into_iter().map(|item| id("item", item.0)),
-            )
-        });
-        method!("item_identity", |_lua, a| {
-            query()?;
-            Ok(view
-                .item_identity(values::item(&arg(&a, 0))?)
-                .map(|identity| identity.as_str().to_owned()))
-        });
-        method!("door_open", |_lua, a| {
-            query()?;
-            Ok(view.door_open(values::parse_cell(&arg(&a, 0))?))
-        });
-        method!("var", |lua, a| {
-            query()?;
-            let name = values::text(&arg(&a, 0), "variable")?;
-            match view.var(scope_arg(&a, 1)?, &name) {
-                Some(value) => to_lua(lua, value),
-                None => Ok(LuaValue::Nil),
-            }
-        });
-        method!("timer_remaining", |lua, a| {
-            query()?;
-            match view.timer_remaining(values::timer(&arg(&a, 0))?) {
-                Some(left) => values::exact(lua, left),
-                None => Ok(LuaValue::Nil),
-            }
-        });
-        method!("random", |_lua, a| {
-            query()?;
-            let bound = values::count(&arg(&a, 0), "random bound")?;
-            let mut calls = calls.borrow_mut();
-            let draw = script_random(&mut calls.rng, bound)
-                .ok_or_else(|| mlua::Error::runtime("random bound must be at least 1"))?;
-            Ok((draw + 1) as f64)
-        });
-
-        // Effects.
-        method!("message", |_lua, a| {
-            let text = values::text(&arg(&a, 0), "message")?;
-            let options = arg(&a, 1);
-            let (style, audience) = match &options {
-                LuaValue::Nil => (MessageStyle::Tutorial, Audience::Characters),
-                LuaValue::Table(options) => {
-                    let style = match options.get::<LuaValue>("style")? {
-                        LuaValue::Nil => MessageStyle::Tutorial,
-                        value => match values::text(&value, "style")?.as_str() {
-                            "tutorial" => MessageStyle::Tutorial,
-                            "hint" => MessageStyle::Hint,
-                            "narration" => MessageStyle::Narration,
-                            other => {
-                                return Err(mlua::Error::runtime(format!("unknown style {other}")))
-                            }
-                        },
-                    };
-                    let audience = match options.get::<LuaValue>("to")? {
-                        LuaValue::Nil => Audience::Characters,
-                        value => Audience::Actor(values::actor(&value)?),
-                    };
-                    (style, audience)
-                }
-                _ => return Err(mlua::Error::runtime("message options must be a table")),
-            };
-            effect(ScriptEffect::Message {
-                audience,
-                style,
-                segments: segments(&text, &config.controls)?,
-            })
-        });
-        method!("set_var", |_lua, a| {
-            effect(ScriptEffect::SetVar {
-                name: values::text(&arg(&a, 0), "variable")?,
-                value: from_lua(&arg(&a, 1))?,
-                scope: scope_arg(&a, 2)?,
-            })
-        });
-        method!("clear_var", |_lua, a| {
-            effect(ScriptEffect::ClearVar {
-                name: values::text(&arg(&a, 0), "variable")?,
-                scope: scope_arg(&a, 1)?,
-            })
-        });
-        method!("start_timer", |_lua, a| {
-            let name = values::text(&arg(&a, 0), "handler")?;
-            let handler = program
-                .handler_id(&name)
-                .ok_or_else(|| mlua::Error::runtime(format!("unknown handler {name}")))?;
-            let after = values::count(&arg(&a, 1), "timer delay")?;
-            let (arg_value, timer_owner) = match arg(&a, 2) {
-                LuaValue::Nil => (0, None),
-                LuaValue::Table(options) => (
-                    match options.get::<LuaValue>("arg")? {
-                        LuaValue::Nil => 0,
-                        value => values::integer(&value, "timer arg")?,
-                    },
-                    owner(&options.get::<LuaValue>("owner")?)?,
-                ),
-                _ => return Err(mlua::Error::runtime("timer options must be a table")),
-            };
-            let timer = {
-                let mut calls = calls.borrow_mut();
-                let timer = TimerId(calls.next_timer);
-                calls.next_timer += 1;
-                timer
-            };
-            effect(ScriptEffect::StartTimer {
-                id: timer,
-                handler,
-                owner: timer_owner,
-                after,
-                arg: arg_value,
-            })?;
-            Ok(id("timer", timer.0))
-        });
-        method!("cancel_timer", |_lua, a| {
-            effect(ScriptEffect::CancelTimer {
-                id: values::timer(&arg(&a, 0))?,
-            })
-        });
-        method!("bind", |_lua, a| {
-            let LuaValue::Table(spec) = arg(&a, 0) else {
-                return Err(mlua::Error::runtime("bind takes a table"));
-            };
-            let binding = parse_binding(&spec, program)?;
-            let binding_id = {
-                let mut calls = calls.borrow_mut();
-                let next = BindingId(calls.next_binding);
-                calls.next_binding += 1;
-                next
-            };
-            effect(ScriptEffect::Bind {
-                id: binding_id,
-                binding,
-            })?;
-            Ok(id("binding", binding_id.0))
-        });
-        method!("unbind", |_lua, a| {
-            effect(ScriptEffect::Unbind {
-                id: values::binding(&arg(&a, 0))?,
-            })
-        });
-        method!("set_door", |_lua, a| {
-            let open = match arg(&a, 1) {
-                LuaValue::Boolean(open) => open,
-                _ => return Err(mlua::Error::runtime("set_door needs true or false")),
-            };
-            effect(ScriptEffect::SetDoor {
-                at: values::parse_cell(&arg(&a, 0))?,
-                open,
-            })
-        });
-        method!("place_item", |_lua, a| {
-            let identity: ItemIdentity = values::text(&arg(&a, 0), "item identity")?
-                .parse()
-                .map_err(|_| mlua::Error::runtime("invalid item identity"))?;
-            let name = values::text(&arg(&a, 1), "item name")?;
-            let at = values::parse_cell(&arg(&a, 2))?;
-            let item = {
-                let mut calls = calls.borrow_mut();
-                let item = ItemId(calls.next_item);
-                calls.next_item += 1;
-                item
-            };
-            effect(ScriptEffect::PlaceItem {
-                id: item,
-                identity,
-                name,
-                at,
-            })?;
-            Ok(id("item", item.0))
-        });
-        method!("remove_item", |_lua, a| {
-            effect(ScriptEffect::RemoveItem {
-                item: values::item(&arg(&a, 0))?,
-            })
-        });
-        method!("teleport", |_lua, a| {
-            effect(ScriptEffect::Teleport {
-                actor: values::actor(&arg(&a, 0))?,
-                to: values::parse_cell(&arg(&a, 1))?,
-            })
-        });
-        method!("win", |_lua, a| {
-            let actor = optional_actor(&arg(&a, 0))?;
-            let continuing = match arg(&a, 1) {
-                LuaValue::Nil => false,
-                LuaValue::Table(options) => match options.get::<LuaValue>("continue")? {
-                    LuaValue::Nil => false,
-                    LuaValue::Boolean(continuing) => continuing,
-                    _ => return Err(mlua::Error::runtime("continue must be a boolean")),
-                },
-                _ => return Err(mlua::Error::runtime("win options must be a table")),
-            };
-            effect(ScriptEffect::EndRun {
-                end: RunEnd::Victory,
-                actor,
-                terminal: !continuing,
-            })
-        });
-        method!("lose", |_lua, a| {
-            effect(ScriptEffect::EndRun {
-                end: RunEnd::Defeat,
-                actor: optional_actor(&arg(&a, 0))?,
-                terminal: true,
-            })
-        });
-        method!("end_arena", |_lua, a| {
-            let winner = match arg(&a, 0) {
-                LuaValue::Nil => None,
-                value => Some(values::text(&value, "winner")?),
-            };
-            effect(ScriptEffect::StopArena { winner })
-        });
-        method!("set_goal", |_lua, a| {
-            let text = values::text(&arg(&a, 0), "goal")?;
-            let (audience, cell) = match arg(&a, 1) {
-                LuaValue::Nil => (Audience::Characters, None),
-                LuaValue::Table(options) => {
-                    let audience = match options.get::<LuaValue>("to")? {
-                        LuaValue::Nil => Audience::Characters,
-                        value => Audience::Actor(values::actor(&value)?),
-                    };
-                    let cell = match options.get::<LuaValue>("cell")? {
-                        LuaValue::Nil => None,
-                        value => Some(values::parse_cell(&value)?),
-                    };
-                    (audience, cell)
-                }
-                _ => return Err(mlua::Error::runtime("goal options must be a table")),
-            };
-            effect(ScriptEffect::SetGoal {
-                audience,
-                segments: segments(&text, &config.controls)?,
-                cell,
-            })
-        });
-        method!("clear_goal", |_lua, a| {
-            let audience = match arg(&a, 0) {
-                LuaValue::Nil => Audience::Characters,
-                LuaValue::Table(options) => match options.get::<LuaValue>("to")? {
-                    LuaValue::Nil => Audience::Characters,
-                    value => Audience::Actor(values::actor(&value)?),
-                },
-                _ => return Err(mlua::Error::runtime("clear_goal options must be a table")),
-            };
-            effect(ScriptEffect::ClearGoal { audience })
-        });
+        register_queries(scope, &ctx, &bindings)?;
+        register_effects(scope, &ctx, &bindings)?;
         ctx.set_readonly(true);
 
         let facts = lua.create_table()?;

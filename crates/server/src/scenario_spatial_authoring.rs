@@ -280,7 +280,7 @@ mod tests {
             r#"{"members":[1],"rooms":{"1":[],"1":[]},"passages":[],"doorways":[]}"#
         )
         .is_err());
-        let mut unknown = valid.clone();
+        let mut unknown = valid;
         unknown["graph"] = serde_json::json!([]);
         assert!(serde_json::from_value::<AuthoredSpatialScope>(unknown).is_err());
         assert!(

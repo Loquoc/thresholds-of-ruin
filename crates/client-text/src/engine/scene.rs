@@ -265,9 +265,7 @@ pub fn bearing(p: Position) -> Option<Direction> {
     }
 }
 
-pub fn direction_name(d: Direction) -> &'static str {
-    adventure::direction_name(d)
-}
+pub use tor_client_common::direction_name;
 
 /// "at your feet", "to the east", "above you".
 pub fn whereabouts(p: Position) -> String {

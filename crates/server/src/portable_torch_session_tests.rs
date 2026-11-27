@@ -390,7 +390,7 @@ fn portable_torch_source_requires_single_tool_and_real_hand_equipment() {
         .and_then(|package| package.check());
         assert!(result.is_err(), "invalid torch {field}");
     }
-    let mut aliases = original.clone();
+    let mut aliases = original;
     aliases["archetypes"]["torch"]["identity"] = json!("item.tool.shared-torch");
     aliases["archetypes"]["torch_alias"] = aliases["archetypes"]["torch"].clone();
     Package::from_parts_scripted(

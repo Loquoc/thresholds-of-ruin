@@ -265,6 +265,9 @@ def ascii_stats_viewport_text(frame):
 
 def headless_fight_completion(frame):
     """Wait for completed ordinary combat work before the next fixture action."""
+    if frame.get("state_omitted"):
+        # A compact background frame carries no derived state to judge.
+        return False
     view = frame["state"]["observation"]
     readiness = frame["readiness"]
     # Observation and lifecycle arrive before their ordered permission update.

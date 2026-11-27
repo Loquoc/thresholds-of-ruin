@@ -365,3 +365,49 @@ fn shell_side_clipping_begins_only_above_the_shared_armhole_landmark() {
         }
     }
 }
+
+#[test]
+fn ranger_baldric_sits_close_to_the_outside_of_its_support() {
+    for woman in [false, true] {
+        for armor in [None, Some("leather"), Some("breastplate")] {
+            let mut look = Look::with_choice(
+                CreatureModel::Human,
+                7,
+                Some(Variant {
+                    woman,
+                    bust: 3,
+                    ..default()
+                }),
+            )
+            .dressed(Wardrobe::Ranger);
+            if let Some(armor) = armor {
+                look.equipment.select(armor).unwrap();
+            }
+            let figure = Figure::resolve(HumanoidBody::resolve(&look), &look);
+            let support = figure.outerwear_support();
+            let mut parts = Parts::default();
+            figure.baldric().unwrap().emit(&mut parts);
+            // Cover lower waist, torso, and upper chest. Use the emitted
+            // triangle faces (including the inner face), not fitted path
+            // vertices that are necessarily on their own inflated surface.
+            let mut sampled = 0;
+            let mut min_gap = f32::INFINITY;
+            let mut max_gap = f32::NEG_INFINITY;
+            for tri in parts.satin.surface_triangles() {
+                let centre = (tri[0] + tri[1] + tri[2]) / 3.0;
+                if centre.z > 0.0 && (0.12..=0.44).contains(&centre.y) {
+                    sampled += 1;
+                    let gap = support.distance(centre);
+                    min_gap = min_gap.min(gap);
+                    max_gap = max_gap.max(gap);
+                }
+            }
+            assert!(sampled > 200);
+            assert!(min_gap >= 0.001, "baldric intersects support: {min_gap:.5}");
+            assert!(
+                max_gap <= 0.012,
+                "baldric stands off from retained torso: woman={woman} armor={armor:?}, max={max_gap:.5}"
+            );
+        }
+    }
+}

@@ -942,10 +942,10 @@ fn public_effect_lifecycle_replaces_shared_state_and_model_without_start_or_end_
         first.events.is_empty(),
         "presence is not a replayed Start event"
     );
-    let mut updated = effect.clone();
+    let mut updated = effect;
     updated.cue = EffectCue::Cold;
     updated.expires_at = None;
-    for effects in [vec![updated.clone()], vec![], vec![updated.clone()]] {
+    for effects in [vec![updated.clone()], vec![], vec![updated]] {
         let mut next = client.state().clone();
         next.revision += 1;
         next.snapshot = SnapshotId(format!("effect-picture-{}", next.revision));

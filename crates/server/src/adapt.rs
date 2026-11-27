@@ -761,6 +761,180 @@ pub(crate) fn observation(
     observation_keyed(view, scene, &mut keys, ready, terrain, targets)
 }
 
+/// The attached actor's disclosed item interaction choices.
+fn interaction_view(
+    interaction: s::InteractionView,
+    targets: &crate::wire_adapter::TargetScope,
+    rules: Option<&s::rules::Ruleset>,
+) -> p::InteractionView {
+    p::InteractionView {
+        identification: interaction
+            .identification
+            .map(|choice| p::IdentificationChoiceView {
+                choice: targets.identification_choice(choice.choice),
+                classes: choice.classes.into_iter().map(item_class).collect(),
+                items: choice
+                    .items
+                    .into_iter()
+                    .map(|item| targets.item(item))
+                    .collect(),
+            }),
+        curse_blocked: interaction
+            .curse_blocked
+            .into_iter()
+            .map(|item| targets.item(item))
+            .collect(),
+        refused: interaction
+            .refused
+            .into_iter()
+            .map(|refusal| p::ItemRefusalView {
+                action: crate::wire_adapter::encode_action(
+                    &recorded_action(refusal.work.action()).expect("refused item action"),
+                    targets,
+                ),
+                reason: match refusal.reason {
+                    s::ItemRefusal::TooWeak => p::ItemRefusalReason::TooWeak,
+                },
+            })
+            .collect(),
+        completed: interaction
+            .completed
+            .into_iter()
+            .map(|work| {
+                crate::wire_adapter::encode_action(
+                    &recorded_action(work.action()).expect("completed item action"),
+                    targets,
+                )
+            })
+            .collect(),
+        slots: interaction.slots.into_iter().map(equipment_slot).collect(),
+        // Attached spectators share this ordinary projection. Private advancement
+        // operands are available only through the authorized owner query.
+        preparation: interaction
+            .preparation
+            .filter(|progress| !matches!(progress.work, s::Work::Respec { .. }))
+            .map(|progress| p::PreparationView {
+                action: crate::wire_adapter::encode_action(
+                    &recorded_action(progress.work.action()).unwrap(),
+                    targets,
+                ),
+                remaining: progress.remaining,
+                active: progress.active,
+            }),
+        inventory: interaction
+            .inventory
+            .into_iter()
+            .map(|item| p::ItemInteractionView {
+                item: targets.item(item.item),
+                slot: item.slot.map(equipment_slot),
+                equipped_slot: item.equipped_slot.map(|slot| slot.0),
+                known_projectile_bonus: item.known_projectile_bonus.map(|bonus| {
+                    p::ProjectileBonusView {
+                        hit: bonus.hit,
+                        damage: bonus.damage,
+                    }
+                }),
+                known_cursed: item.known_cursed,
+                known_protected: item.known_protected,
+                known_equipment: item.known_equipment.and_then(|equipment| {
+                    rules.map(|rules| p::EquipmentView {
+                        attack: equipment
+                            .attack
+                            .as_ref()
+                            .map(|attack| crate::creature_view::attack_view(attack, Some(rules))),
+                        modifiers: equipment
+                            .modifiers
+                            .iter()
+                            .map(|value| crate::creature_view::modifier(value, rules))
+                            .collect(),
+                    })
+                }),
+                portable_light: item.portable_light.map(|light| p::PortableLightView {
+                    remaining: light.remaining,
+                    lit: light.lit,
+                    ignitable: light.ignitable,
+                    extinguishable: light.extinguishable,
+                }),
+                drinkable: item.drinkable,
+                edible: item.edible,
+                readable: item.readable,
+                zappable: item.zappable,
+                device_activation: item.device_activation.map(|activation| match activation {
+                    s::DeviceActivation::Direction => p::DeviceActivation::Direction,
+                    s::DeviceActivation::SelfTarget => p::DeviceActivation::SelfTarget,
+                    s::DeviceActivation::DirectionOrSelf => p::DeviceActivation::DirectionOrSelf,
+                }),
+                charges: item.charges,
+            })
+            .collect(),
+    }
+}
+
+/// Shared inputs for adapting the attached actor's combat summary.
+struct CombatAdapter<'a> {
+    salt: &'a str,
+    actor: s::ActorId,
+    targets: &'a crate::wire_adapter::TargetScope,
+    effect_anchors: &'a std::collections::BTreeMap<p::Position, String>,
+}
+
+impl CombatAdapter<'_> {
+    fn view(&self, c: s::combat::CombatView, keys: &mut CellKeys) -> p::CombatView {
+        let Self {
+            salt,
+            actor,
+            targets,
+            effect_anchors,
+        } = *self;
+        p::CombatView {
+            public_plan: c
+                .public_plan
+                .as_deref()
+                .map(|record| crate::public_plan_view::view(record, salt, actor)),
+            own_stats: c
+                .own_stats
+                .map(|facts| crate::creature_view::own_stats(facts.into_owned())),
+            hp: c.hp,
+            max_hp: c.max_hp,
+            preparation_remaining: c.preparation_remaining,
+            preparation_active: c.preparation_active,
+            sequence: c.sequence.map(|sequence| p::SequenceView {
+                completed: sequence.completed,
+                total: sequence.total,
+                next_strike_remaining: sequence.next_strike_remaining,
+                cancel_recovery_remaining: sequence.cancel_recovery_remaining,
+            }),
+            recovery_remaining: c.recovery_remaining,
+            actors: c
+                .actors
+                .into_iter()
+                .map(|(id, hostile, allied, injury)| p::CombatActorView {
+                    actor: targets.actor(id),
+                    hostile,
+                    allied,
+                    injury: injury_view(injury),
+                })
+                .collect(),
+            events: c
+                .events
+                .into_iter()
+                .filter_map(|event| combat_event_view(event, targets, effect_anchors))
+                .collect(),
+            // A goal is shown only when its text maps onto the protocol's
+            // message vocabulary; the simulation already validates it.
+            goal: c.goal.and_then(|goal| {
+                Some(p::GoalView {
+                    segments: message_segments(&goal.segments)?,
+                    cell: goal.cell.map(|at| keys.key(at)),
+                })
+            }),
+            victory: c.victory,
+            dead: c.dead,
+            terminal: c.terminal,
+        }
+    }
+}
+
 /// The picture adaptation, taking cell keys from an observer's key memo.
 pub(crate) fn observation_keyed(
     view: s::Observation,
@@ -1000,153 +1174,17 @@ pub(crate) fn observation_keyed(
             worn: worn_views(&view.worn),
         }),
         linked_holds,
-        interactions: view.interactions.map(|interaction| p::InteractionView {
-            identification: interaction
-                .identification
-                .map(|choice| p::IdentificationChoiceView {
-                    choice: targets.identification_choice(choice.choice),
-                    classes: choice.classes.into_iter().map(item_class).collect(),
-                    items: choice
-                        .items
-                        .into_iter()
-                        .map(|item| targets.item(item))
-                        .collect(),
-                }),
-            curse_blocked: interaction
-                .curse_blocked
-                .into_iter()
-                .map(|item| targets.item(item))
-                .collect(),
-            refused: interaction
-                .refused
-                .into_iter()
-                .map(|refusal| p::ItemRefusalView {
-                    action: crate::wire_adapter::encode_action(
-                        &recorded_action(refusal.work.action()).expect("refused item action"),
-                        targets,
-                    ),
-                    reason: match refusal.reason {
-                        s::ItemRefusal::TooWeak => p::ItemRefusalReason::TooWeak,
-                    },
-                })
-                .collect(),
-            completed: interaction
-                .completed
-                .into_iter()
-                .map(|work| {
-                    crate::wire_adapter::encode_action(
-                        &recorded_action(work.action()).expect("completed item action"),
-                        targets,
-                    )
-                })
-                .collect(),
-            slots: interaction.slots.into_iter().map(equipment_slot).collect(),
-            // Attached spectators share this ordinary projection. Private advancement
-            // operands are available only through the authorized owner query.
-            preparation: interaction
-                .preparation
-                .filter(|progress| !matches!(progress.work, s::Work::Respec { .. }))
-                .map(|progress| p::PreparationView {
-                    action: crate::wire_adapter::encode_action(
-                        &recorded_action(progress.work.action()).unwrap(),
-                        targets,
-                    ),
-                    remaining: progress.remaining,
-                    active: progress.active,
-                }),
-            inventory: interaction
-                .inventory
-                .into_iter()
-                .map(|item| p::ItemInteractionView {
-                    item: targets.item(item.item),
-                    slot: item.slot.map(equipment_slot),
-                    equipped_slot: item.equipped_slot.map(|slot| slot.0),
-                    known_projectile_bonus: item.known_projectile_bonus.map(|bonus| {
-                        p::ProjectileBonusView {
-                            hit: bonus.hit,
-                            damage: bonus.damage,
-                        }
-                    }),
-                    known_cursed: item.known_cursed,
-                    known_protected: item.known_protected,
-                    known_equipment: item.known_equipment.and_then(|equipment| {
-                        rules.as_deref().map(|rules| p::EquipmentView {
-                            attack: equipment.attack.as_ref().map(|attack| {
-                                crate::creature_view::attack_view(attack, Some(rules))
-                            }),
-                            modifiers: equipment
-                                .modifiers
-                                .iter()
-                                .map(|value| crate::creature_view::modifier(value, rules))
-                                .collect(),
-                        })
-                    }),
-                    portable_light: item.portable_light.map(|light| p::PortableLightView {
-                        remaining: light.remaining,
-                        lit: light.lit,
-                        ignitable: light.ignitable,
-                        extinguishable: light.extinguishable,
-                    }),
-                    drinkable: item.drinkable,
-                    edible: item.edible,
-                    readable: item.readable,
-                    zappable: item.zappable,
-                    device_activation: item.device_activation.map(|activation| match activation {
-                        s::DeviceActivation::Direction => p::DeviceActivation::Direction,
-                        s::DeviceActivation::SelfTarget => p::DeviceActivation::SelfTarget,
-                        s::DeviceActivation::DirectionOrSelf => {
-                            p::DeviceActivation::DirectionOrSelf
-                        }
-                    }),
-                    charges: item.charges,
-                })
-                .collect(),
-        }),
-        combat: view.combat.map(|c| p::CombatView {
-            public_plan: c
-                .public_plan
-                .as_deref()
-                .map(|record| crate::public_plan_view::view(record, salt, view.actor)),
-            own_stats: c
-                .own_stats
-                .map(|facts| crate::creature_view::own_stats(facts.into_owned())),
-            hp: c.hp,
-            max_hp: c.max_hp,
-            preparation_remaining: c.preparation_remaining,
-            preparation_active: c.preparation_active,
-            sequence: c.sequence.map(|sequence| p::SequenceView {
-                completed: sequence.completed,
-                total: sequence.total,
-                next_strike_remaining: sequence.next_strike_remaining,
-                cancel_recovery_remaining: sequence.cancel_recovery_remaining,
-            }),
-            recovery_remaining: c.recovery_remaining,
-            actors: c
-                .actors
-                .into_iter()
-                .map(|(id, hostile, allied, injury)| p::CombatActorView {
-                    actor: targets.actor(id),
-                    hostile,
-                    allied,
-                    injury: injury_view(injury),
-                })
-                .collect(),
-            events: c
-                .events
-                .into_iter()
-                .filter_map(|event| combat_event_view(event, targets, &effect_anchors))
-                .collect(),
-            // A goal is shown only when its text maps onto the protocol's
-            // message vocabulary; the simulation already validates it.
-            goal: c.goal.and_then(|goal| {
-                Some(p::GoalView {
-                    segments: message_segments(&goal.segments)?,
-                    cell: goal.cell.map(|at| keys.key(at)),
-                })
-            }),
-            victory: c.victory,
-            dead: c.dead,
-            terminal: c.terminal,
+        interactions: view
+            .interactions
+            .map(|interaction| interaction_view(interaction, targets, rules.as_deref())),
+        combat: view.combat.map(|combat| {
+            CombatAdapter {
+                salt,
+                actor: view.actor,
+                targets,
+                effect_anchors: &effect_anchors,
+            }
+            .view(combat, keys)
         }),
         motion: view.motion.map(|m| p::MotionView {
             velocity: m.velocity,
@@ -1496,15 +1534,7 @@ pub fn cell_key(salt: &str, actor: u64, location: w::Location) -> String {
 }
 
 fn cell_key_hex(digest: [u8; 20]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = [0_u8; 40];
-    for (index, byte) in digest.iter().copied().enumerate() {
-        encoded[index * 2] = HEX[usize::from(byte >> 4)];
-        encoded[index * 2 + 1] = HEX[usize::from(byte & 15)];
-    }
-    std::str::from_utf8(&encoded)
-        .expect("ASCII cell key encoding")
-        .to_owned()
+    tor_protocol::lower_hex(&digest)
 }
 
 #[cfg(test)]
@@ -1675,6 +1705,8 @@ mod cell_key_tests {
                 next = next.wrapping_add(1);
                 byte
             });
+            // An independent oracle, not the shared encoder under test elsewhere.
+            #[allow(clippy::format_collect)]
             let expected: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
             assert_eq!(cell_key_hex(digest), expected, "digest starting at {first}");
         }

@@ -526,7 +526,7 @@ mod tests {
             assert!(first.actors.iter().all(|a| a.at != first.anchors[anchor]));
             assert!(first.items.iter().all(|a| a.at != first.anchors[anchor]));
         }
-        let mut changed = generate.clone();
+        let mut changed = generate;
         changed.actors = None;
         changed.items = None;
         let second = materialize(&def, &changed, 42, 100, 200).unwrap();
@@ -589,10 +589,7 @@ mod tests {
             // Hash semantic outcomes, excluding author labels and DTO field
             // ordering. Changing these vectors requires a generator version decision.
             let bytes = serde_json::to_vec(&(&region.walls, actors, items)).unwrap();
-            let digest: String = Sha256::digest(bytes)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
+            let digest: String = tor_protocol::lower_hex(&Sha256::digest(bytes));
             let expected = match seed {
                 0 => "99628da25696e30d2a6d94fc045617362e3b9c19414f4fc93862939759a73eaa",
                 42 => "ebbfc0ae1e72b68c5927b622e9a72ffbdd97d4a6ee4f702df55966b255a49833",
@@ -758,7 +755,7 @@ mod tests {
         let mut crowded = generate.clone();
         crowded.items.as_mut().unwrap().count = [0, MAX_PLACED + 1];
         assert!(check(&def, &crowded).is_err());
-        let mut sealed = def.clone();
+        let mut sealed = def;
         sealed.anchors.clear();
         assert!(check(&sealed, &generate).is_err());
     }

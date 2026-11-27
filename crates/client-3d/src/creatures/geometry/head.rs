@@ -485,35 +485,10 @@ impl Recipe {
                 match style {
                     Style::Hero => {}
                     Style::Hobgoblin => {
-                        for side in [-1.0f32, 1.0] {
-                            p.matte.prism(
-                                Vec3::new(side * 0.1, 0.17, 0.0),
-                                Vec3::new(side * 0.26, 0.23, -0.05),
-                                0.035,
-                                0.0,
-                                5,
-                                l.skin,
-                                0.0,
-                            );
-                            p.matte.prism(
-                                Vec3::new(side * 0.03, 0.08, 0.1),
-                                Vec3::new(side * 0.035, 0.12, 0.11),
-                                0.01,
-                                0.0,
-                                3,
-                                BONE,
-                                0.0,
-                            );
-                        }
-                        // A big ruddy nose and a stiff dark mohawk, or, for her, a wild topknot.
-                        p.matte.blob(
-                            Vec3::new(0.0, 0.132, 0.115),
-                            Vec3::new(0.04, 0.031, 0.045),
-                            2,
-                            0.0,
-                            Vec3::new(0.78, 0.36, 0.3),
-                        );
-                        if fem {
+                        let show_crest = rogue::hair_shows(l);
+                        hobgoblin_ears(p, l, headwear);
+                        hobgoblin_tusks(p, l);
+                        if show_crest && fem {
                             let c = hair_color(l);
                             p.matte.blob(
                                 Vec3::new(0.0, 0.28, -0.04),
@@ -537,15 +512,8 @@ impl Recipe {
                                 );
                             }
                         }
-                        for k in 0..(if fem { 0 } else { 6 }) {
-                            let z = 0.06 - k as f32 * 0.045;
-                            let root = Vec3::new(0.0, 0.25 - (k as f32 - 2.0).powi(2) * 0.004, z);
-                            tube(
-                                &mut p.matte,
-                                &[root, root + Vec3::new(0.0, 0.06, -0.03)],
-                                &[(0.012, 0.03), (0.002, 0.004)],
-                                DARK * 3.0,
-                            );
+                        if show_crest && !fem {
+                            hobgoblin_mohawk(&mut p.matte);
                         }
                     }
                     Style::Zombie => {
@@ -572,6 +540,128 @@ impl Recipe {
                 }
             }
         }
+    }
+}
+
+fn hobgoblin_ears(p: &mut Parts, look: &Look, headwear: Headwear) {
+    let skin = look.skin;
+    // Scalp coverage belongs to the crest. It does not tell the ears whether
+    // the hat closes around them or leaves a side opening beneath the brim.
+    let folded = match headwear {
+        Headwear::Equipment(kind) => kind.covers_ears(),
+        Headwear::Hood { .. } | Headwear::Helm | Headwear::WingedHelm { .. } => true,
+        _ => false,
+    };
+    let under_hat = matches!(headwear, Headwear::Equipment(_)) && !folded;
+    for side in [-1.0f32, 1.0] {
+        let to_side = |v: Vec3| Vec3::new(v.x * side, v.y, v.z);
+        if folded {
+            // Preserve the previously verified tucked-ear clearance.
+            let folded = Vec3::new(rogue::EAR_UNDER_COVER, 0.23, -0.05);
+            p.matte.prism(
+                to_side(Vec3::new(0.075, 0.17, 0.0)),
+                to_side(folded),
+                0.035,
+                0.0,
+                5,
+                skin,
+                0.0,
+            );
+            continue;
+        }
+        // A rounded lobe grows from the skull, sweeps back and then lifts
+        // at the tip. Warm the front hollow without adding a floating shell.
+        let root = Vec3::new(0.081, 0.174, -0.002);
+        let path = if under_hat {
+            // Keep the lobe rooted and the pointed silhouette wide. The
+            // covered sweep follows the opening beneath the brim and ahead
+            // of rear side flaps, instead of reaching up through their cloth.
+            [
+                root,
+                Vec3::new(0.117, 0.166, 0.014),
+                Vec3::new(0.153, 0.166, 0.012),
+                Vec3::new(0.194, 0.176, 0.002),
+                Vec3::new(0.228, 0.188, -0.010),
+            ]
+        } else {
+            [
+                root,
+                Vec3::new(0.117, 0.177, -0.005),
+                Vec3::new(0.153, 0.193, -0.016),
+                Vec3::new(0.194, 0.219, -0.034),
+                Vec3::new(0.228, 0.236, -0.046),
+            ]
+        }
+        .map(to_side);
+        let profile = [
+            Vec2::new(0.028, 0.020),
+            Vec2::new(0.031, 0.018),
+            Vec2::new(0.022, 0.014),
+            Vec2::new(0.012, 0.008),
+            Vec2::splat(0.0015),
+        ];
+        p.matte.tube_framed(
+            &path,
+            &profile,
+            12,
+            &|_, normal, along| {
+                let inward = ((normal.z - 0.12) / 0.8).clamp(0.0, 1.0);
+                let hollow = (1.0 - ((along - 0.44) / 0.45).powi(2)).max(0.0);
+                skin.lerp(skin * Vec3::new(0.91, 0.67, 0.61), inward * hollow * 0.78)
+            },
+            Some(Vec3::Y),
+        );
+    }
+}
+
+fn hobgoblin_tusks(p: &mut Parts, look: &Look) {
+    let face = face_shape(look, false).form;
+    for side in [-1.0f32, 1.0] {
+        let (seat, normal) = torso_surface_frame(&face, Vec2::new(side * 0.030, 0.087), true);
+        let root = seat - normal * 0.004;
+        tube(
+            &mut p.matte,
+            &[
+                root,
+                seat + Vec3::new(side * 0.003, 0.013, 0.006),
+                seat + Vec3::new(side * 0.002, 0.026, 0.008),
+                seat + Vec3::new(-side * 0.002, 0.036, 0.005),
+            ],
+            &[
+                (0.008, 0.007),
+                (0.007, 0.006),
+                (0.0045, 0.004),
+                (0.0007, 0.0007),
+            ],
+            BONE,
+        );
+    }
+}
+
+fn hobgoblin_mohawk(b: &mut Builder) {
+    use super::super::anatomy::HumanoidCranium;
+    let skull = HumanoidCranium::STANDARD;
+    let root_at = |z: f32| {
+        let axial = (z - skull.center.z) / skull.radii.z;
+        let y = skull.center.y + skull.radii.y * (1.0_f32 - axial * axial).max(0.0).sqrt();
+        Vec3::new(0.0, y - 0.008, z)
+    };
+    // A continuous ridge follows the scalp. Each swept section starts inside
+    // the skull, so the rear no longer reads as a floating row of spikes.
+    let roots: [Vec3; 7] = std::array::from_fn(|i| root_at(0.066 - 0.025 * i as f32));
+    tube(b, &roots, &[(0.016, 0.011); 7], DARK * 3.0);
+    for (i, root) in roots.into_iter().enumerate() {
+        let height = [0.039, 0.050, 0.055, 0.051, 0.043, 0.036, 0.030][i];
+        tube(
+            b,
+            &[
+                root,
+                root + Vec3::new(0.003, height * 0.56, -0.008),
+                root + Vec3::new(0.001, height, -0.027),
+            ],
+            &[(0.017, 0.022), (0.011, 0.015), (0.001, 0.003)],
+            DARK * 3.0,
+        );
     }
 }
 
@@ -628,6 +718,28 @@ mod wearer_hair_tests {
         headwear: Option<&str>,
         in_region: impl Fn(Vec3) -> bool,
     ) -> usize {
+        head_faces(
+            model,
+            woman,
+            headwear,
+            |wearer| {
+                if model == CreatureModel::Hobgoblin && !woman {
+                    DARK * 3.0
+                } else {
+                    hair_color(wearer)
+                }
+            },
+            |face| face.into_iter().all(&in_region),
+        )
+    }
+
+    fn head_faces(
+        model: CreatureModel,
+        woman: bool,
+        headwear: Option<&str>,
+        pigment: impl Fn(&Look) -> Vec3,
+        in_region: impl Fn([Vec3; 3]) -> bool,
+    ) -> usize {
         let wearer = Look::with_choice(
             model,
             17,
@@ -653,7 +765,7 @@ mod wearer_hair_tests {
         let mut meshes = Assets::<Mesh>::default();
         let mut materials = Assets::<StandardMaterial>::default();
         let materials = crate::props::PropMaterials::new(&mut materials);
-        let [r, g, b] = hair_color(&wearer).to_array();
+        let [r, g, b] = pigment(&wearer).to_array();
         let pigment = Color::srgb(r, g, b).to_linear();
         let pigment = Vec3::new(pigment.red, pigment.green, pigment.blue);
         let part = head.finish(&mut meshes, &materials);
@@ -674,10 +786,10 @@ mod wearer_hair_tests {
             .0
             .iter()
             .filter(|triangle| {
-                triangle.iter().all(|&i| {
-                    in_region(Vec3::from_array(points[i]))
-                        && Vec3::new(paint[i][0], paint[i][1], paint[i][2]).distance(pigment) < 1e-6
-                })
+                in_region(triangle.map(|i| Vec3::from_array(points[i])))
+                    && triangle.iter().all(|&i| {
+                        Vec3::new(paint[i][0], paint[i][1], paint[i][2]).distance(pigment) < 1e-6
+                    })
             })
             .count()
     }
@@ -692,6 +804,157 @@ mod wearer_hair_tests {
             // hair. The headwear must not replace them with a human hairstyle.
             let equipped = hair_faces(model, true, Some(item), |_| true);
             assert_eq!(equipped, 0, "{model:?}/{item}");
+        }
+    }
+
+    #[test]
+    fn hobgoblin_crests_follow_the_wearers_scalp_cover() {
+        let crest =
+            |woman, cover| hair_faces(CreatureModel::Hobgoblin, woman, cover, |p| p.y > 0.26);
+        let mut covered = Vec::new();
+        for woman in [false, true] {
+            let uncovered = crest(woman, None);
+            assert!(
+                uncovered > 0,
+                "bare head retains its authored crest: {woman}"
+            );
+            assert_eq!(crest(woman, Some("robe")), uncovered, "lowered hood");
+            for item in ["helm", "hooded-cloak"] {
+                let count = crest(woman, Some(item));
+                if count != 0 {
+                    covered.push((woman, item, count));
+                }
+            }
+        }
+        assert!(
+            covered.is_empty(),
+            "crest leaks through closed headwear: {covered:?}"
+        );
+    }
+
+    #[test]
+    fn hobgoblin_ears_have_room_when_the_scalp_is_uncovered() {
+        for woman in [false, true] {
+            let far_ear = |cover| {
+                head_faces(
+                    CreatureModel::Hobgoblin,
+                    woman,
+                    cover,
+                    |look| look.skin,
+                    |face| face.into_iter().any(|p| p.x.abs() > 0.17),
+                )
+            };
+            let bare = far_ear(None);
+            assert!(bare > 0);
+            assert_eq!(far_ear(Some("robe")), bare);
+            assert_eq!(far_ear(Some("helm")), 0);
+            assert_eq!(far_ear(Some("hooded-cloak")), 0);
+        }
+    }
+
+    #[test]
+    fn open_equipment_hats_keep_the_hobgoblin_ear_silhouette_without_its_crest() {
+        let open_headwear = [
+            "fedora",
+            "leather-hat",
+            "iron-skull-cap",
+            "hard-hat",
+            "conical-hat",
+            "dented-pot",
+        ];
+        for woman in [false, true] {
+            let outside_head = |cover| {
+                head_faces(
+                    CreatureModel::Hobgoblin,
+                    woman,
+                    cover,
+                    |look| look.skin,
+                    |face| face.into_iter().any(|p| p.x.abs() > 0.17),
+                )
+            };
+            assert!(outside_head(None) > 0);
+            for item in open_headwear {
+                assert_eq!(
+                    hair_faces(CreatureModel::Hobgoblin, woman, Some(item), |p| p.y > 0.26),
+                    0,
+                    "{item} covers the crest"
+                );
+                assert!(
+                    outside_head(Some(item)) > 0,
+                    "{item} must leave the ear silhouette exposed (woman={woman})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn open_equipment_hats_clear_emitted_hobgoblin_ears() {
+        use equipment_headwear::HeadwearKind;
+
+        fn pierces(from: Vec3, to: Vec3, [a, b, c]: [Vec3; 3]) -> bool {
+            let (edge, e1, e2) = (to - from, b - a, c - a);
+            let cross = edge.cross(e2);
+            let det = e1.dot(cross);
+            if det.abs() < 1e-10 {
+                return false;
+            }
+            let origin = from - a;
+            let u = origin.dot(cross) / det;
+            let q = origin.cross(e1);
+            let v = edge.dot(q) / det;
+            let t = e2.dot(q) / det;
+            u >= 0.0 && v >= 0.0 && u + v <= 1.0 && (0.0..=1.0).contains(&t)
+        }
+
+        fn intersects(a: [Vec3; 3], b: [Vec3; 3]) -> bool {
+            let near = (0..3).all(|axis| {
+                let bounds = |tri: [Vec3; 3]| {
+                    let [p, q, r] = tri.map(|v| v[axis]);
+                    (p.min(q).min(r), p.max(q).max(r))
+                };
+                let ((alo, ahi), (blo, bhi)) = (bounds(a), bounds(b));
+                alo <= bhi && blo <= ahi
+            });
+            near && (0..3).any(|i| {
+                let next = (i + 1) % 3;
+                pierces(a[i], a[next], b) || pierces(b[i], b[next], a)
+            })
+        }
+
+        let look = Look::with_choice(CreatureModel::Hobgoblin, 17, None);
+        let mut bare = Parts::default();
+        hobgoblin_ears(&mut bare, &look, Headwear::Bare);
+        for kind in HeadwearKind::ALL
+            .into_iter()
+            .filter(|kind| !kind.covers_ears())
+        {
+            let mut hat = Parts::default();
+            equipment_headwear::emit(&mut hat, kind);
+            let hat: Vec<_> = [&hat.matte, &hat.metal, &hat.satin, &hat.gold, &hat.sheer]
+                .into_iter()
+                .flat_map(Builder::surface_triangles)
+                .collect();
+            assert!(!hat.is_empty(), "real fitted {kind:?} geometry");
+            if kind == HeadwearKind::Fedora {
+                assert!(
+                    bare.matte
+                        .surface_triangles()
+                        .any(|ear| hat.iter().any(|h| intersects(ear, *h))),
+                    "unchanged bare sweep must actually collide through the fedora"
+                );
+            }
+            let mut fitted = Parts::default();
+            hobgoblin_ears(&mut fitted, &look, Headwear::Equipment(kind));
+            let ears: Vec<_> = fitted.matte.surface_triangles().collect();
+            assert!(ears.iter().flatten().any(|v| v.x.abs() > 0.20));
+            let blocked = ears
+                .into_iter()
+                .filter(|ear| hat.iter().any(|h| intersects(*ear, *h)))
+                .count();
+            assert_eq!(
+                blocked, 0,
+                "{kind:?} cuts the fitted ear on {blocked} triangles"
+            );
         }
     }
 

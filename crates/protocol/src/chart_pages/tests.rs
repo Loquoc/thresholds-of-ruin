@@ -214,7 +214,7 @@ fn query_is_named_bounded_and_requires_nullable_cursor_with_canonical_wide_integ
         invalid["chart"] = json!(token);
         assert!(decode_chart_query(&invalid.to_string()).is_err());
     }
-    let mut valid = value.clone();
+    let mut valid = value;
     valid["chart"] = json!("x".repeat(128));
     assert!(decode_chart_query(&valid.to_string()).is_ok());
     valid["chart"] = json!("x".repeat(129));
@@ -228,7 +228,7 @@ fn query_is_named_bounded_and_requires_nullable_cursor_with_canonical_wide_integ
 fn marks_have_no_identity_seed_or_unselected_nullable_siblings_and_keep_exact_byte_limits() {
     for mark in [
         ChartMark::Monster {
-            name: "".into(),
+            name: String::new(),
             asset: None,
         },
         ChartMark::Monster {

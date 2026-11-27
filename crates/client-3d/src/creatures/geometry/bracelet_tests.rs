@@ -65,9 +65,9 @@ fn bracelet_clears_actual_forearm_and_prior_cuff_layers() {
                     for layer in 0..3 {
                         let mut p = support_fixture(body, layer, smooth);
                         let support = support_mesh(&p);
-                        let prior = p.metal.surface_triangles().count();
+                        let prior = p.gold.surface_triangles().count();
                         accessory_parts::bracelet(&mut p, GILT, body.build, body.arm_length);
-                        let ring: Vec<_> = p.metal.surface_triangles().skip(prior).collect();
+                        let ring: Vec<_> = p.gold.surface_triangles().skip(prior).collect();
                         assert_eq!(ring.len(), 384, "complete ring required");
                         closed_ring(&ring);
                         let (mut minimum, mut maximum) = (f32::INFINITY, f32::NEG_INFINITY);
@@ -141,7 +141,7 @@ fn bracelet_retains_wrist_seat_fine_height_and_closed_surface() {
                 &|_, _, _| BONE,
             );
             accessory_parts::bracelet(&mut p, GILT, build, length);
-            let ring: Vec<_> = p.metal.surface_triangles().collect();
+            let ring: Vec<_> = p.gold.surface_triangles().collect();
             assert_eq!(ring.len(), 384);
             closed_ring(&ring);
             let (mut low, mut high) = (f32::INFINITY, f32::NEG_INFINITY);
@@ -174,19 +174,17 @@ fn bracelet_material_independent_support_preserves_existing_layers() {
             48,
             &|_, _, _| BONE,
         );
-        let before: Vec<Vec<_>> = [&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost, &p.glow]
-            .into_iter()
-            .map(|b| b.surface_triangles().collect())
-            .collect();
+        let before = all_layers(&p);
         accessory_parts::bracelet(&mut p, GILT, 1.0, 1.0);
-        let after: Vec<Vec<_>> = [&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost, &p.glow]
-            .into_iter()
-            .map(|b| b.surface_triangles().collect())
-            .collect();
-        for i in 0..6 {
-            assert_eq!(&after[i][..before[i].len()], before[i]);
+        let after = all_layers(&p);
+        for (i, (after, before)) in after.iter().zip(&before).enumerate() {
+            if i == GOLD {
+                assert_eq!(&after[..before.len()], before.as_slice());
+            } else {
+                assert_eq!(after, before, "bracelet changed layer {i}");
+            }
         }
-        let ring = after[1][before[1].len()..].to_vec();
+        let ring = after[GOLD][before[GOLD].len()..].to_vec();
         assert_eq!(ring.len(), 384);
         if let Some(ref prior) = expected {
             assert_eq!(&ring, prior);
@@ -200,7 +198,7 @@ fn bracelet_material_independent_support_preserves_existing_layers() {
 fn bracelet_rejects_missing_or_incomplete_support_atomically() {
     let mut p = Parts::default();
     accessory_parts::bracelet(&mut p, GILT, 1.0, 1.0);
-    assert_eq!(p.metal.surface_triangles().count(), 0);
+    assert_eq!(p.gold.surface_triangles().count(), 0);
     p.matte.blob(
         Vec3::new(0.04, -0.255, 0.0),
         Vec3::splat(0.015),
@@ -209,7 +207,7 @@ fn bracelet_rejects_missing_or_incomplete_support_atomically() {
         BONE,
     );
     accessory_parts::bracelet(&mut p, GILT, 1.0, 1.0);
-    assert_eq!(p.metal.surface_triangles().count(), 0);
+    assert_eq!(p.gold.surface_triangles().count(), 0);
 }
 
 #[test]
@@ -250,7 +248,6 @@ fn bracelet_supports_metal_and_rejects_crossed_styled_hems() {
                         biped_cuff(cuff, b * 1.15, length, muscle, true, LEATHER, LEATHER * 0.8);
                     }
                     let support = support_mesh(&p);
-                    let prior: Vec<_> = p.metal.surface_triangles().collect();
                     let before = all_layers(&p);
                     accessory_parts::bracelet(&mut p, GILT, b, length);
                     if layer > 0 {
@@ -261,9 +258,13 @@ fn bracelet_supports_metal_and_rejects_crossed_styled_hems() {
                         );
                         continue;
                     }
-                    let after: Vec<_> = p.metal.surface_triangles().collect();
-                    assert_eq!(&after[..prior.len()], prior.as_slice());
-                    let ring = &after[prior.len()..];
+                    let after = all_layers(&p);
+                    for (i, (after, before)) in after.iter().zip(&before).enumerate() {
+                        if i != GOLD {
+                            assert_eq!(after, before, "bracelet changed layer {i}");
+                        }
+                    }
+                    let ring = &after[GOLD][before[GOLD].len()..];
                     assert_eq!(
                         ring.len(),
                         384,
@@ -356,7 +357,7 @@ fn bracelet_fine_radial_thickness_matches_authored_metal_on_cylinder() {
             &|_, _, _| BONE,
         );
         accessory_parts::bracelet(&mut p, GILT, build, 1.0);
-        let ring: Vec<_> = p.metal.surface_triangles().collect();
+        let ring: Vec<_> = p.gold.surface_triangles().collect();
         assert_eq!(ring.len(), 384);
         // At the authored center plane and +Z meridian, the rounded section
         // has exactly its inner and outer tips. Their distance measures the
@@ -386,19 +387,14 @@ fn bracelet_rejects_late_angular_and_axial_support_holes_without_mutation() {
         &|_, _, _| BONE,
     );
     let triangles: Vec<_> = cylinder.surface_triangles().collect();
-    let snapshot = |p: &Parts| -> Vec<Vec<[Vec3; 3]>> {
-        [&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost, &p.glow]
-            .into_iter()
-            .map(|b| b.surface_triangles().collect())
-            .collect()
-    };
+    let snapshot = all_layers;
     // Validate the unchanged source mesh before making either negative fixture.
     let mut positive = Parts::default();
     for &tri in &triangles {
         positive.matte.tri(tri, BONE);
     }
     accessory_parts::bracelet(&mut positive, GILT, 1.0, 1.0);
-    let positive_ring: Vec<_> = positive.metal.surface_triangles().collect();
+    let positive_ring: Vec<_> = positive.gold.surface_triangles().collect();
     assert_eq!(positive_ring.len(), 384);
     closed_ring(&positive_ring);
 
@@ -442,12 +438,20 @@ fn bracelet_rejects_late_angular_and_axial_support_holes_without_mutation() {
     }
 }
 
+/// Every material layer, so a mutation in any bucket is visible.
 fn all_layers(p: &Parts) -> Vec<Vec<[Vec3; 3]>> {
-    [&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost, &p.glow]
+    assert!(
+        std::ptr::eq(p.all_builders()[GOLD], &p.gold),
+        "GOLD indexes the gold layer"
+    );
+    p.all_builders()
         .into_iter()
         .map(|b| b.surface_triangles().collect())
         .collect()
 }
+
+/// Bracelets emit into the gold layer.
+const GOLD: usize = 7;
 
 #[test]
 fn royal_robe_crossed_cuff_omits_bracelet_without_mutating_layers() {

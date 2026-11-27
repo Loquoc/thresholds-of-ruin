@@ -969,8 +969,14 @@ fn breastplate_clears_emitted_underlayers_and_cloak_clears_plate_through_swing()
                 base.outfit.as_mut().unwrap().cloak = None;
                 let mut equipment = Equipment::default();
                 equipment.select("breastplate").unwrap();
-                let armored = base.clone().equipped(equipment);
-                let armor: Vec<_> = torso(&armored).into_iter().filter(|t| t.metal).collect();
+                let mut armored = base.clone().equipped(equipment);
+                // A baldric is fitted over armor, not under it. The native
+                // cuirass and its tabard are also replaced, not buried. Read
+                // both layers from the same composed look so it contributes
+                // only the underlayers that are actually drawn.
+                armored.outfit.as_mut().unwrap().baldric = None;
+                let (armor, underlayers): (Vec<_>, Vec<_>) =
+                    torso(&armored).into_iter().partition(|t| t.metal);
                 let armor_support = Support::new(armor.clone());
                 let opening = armor_parts::opening(HumanoidBody::resolve(&armored)).map(|shape| {
                     let mut cut = crate::sdf::Sculpt::default();
@@ -978,9 +984,7 @@ fn breastplate_clears_emitted_underlayers_and_cloak_clears_plate_through_swing()
                     cut
                 });
                 let mut checked = 0;
-                let mut underlayers = base.clone();
-                underlayers.outfit.as_mut().unwrap().baldric = None;
-                for triangle in torso(&underlayers).into_iter().filter(|t| !t.metal) {
+                for triangle in underlayers {
                     let at = triangle.center();
                     if !(0.11..0.40).contains(&at.y) || at.x.abs() > 0.09 || at.z.abs() < 0.04 {
                         continue;
@@ -1072,13 +1076,18 @@ fn equipped_waist_armor_keeps_the_rendered_bridal_train_and_linings() {
     let bride = female(CreatureModel::Human, 2).dressed(Wardrobe::RoyalBride);
     let measured = |look: &Look| {
         let (world, rig, _, meshes) = spawn_one(look);
-        rig.skirt_layers.iter().map(|&layer| {
-            let points = points_under(&world, &meshes, layer);
-            assert!(points.len() > 100, "measured layer is an actual garment");
-            points.iter().fold((f32::INFINITY, f32::INFINITY), |(y,z), p| {
-                (y.min(p.y), z.min(p.z))
+        rig.skirt_layers
+            .iter()
+            .map(|&layer| {
+                let points = points_under(&world, &meshes, layer);
+                assert!(points.len() > 100, "measured layer is an actual garment");
+                points
+                    .iter()
+                    .fold((f32::INFINITY, f32::INFINITY), |(y, z), p| {
+                        (y.min(p.y), z.min(p.z))
+                    })
             })
-        }).collect::<Vec<_>>()
+            .collect::<Vec<_>>()
     };
     let dressed = measured(&bride);
     assert_eq!(dressed.len(), 3);
@@ -1086,7 +1095,11 @@ fn equipped_waist_armor_keeps_the_rendered_bridal_train_and_linings() {
     let mut gear = Equipment::default();
     gear.select("leather").unwrap();
     let armored = measured(&bride.equipped(gear));
-    assert_eq!(armored.len(), 4, "tassets must add a mesh, not replace the dress");
+    assert_eq!(
+        armored.len(),
+        4,
+        "tassets must add a mesh, not replace the dress"
+    );
     assert!(armored[0].0 > -0.35, "tassets remain short");
     for (actual, original) in armored[1..].iter().zip(&dressed) {
         assert!((actual.0 - original.0).abs() < 0.02 && (actual.1 - original.1).abs() < 0.02);

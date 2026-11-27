@@ -1,6 +1,10 @@
 //! Remembered item facts disclosed to an observer, not authoritative item state.
 //! Unknown is explicit: every field is required, and null is distinct from known
 //! zero or false. Appearance and true identity are separate contracts.
+//!
+//! This file is mirrored byte-for-byte in `tor-protocol` and `tor-simulation`,
+//! which may not depend on each other; `scripts/check_architecture.py` rejects
+//! drift. Edit both copies together.
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 /// Known blessing/curse classification. No blessed behavior is defined here.

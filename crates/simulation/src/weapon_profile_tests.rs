@@ -59,7 +59,7 @@ fn build(active: bool) -> CreatureBuild {
     )
     .unwrap();
     let talent = crate::content_ids::TalentId::new("fixture_weapon_training").unwrap();
-    build.select_talent(HdIndex(0), talent.clone()).unwrap();
+    build.select_talent(HdIndex(0), talent).unwrap();
     if !active {
         build.remove_latest().unwrap();
     }
@@ -408,7 +408,7 @@ fn compiled_equipped_profiles_follow_dormancy_without_losing_gear_or_history() {
     let before = unrelated.clone();
     assert!(unrelated.set_equipment(sources.clone()).is_err());
     assert_eq!(unrelated, before);
-    creature.set_equipment(sources.clone()).unwrap();
+    creature.set_equipment(sources).unwrap();
     let sheet = creature.derived();
     assert_eq!(sheet.equipped_attacks.len(), 2);
     assert_eq!(

@@ -634,7 +634,7 @@ fn apparent_retry_matching_uses_saved_facts_before_live_availability() {
         action: original_wire,
     })
     .unwrap();
-    let mut different_receipt_revision = restored.clone();
+    let mut different_receipt_revision = restored;
     let Command::AdmitIntention {
         expected_boundary: expected_revision,
         ..
@@ -1510,7 +1510,7 @@ fn hallucination_map_acquisition_freezes_payload_without_granting_stair_facts() 
         s::ProjectedMapCell {
             location: at,
             position: tor_world::Position { x: 0, y: 0, z: 0 },
-            appearance: tor_world::Shared::new(frozen.appearance.clone()),
+            appearance: tor_world::Shared::new(frozen.appearance),
         },
         "salt",
         p::ActorId(1),

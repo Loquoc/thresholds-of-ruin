@@ -365,6 +365,17 @@ Vulkan passed a first-red backend-selection regression and completed the matched
 capture runs. Hardware/backend exclusion controls remain. No hardware timing or
 performance improvement is claimed from that capture fix.
 
+### Baldric stand-off from the torso
+
+A Ranger fit witness samples emitted strap faces against the retained torso
+support rather than trusting the already offset ribbon path. The old maximum
+exceeded 0.017 model units against a 0.012 bound. Deriving the fit from the ribbon thickness
+plus a small allowance corrects the excess while leaving the cloak's reserve
+and the heraldry overlay intact. Existing loop, fold, buckle, apron, and
+layer-order checks cover the adjacent contracts. Matched visual samples support
+the closer fit; they do not establish universally flush contact or continuous
+clearance against every piece of trim.
+
 ## Fixtures, tooling and evidence integrity
 
 ### Performance evidence locations
@@ -406,6 +417,120 @@ failure. Batching must preserve the exact ordered capture union and each capture
 causal prefix, while rejecting future events beyond the batch. A successful
 render is still not visual acceptance. Keep the batching/schema witnesses
 separate from the model and image-review evidence.
+
+### Unregistered tooling test owner, 27 November
+
+A full local Python run on branch `claude/code-docs-refactor-ovqedk` caught a
+tooling defect introduced on that branch: a new architecture-check test class,
+`test_check_architecture.MirroredSourceTests`, had no reviewed planner owner, so
+the CI planner reported "unreviewed owner" and required full coverage. One root
+cause produced six distinct failing methods in `test_ci_test_plan.PlanTests`,
+with eight failed executions counting subtests. The class is now registered in
+`ci_test_contracts.py` after a usage review, and all 23 planner tests pass.
+Classification: production (tooling) defect, caught during development, after
+it was pushed to the branch but before any merge. The same run's four errors
+in arena-search owners were harness/environment failures (the isolated `optuna`
+environment was not installed), not evidence about this change; all
+four passed when rerun in a venv built from the hash-pinned requirements.
+A later full run on the same branch failed one long earned-route process test,
+`test_fixed_seed42_earned_hd_reexecutes_with_exact_source_free_restore_and_gross_flows`,
+with `OSError: No space left on device`. Local build caches had filled the
+session disk, and fail-fast left 3,334 tests unstarted. Classification:
+harness/infrastructure, not a product or test defect. After the caches were
+cleared, the full 3,553-test run had no failures on the same commit.
+A second exhaustion happened later the same day: Cargo's incremental cache grew
+by about 23 GB across repeated clippy, test and binary builds and filled the disk
+during a selected process-test run. That run's log was truncated, so it counts
+as neither a pass nor a failure. After the cache was removed, the same selection
+was rerun; later builds in the session disabled incremental compilation.
+Classification: harness/infrastructure. The full run on `0472df4` had
+already finished before the disk filled. It ran 3,553 tests, and its only
+errors were the same four arena-search owners, which failed with
+`PackageNotFoundError: optuna`. All 17 tests in those three modules passed in
+the pinned environment.
+
+A selected six-module process run after the `advance_preparation` extraction
+failed one method,
+`test_projectile_process.ProjectileProcesses.test_ascii_secondary_weapon_stays_designated_when_swap_is_blocked`.
+The inventory key returned no `inventory_rows`. The cursed swap is refused before
+equip resolves, so the extracted equip step never runs on that path. The method
+then passed six isolated runs on the same binaries.
+
+A first diagnosis was wrong. It blamed the test for opening the inventory before
+the window could accept a key, and it added the ready-frame wait that its
+successful-swap sibling gained on 25 November (`1ad84e0`). With that wait in
+place, hosted run 230 failed the same method again on `37c7e52`, in both the
+Linux release Python partition and Windows release Python shard 2.
+
+Root cause: a production defect in the ASCII client. The server publishes a
+command's updates before its receipt. The Wield shortcut learns its removal's
+intention only from that receipt, so it ignores a `Resolved`, `Failed` or other
+terminal update that arrives first. `note_admission` also ignored the phase the
+receipt carries. The swap then never advanced or ended, and its input stage
+swallowed every key except Escape. A curse refusal can resolve in the admitting
+commit, so the blocked-swap test hit this race; a removal that takes time does
+not.
+
+Classification: production defect (one root cause, one distinct method, three
+failing executions: one local, two hosted; the platform repeats are not further
+causes). The fix applies the
+receipt's phase when it first names the intention. Three model tests in
+`weapon_swap_admission_tests` cover a resolved removal, every ending phase and
+still-running controls. Before the fix, the resolved and ending cases failed at
+their receipt-phase assertions and the running controls passed. The readiness check
+stays as an ordinary precondition, not as the fix.
+
+A later run on `cda7ce01` exposed a separate driver error in the same method.
+The final ASCII frame both reported the cursed dagger and satisfied every
+readiness check; the first wait consumed it, and the second timed out waiting
+for another frame. Wait for the refusal and readiness together before pressing
+the inventory key. Keep the inventory designation and unchanged equipment
+assertions. This is one harness cause, not another Wield defect. That second wait
+was added on this branch, in `afcc2f0`.
+
+### Headless fight wait read a compact frame, 27 November
+
+A local run of CI debug Python shard 2 errored
+`test_rogue_perception_process.RoguePerceptionProcesses.test_exploration_medusa_does_not_gaze_through_opaque_partition`
+with `KeyError: 'state'`. The method passed three isolated reruns. The headless
+client's stdout showed the cause. In compact background mode it writes a
+`waiting` message without the derived state, marked `"state_omitted": true`.
+`headless_fight_completion` indexed `frame["state"]` without checking that
+marker, so a waiting message during a loaded run ended the wait with an error
+instead of letting it read the next full frame. Other harness waits already
+skipped compact frames.
+
+Classification: harness defect (one root cause, one distinct method, one failing
+execution). The predicate now returns false for compact frames. Its new unit
+test failed with the same `KeyError` before the fix. Four other process-test
+modules use the predicate and share the fix.
+
+### Pre-existing 3D library failures, 27 November
+
+A local `cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d --lib`
+on Linux (rustc 1.97.0) failed 20 methods on base `68bff10`, identically in
+debug and release; 1,411 others passed. Bisecting the merge history:
+
+- **11 stale tests, now corrected:** introduced by PR #87 (procedural model
+  materials). That PR deliberately moved bracelets, armlets, earrings and
+  necklaces from the `metal` builder to the new `gold` builder ("Adopt gold,
+  glass, wood, steel, and chitin on necklaces..."), but bracelet, bracelet
+  support, forearm plan, necklace and composition tests still read `metal`.
+  They now read `gold`, and the layer snapshots they compare cover every
+  bucket through `Parts::all_builders`. Three further tests were passing only
+  vacuously, because their no-mutation and rejection checks never saw the gold
+  layer. They now check it.
+- **1 unresolved, from PR #86:**
+  `garment_tests::breastplate_clears_emitted_underlayers_and_cloak_clears_plate_through_swing`
+  passes at `8a083b1` and fails from `4ad85fd`.
+- **8 unresolved, older than PR #86:** six `cloak::tests` and two
+  `mantle_head_contact_tests` methods fail already at `8a083b1`. Production
+  cloak fitting reports an infeasible radial fit by small margins (for example
+  a 0.00018 collar deficit).
+
+These nine are genuine fitting failures in independently maintained art
+geometry, not stale expectations, and need that geometry's owner. Their tests
+were not changed. Hosted CI runs only the 3D smoke check, not this suite.
 
 ### Documentation is tested behavior too
 
@@ -1614,6 +1739,74 @@ negative oracle checks the covered head, since the uncovered Troll rightly
 has its own crest. Positive witnesses retain that uncovered crest and require
 Human braid and Human/Wraith lock geometry in the appropriate regions.
 
+The headwear fit audit reproduced raised-cloak fabric clipping the Medusa's
+serpent crown and the Nymph's earrings. The composition regression first
+failed because the permanent crown still received a raised hood. It now
+checks folded and raised states, preservation of the cloak and underlying
+jewelry, and priority of a separate open hat.
+
+A separate head-mesh witness found the Hobgoblin still emitted the mohawk
+(140 sampled faces) or topknot (364) with either a steel helm or a raised
+hood. The shared species coverage rule now suppresses the crest and folds
+the ear tips under closed headwear. Bare heads and lowered hoods retain
+the original silhouette.
+
+The open-hat comparison exposed the inverse coverage problem for ears:
+the fedora hid the crest correctly but selected the closed-helm ear
+shape. A silhouette regression now requires exposed ear geometry under
+each of the six open-ear equipment recipes while keeping the crest hidden.
+The shared low sweep clears the fitted hats in an emitted-triangle test;
+the unsupported bare sweep deliberately fails that clearance under the
+fedora. Bare, uncovered and closed-headwear witnesses keep their roles.
+
+The Hobgoblin portrait test measures the central bridge and tip in the
+continuous face surface for both cuts and three builds. The old head with
+a separately drawn nose failed at 95 mm of projection against the 112 mm
+bridge minimum. The new sculpt has enough projection to read, with a
+bounded front so it does not protrude beyond the steel helm.
+
+### Hobgoblin idle and lookout poses
+
+Two pose regressions reproduced one shared assumption: both the idle and rare
+antic rotated the equipment arm even though a Hobgoblin does not necessarily
+hold a club. The tests failed on the right-arm joint before either pose was
+changed. The replacement gestures leave the grip alone, keep a readable head
+motion, and do not depend on whether the head is covered.
+
+### Hobgoblin strikes during braking
+
+A real-client comparison replayed the same approach with no attack, a strike
+at the stop, one during the settling steps, and one after a full stop. The
+old early strike moved one ankle 0.122 world units between 40 ms samples,
+against 0.027 for braking alone. An actual gameplay-frame test independently
+reproduced the ankle jump. Hobgoblin strikes now carry the already-solved
+feet into the shared short handoff. During braking, landing and remaining
+on the ground are determined by the settling steps, not the last walk phase.
+The matched review retained the full-stop and no-attack controls, action
+phases and post-handoff pose. This is local motion evidence, not a timing
+or floor-contact guarantee for all actors and speeds.
+
+A separate restart comparison found the inverse discontinuity: returning to
+walking just before a Hobgoblin strike ended made the feet jump once as action
+support faded and again as world support was created. Restarting after the
+strike did not reproduce it. The new gameplay-frame test preserves ordinary
+and delayed restart controls. A moving Hobgoblin now establishes normal
+world footing during the last support fade instead of rebuilding it after the
+strike timer expires. Stationary strikes, action phases and root motion stay
+unchanged in the matched review.
+
+### Hobgoblin eye aperture
+
+The emitted white of the old Hobgoblin eye measured 0.511 times as tall
+as it was wide on the first male fixture, outside the authored squint
+band. The regression checks real eye geometry on both body cuts and three
+builds, requiring enough opening to stay readable.
+
+The eye pass also reran the neck-root tests and exposed a stale idle-pose
+fixture after the listening tilt changed. The six neutral Head matrices were
+recaptured from the native client. The Torso and walking matrices were kept,
+as were the mesh-depth oracle and all its tolerances.
+
 ### Extended model materials in darkness
 
 A native fixed-camera probe ran the live model-shading system on a steel
@@ -1623,6 +1816,38 @@ now skips both lighting and surface detail for unlit materials, then uses
 the normal fog and post-processing. The dark patch's mean-channel brightness varied by 26.45
 8-bit levels before the fix and 0.27 after (standard deviation). The lit
 comparison stayed unchanged. The ordinary bright-only shader smoke did not expose the defect.
+
+### Held props in scripted model review
+
+Two capture-only failures interrupted an armed Hobgoblin review. The script
+rejected the model even though its biped rig has a right-hand attachment, and
+an armor swap removed a Human's held sword with the old rig. The validation
+test now distinguishes grip-capable body plans from handless ones and keeps
+live playlists out of scope. The scripted scene test checks the initial prop
+and the replacement grip in the same scene, including removal of the old prop
+and preservation of the item's attachment transform. This does not change
+gameplay equipment or require pixel-identical captures.
+
+### Buried neck root after a wardrobe swap
+
+A near-front Hobgoblin review showed skin through the closed bib just after
+putting on a breastplate. Reprojecting the emitted head and torso triangles
+with the independently captured joint frames reproduced the penetration and
+separately confirmed that the exposed throat remained visible. The neck fit
+now leaves more overlap only at the buried lowest ring. Native idle and
+walking witnesses, already-supported roots, and open necklines keep their
+existing checks. The offscreen review compares the settled, swap and strike
+poses visually; it does not require matching image pixels.
+
+### Measuring retained parts under replacement armor
+
+The armor-and-cloak test compared a Knight's equipped breastplate against
+nonmetal surfaces from the unequipped outfit, including trim on the
+decorative cuirass that equipment replaces. The old check failed identically
+with and without the neck-root change. The corrected witness samples metal
+and retained underlayers from the same equipped torso. It still excludes
+the intentionally over-armor baldric and retains the original coverage,
+clearance and cloak-motion checks. No production change was needed.
 
 ### Readable dungeon darkness
 
@@ -1637,3 +1862,16 @@ systems with authored disclosure snapshots, not a live playthrough.
 The spectral material regression reproduced an emissive rim even after its
 base emission was cleared. The dark material now suppresses that shader
 contribution without removing the normal detail or mutating the lit recipe.
+
+### Bridal veil floor contact before the final fall
+
+The old floor test sampled the later stages of a fall. Extending the same
+weighted-mesh witness to earlier frames reproduced a 44 mm penetration during
+the stagger and measured up to 195 mm under the floor during the dramatic
+wind-up. The torso can already bend while the final fall clock is zero.
+The existing train support now handles the whole active death performance,
+with a small allowance near its start. The check still covers cloth, trim and
+gems, the settled floor and the pinned attachment. The living and
+corridor-facing train poses remain unchanged. Matched native captures of all
+three death variants kept body timing and joint poses while the trailing veil
+cleared the floor.

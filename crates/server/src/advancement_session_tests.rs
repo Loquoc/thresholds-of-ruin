@@ -194,7 +194,7 @@ fn owner_advancement_foreign_and_reconnected_basis_do_not_authorize_fresh_purcha
     let valid = query(
         &mut service,
         &mut owner,
-        json!({"kind":"ledger","basis":fresh.clone(),"offset":0}),
+        json!({"kind":"ledger","basis":fresh,"offset":0}),
     );
     assert_eq!(page(&valid)["total"], json!(0));
     // Same actor/operation with its new basis is admissible: stale rejection
@@ -2224,7 +2224,7 @@ fn canonical_wraith_earned_regrowth_survives_source_free_service_reopen() {
         json!({"earned":"2","spent":"1","unspent":"1"})
     );
     case.purchase(3, json!({"kind":"skill_rank","skill":"lore"}));
-    let mut repaid = paid.clone();
+    let mut repaid = paid;
     repaid["choices"][2]["purchase_highwater"] = json!(2);
     repaid["choices"][2]["purchases"][0]["id"]["serial"] = json!(2);
     assert_eq!(

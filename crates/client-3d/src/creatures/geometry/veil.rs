@@ -102,8 +102,9 @@ impl GroundDrape {
         torso: Affine3A,
         head: Affine3A,
         fall: f32,
+        performing_death: bool,
     ) -> Transform {
-        if fall <= 0.0 {
+        if fall <= 0.0 && !performing_death {
             return Transform::IDENTITY;
         }
         let folded = ease((fall - 0.48) / 0.52);
@@ -126,14 +127,25 @@ impl GroundDrape {
             .transform_vector3(Vec3::X)
             .with_y(0.0)
             .normalize_or_zero();
+        // A stagger or flourish can tip the cloth before the body starts
+        // its final descent. Keep floor support throughout the performance,
+        // but leave some slack at its start to match the living hem.
+        let landing = ease(fall / 0.40);
+        let floor = if performing_death {
+            0.012 - 0.030 * (1.0 - landing)
+        } else {
+            0.012
+        };
         let terrain_lift = self.samples.iter().fold(0.0f32, |needed, &(p, [a, b, c])| {
             let y = torso.transform_point3(p).y * a
                 + head.transform_point3(p).y * b
                 + torso.transform_point3(rotation * p + hinge).y * c;
             // A small allowance covers raised edging and flower settings.
-            needed.max((0.012 - y) / c)
+            needed.max((floor - y) / c)
         });
-        let world_delta = Vec3::Y * terrain_lift * ease(fall / 0.40) + lateral * (0.19 * folded);
+        // Revival still releases the settled support into the ordinary drape.
+        let support = if performing_death { 1.0 } else { landing };
+        let world_delta = Vec3::Y * terrain_lift * support + lateral * (0.19 * folded);
         Transform::from_translation(hinge + torso.inverse().transform_vector3(world_delta))
             .with_rotation(rotation)
     }
@@ -400,6 +412,18 @@ mod tests {
         let (mut app, root) = animate_look(look, 2, |_| Vec3::ZERO);
         let rig = app.world().get::<Rig>(root).unwrap();
         let head = rig.joint(J::Head).unwrap();
+        let train = rig.veil.as_ref().unwrap().train;
+        let assert_unposed_train = |world: &World| {
+            assert_eq!(*world.get::<Transform>(train).unwrap(), Transform::IDENTITY);
+        };
+        assert_unposed_train(app.world());
+        {
+            let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+            anim.preview_death(DeathMotion::Collapse);
+            anim.dead = Some(-0.35);
+        }
+        app.update();
+        assert_unposed_train(app.world()); // Live corridor-facing pre-roll.
         let mut query = app.world_mut().query::<(&Mesh3d, &SkinnedMesh)>();
         let frame = |world: &World, mut entity: Entity| {
             let mut matrix = Mat4::IDENTITY;
@@ -418,7 +442,9 @@ mod tests {
                 .get_mut::<Anim>(root)
                 .unwrap()
                 .preview_death(motion);
-            for phase in [0.75, 0.86, 0.94, 1.0] {
+            for phase in [
+                0.0, 0.28, 0.39, 0.43, 0.48, 0.53, 0.58, 0.63, 0.68, 0.75, 0.86, 0.94, 1.0,
+            ] {
                 app.world_mut().get_mut::<Anim>(root).unwrap().dead = Some(phase);
                 app.update();
                 let world = app.world();
@@ -457,20 +483,23 @@ mod tests {
                     let mut low = 0;
                     let mut train = 0;
                     for ((&p, &w), &i) in positions.iter().zip(weights).zip(indices) {
-                        if p[1] > -0.56 {
-                            continue;
-                        }
                         let at = (0..4)
                             .filter(|&k| w[k] > 0.0)
                             .map(|k| joint_frames[i[k] as usize].transform_point3(p.into()) * w[k])
                             .sum::<Vec3>();
+                        if p[1] > -0.56 {
+                            continue;
+                        }
                         floor = floor.min(at.y);
                         low += usize::from(at.y < 0.085);
                         train += 1;
                     }
                     assert!(train > 16, "sample the real trailing mesh, including trim");
+                    // Allow more slack during a moving pose than the settled train;
+                    // a long, plainly visible strip must never sink into the floor.
+                    let floor_limit = if phase < 0.75 { -0.035 } else { -0.012 };
                     assert!(
-                        floor >= -0.012,
+                        floor >= floor_limit,
                         "{motion:?} phase {phase}: veil train penetrates ground at {floor:.3}"
                     );
                     if phase == 1.0 {

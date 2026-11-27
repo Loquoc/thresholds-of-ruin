@@ -492,6 +492,329 @@ impl Engine {
         self.chronicler.learn(link.client().state(), link.palette());
     }
 
+    /// Continue an open projectile selection with this line. Returns whether
+    /// the line was consumed; a new command instead cancels the selection.
+    async fn projectile_menu_input(
+        &mut self,
+        link: &mut impl Link,
+        mut menu: tor_client_common::projectiles::ProjectileMenu,
+        line: &str,
+        record: &mut Record,
+    ) -> Result<bool, Error> {
+        if !menu.current(link.client()) {
+            record.say("Projectile choices changed. Choose the ability again.");
+            return Ok(true);
+        }
+        let mut handled = true;
+        match crate::projectiles::input(&mut menu, link.client(), line) {
+            Ok(Some(crate::projectiles::Progress::Cancel)) => record.say("All right."),
+            Ok(Some(crate::projectiles::Progress::Query)) => {
+                if turn::projectile_choices(link, &mut self.chronicler, record, &mut menu).await? {
+                    self.projectile_selection = Some(menu);
+                }
+            }
+            Ok(Some(crate::projectiles::Progress::Direction)) => {
+                record.say(crate::projectiles::lines(&menu).join("\n"));
+                self.projectile_selection = Some(menu);
+            }
+            Ok(Some(crate::projectiles::Progress::Action(Action::UseAbility {
+                id,
+                invocation,
+                supplies,
+            }))) => {
+                let start = self.place_key(link);
+                self.carry_out(
+                    link,
+                    record,
+                    Interpretation::Goals(vec![verbs::Goal::UseAbility {
+                        ability: id,
+                        invocation,
+                        supplies,
+                    }]),
+                    &mut VecDeque::new(),
+                )
+                .await?;
+                self.finish(link, record, start.as_deref());
+            }
+            Ok(Some(crate::projectiles::Progress::Action(_))) => {
+                unreachable!("projectile ability action")
+            }
+            Err(reason) => {
+                record.say(reason);
+                self.projectile_selection = Some(menu);
+            }
+            Ok(None) if !commands(line, &link.client().state().observation) => {
+                record.say(crate::projectiles::lines(&menu).join("\n"));
+                self.projectile_selection = Some(menu);
+            }
+            Ok(None) => {
+                // A new command cancels the old selection. Never reinterpret
+                // its source number against another ability or observation.
+                handled = false;
+            }
+        }
+        Ok(handled)
+    }
+
+    /// A lone escape or magic-item sentence names its goal directly. An
+    /// escape is remembered by its canonical hold number.
+    fn direct_goal(
+        &mut self,
+        line: &str,
+        state: &StateView,
+    ) -> Option<Result<verbs::Goal, String>> {
+        if let Some(input) = crate::hold_input(line, state) {
+            return Some(input.map(|input| {
+                let Input::Command(Command::Act {
+                    action: Action::Escape { hold },
+                    ..
+                }) = input
+                else {
+                    unreachable!("hold input produces only an Escape action")
+                };
+                let canonical = format!("escape hold #{hold}");
+                self.last_line = Some(canonical.clone());
+                self.last_sentence = Some(canonical);
+                verbs::Goal::Escape { hold }
+            }));
+        }
+        crate::magic_input(line, state).map(|input| {
+            input.map(|input| {
+                let Input::Command(Command::Act { action, .. }) = input else {
+                    unreachable!("magic input produces only item actions")
+                };
+                verbs::Goal::MagicItem { action }
+            })
+        })
+    }
+
+    /// Read `line` as the answer to an earlier question. Returns true when
+    /// the reply is complete without interpreting anything further.
+    fn resume_pending(
+        &mut self,
+        link: &impl Link,
+        record: &mut Record,
+        pending: Pending,
+        line: &mut String,
+        chain: &mut VecDeque<Result<Interpretation, String>>,
+        rest: &mut Vec<String>,
+    ) -> bool {
+        let current = link.client().state().revision == pending.revision;
+        let is_command = commands(line, &link.client().state().observation);
+        match pending.asked {
+            Asked::Choice(question) => match answer(&question, line) {
+                Some(choice) if current => {
+                    if let Some(key) = choice.key {
+                        let scene = Scene::new(link.client().state(), link.palette());
+                        if let Some(r) = scene.get(key) {
+                            self.referents.mention(r);
+                        }
+                    }
+                    chain.push_back(Ok(choice.then.clone()));
+                    chain.extend(pending.rest.into_iter().map(Err));
+                }
+                None if current && !is_command => {
+                    let labels: Vec<String> =
+                        question.choices.iter().map(|c| c.label.clone()).collect();
+                    record.say(format!(
+                        "Please choose {}, or type a new command.",
+                        prose::or_list(&labels)
+                    ));
+                    self.pending = Some(Pending {
+                        asked: Asked::Choice(question),
+                        ..pending
+                    });
+                    return true;
+                }
+                _ => {}
+            },
+            // "What do you want to attack?" "The scout."
+            Asked::Missing { before, after }
+                if current
+                    && !before.is_empty()
+                    && !is_command
+                    && (self.names_something(link, line)
+                        || line
+                            .split_whitespace()
+                            .next()
+                            .is_some_and(|w| scene::known_noun(&w.to_lowercase()))) =>
+            {
+                *line = format!("{before} {line} {after}").trim().to_owned();
+                *rest = pending.rest;
+            }
+            // "What do you want to do with the scout?" "Attack."
+            Asked::Missing { before, after }
+                if current
+                    && before.is_empty()
+                    && line.split_whitespace().count() <= 2
+                    && line
+                        .split_whitespace()
+                        .next()
+                        .and_then(|w| lexicon::parse_verb(&w.to_lowercase()))
+                        .is_some() =>
+            {
+                *line = format!("{line} {after}");
+                *rest = pending.rest;
+            }
+            Asked::WeaponConfirm { then, preview } => match yes_or_no(line) {
+                Some(true) if current && preview.current(link.client()) => {
+                    self.confirmed_weapon = Some(*preview);
+                    chain.push_back(Ok(then));
+                    chain.extend(pending.rest.into_iter().map(Err));
+                }
+                Some(true) => {
+                    record.say("Things have changed since the preview. Choose again.");
+                    return true;
+                }
+                Some(false) => {
+                    record.say("All right.");
+                    return true;
+                }
+                None if current && !is_command => {
+                    record.say("Please answer yes or no, or type a new command.");
+                    self.pending = Some(Pending {
+                        asked: Asked::WeaponConfirm { then, preview },
+                        ..pending
+                    });
+                    return true;
+                }
+                None => {}
+            },
+            Asked::Confirm(then) => match yes_or_no(line) {
+                Some(true) if current => {
+                    chain.push_back(Ok(then));
+                    chain.extend(pending.rest.into_iter().map(Err));
+                }
+                Some(true) => {
+                    record.say(
+                        "Things have changed since you were asked. Look around and try again.",
+                    );
+                    return true;
+                }
+                Some(false) => {
+                    record.say("All right.");
+                    return true;
+                }
+                None if current && !is_command => {
+                    record.say("Please answer yes or no, or type a new command.");
+                    self.pending = Some(Pending {
+                        asked: Asked::Confirm(then),
+                        ..pending
+                    });
+                    return true;
+                }
+                None => {}
+            },
+            Asked::Missing { .. } => {}
+        }
+        false
+    }
+
+    /// Interpret one queued sentence, or queue what it stands for.
+    fn read_sentence(
+        &mut self,
+        link: &impl Link,
+        record: &mut Record,
+        sentence: &str,
+        chain: &mut VecDeque<Result<Interpretation, String>>,
+    ) -> SentenceStep {
+        let (text, modifiers) = idiom::normalize(sentence);
+        let text = if modifiers.again {
+            self.again(&text)
+        } else {
+            text
+        };
+        if let Some(input) = crate::hold_input(&text, link.client().state()) {
+            match input {
+                Ok(Input::Command(Command::Act {
+                    action: Action::Escape { hold },
+                    ..
+                })) => {
+                    let canonical = format!("escape hold #{hold}");
+                    self.last_sentence = Some(canonical.clone());
+                    if let Some(last) = &mut self.last_line {
+                        let mut parts = sentences(last);
+                        if let Some(part) = parts
+                            .iter_mut()
+                            .find(|part| idiom::normalize(part).0 == text)
+                        {
+                            *part = canonical;
+                            *last = parts.join(". ");
+                        }
+                    }
+                    chain.push_front(Ok(Interpretation::Goals(vec![verbs::Goal::Escape {
+                        hold,
+                    }])));
+                }
+                Err(error) => {
+                    record.say(error);
+                    return SentenceStep::Stopped;
+                }
+                _ => unreachable!("hold input produces only an Escape action"),
+            }
+            return SentenceStep::Queued;
+        }
+        if let Some(input) = crate::magic_input(&text, link.client().state()) {
+            match input {
+                Ok(Input::Command(Command::Act { action, .. })) => {
+                    chain.push_front(Ok(Interpretation::Goals(vec![verbs::Goal::MagicItem {
+                        action,
+                    }])))
+                }
+                Err(error) => {
+                    record.say(error);
+                    return SentenceStep::Stopped;
+                }
+                _ => unreachable!("magic input produces only item actions"),
+            }
+            return SentenceStep::Queued;
+        }
+        if let Some(input) = crate::intention_input(&text) {
+            match input {
+                Ok(input) => chain.push_front(Ok(Interpretation::Tool(input))),
+                Err(error) => {
+                    record.say(error);
+                    return SentenceStep::Stopped;
+                }
+            }
+            return SentenceStep::Queued;
+        }
+        let tokens = parser::tokenize(&text);
+        match parser::match_disclosed_sentence(&tokens, &text, &seen(link.client()).observation) {
+            Ok(ParsedCommand::Again) => match &self.last_sentence {
+                Some(last) => {
+                    chain.push_front(Err(last.clone()));
+                    SentenceStep::Queued
+                }
+                None => {
+                    record.say("There's nothing to repeat.");
+                    SentenceStep::Stopped
+                }
+            },
+            Ok(command) => {
+                let command = if modifiers.persist {
+                    persist(command)
+                } else {
+                    command
+                };
+                if acts(&command) {
+                    self.last_sentence = Some(text.clone());
+                }
+                let state = seen(link.client());
+                let scene = self.scene(&state, link.palette());
+                let mut referents = self.referents.clone();
+                let meant = verbs::interpret(&command, &scene, &mut referents);
+                drop(scene);
+                self.referents = referents;
+                SentenceStep::Understood(meant)
+            }
+            Err(message) => {
+                record.say(message);
+                SentenceStep::Stopped
+            }
+        }
+    }
+
     /// Play one line of input to the end of its turn.
     pub async fn play(&mut self, link: &mut impl Link, line: &str) -> Result<Outcome, Error> {
         // Embedders may start with play rather than welcome. Establish the
@@ -503,62 +826,11 @@ impl Engine {
         if line.is_empty() {
             return Ok(Outcome::Passage(String::new()));
         }
-        if let Some(mut menu) = self.projectile_selection.take() {
-            if !menu.current(link.client()) {
-                record.say("Projectile choices changed. Choose the ability again.");
-                return Ok(Outcome::Passage(narrate::compose(&record)));
-            }
-            let mut handled = true;
-            match crate::projectiles::input(&mut menu, link.client(), &line) {
-                Ok(Some(crate::projectiles::Progress::Cancel)) => record.say("All right."),
-                Ok(Some(crate::projectiles::Progress::Query)) => {
-                    if turn::projectile_choices(link, &mut self.chronicler, &mut record, &mut menu)
-                        .await?
-                    {
-                        self.projectile_selection = Some(menu);
-                    }
-                }
-                Ok(Some(crate::projectiles::Progress::Direction)) => {
-                    record.say(crate::projectiles::lines(&menu).join("\n"));
-                    self.projectile_selection = Some(menu);
-                }
-                Ok(Some(crate::projectiles::Progress::Action(Action::UseAbility {
-                    id,
-                    invocation,
-                    supplies,
-                }))) => {
-                    let start = self.place_key(link);
-                    self.carry_out(
-                        link,
-                        &mut record,
-                        Interpretation::Goals(vec![verbs::Goal::UseAbility {
-                            ability: id,
-                            invocation,
-                            supplies,
-                        }]),
-                        &mut VecDeque::new(),
-                    )
-                    .await?;
-                    self.finish(link, &mut record, start.as_deref());
-                }
-                Ok(Some(crate::projectiles::Progress::Action(_))) => {
-                    unreachable!("projectile ability action")
-                }
-                Err(reason) => {
-                    record.say(reason);
-                    self.projectile_selection = Some(menu);
-                }
-                Ok(None) if !commands(&line, &link.client().state().observation) => {
-                    record.say(crate::projectiles::lines(&menu).join("\n"));
-                    self.projectile_selection = Some(menu);
-                }
-                Ok(None) => {
-                    // A new command cancels the old selection. Never reinterpret
-                    // its source number against another ability or observation.
-                    handled = false;
-                }
-            }
-            if handled {
+        if let Some(menu) = self.projectile_selection.take() {
+            if self
+                .projectile_menu_input(link, menu, &line, &mut record)
+                .await?
+            {
                 return Ok(Outcome::Passage(narrate::compose(&record)));
             }
         }
@@ -577,49 +849,21 @@ impl Engine {
         // Freeze the selected offer before either the flee idiom or a later
         // repeated command can reinterpret a number against a refreshed list.
         if sentences(&line).len() == 1 {
-            if let Some(input) = crate::hold_input(&line, link.client().state()) {
+            if let Some(goal) = self.direct_goal(&line, link.client().state()) {
                 self.pending = None;
-                match input {
-                    Ok(Input::Command(Command::Act {
-                        action: Action::Escape { hold },
-                        ..
-                    })) => {
-                        let canonical = format!("escape hold #{hold}");
-                        self.last_line = Some(canonical.clone());
-                        self.last_sentence = Some(canonical);
+                match goal {
+                    Ok(goal) => {
                         let start = self.place_key(link);
                         self.carry_out(
                             link,
                             &mut record,
-                            Interpretation::Goals(vec![verbs::Goal::Escape { hold }]),
+                            Interpretation::Goals(vec![goal]),
                             &mut VecDeque::new(),
                         )
                         .await?;
                         self.finish(link, &mut record, start.as_deref());
                     }
                     Err(error) => record.say(error),
-                    _ => unreachable!("hold input produces only an Escape action"),
-                }
-                return Ok(Outcome::Passage(narrate::compose(&record)));
-            }
-        }
-        if sentences(&line).len() == 1 {
-            if let Some(input) = crate::magic_input(&line, link.client().state()) {
-                self.pending = None;
-                match input {
-                    Ok(Input::Command(Command::Act { action, .. })) => {
-                        let start = self.place_key(link);
-                        self.carry_out(
-                            link,
-                            &mut record,
-                            Interpretation::Goals(vec![verbs::Goal::MagicItem { action }]),
-                            &mut VecDeque::new(),
-                        )
-                        .await?;
-                        self.finish(link, &mut record, start.as_deref());
-                    }
-                    Err(error) => record.say(error),
-                    _ => unreachable!("magic input produces only item actions"),
                 }
                 return Ok(Outcome::Passage(narrate::compose(&record)));
             }
@@ -648,113 +892,8 @@ impl Engine {
         let mut chain: VecDeque<Result<Interpretation, String>> = VecDeque::new();
         let mut rest: Vec<String> = Vec::new();
         if let Some(pending) = self.pending.take() {
-            let current = link.client().state().revision == pending.revision;
-            let is_command = commands(&line, &link.client().state().observation);
-            match pending.asked {
-                Asked::Choice(question) => match answer(&question, &line) {
-                    Some(choice) if current => {
-                        if let Some(key) = choice.key {
-                            let scene = Scene::new(link.client().state(), link.palette());
-                            if let Some(r) = scene.get(key) {
-                                self.referents.mention(r);
-                            }
-                        }
-                        chain.push_back(Ok(choice.then.clone()));
-                        chain.extend(pending.rest.into_iter().map(Err));
-                    }
-                    None if current && !is_command => {
-                        let labels: Vec<String> =
-                            question.choices.iter().map(|c| c.label.clone()).collect();
-                        record.say(format!(
-                            "Please choose {}, or type a new command.",
-                            prose::or_list(&labels)
-                        ));
-                        self.pending = Some(Pending {
-                            asked: Asked::Choice(question),
-                            ..pending
-                        });
-                        return Ok(Outcome::Passage(narrate::compose(&record)));
-                    }
-                    _ => {}
-                },
-                // "What do you want to attack?" "The scout."
-                Asked::Missing { before, after }
-                    if current
-                        && !before.is_empty()
-                        && !is_command
-                        && (self.names_something(link, &line)
-                            || line
-                                .split_whitespace()
-                                .next()
-                                .is_some_and(|w| scene::known_noun(&w.to_lowercase()))) =>
-                {
-                    line = format!("{before} {line} {after}").trim().to_owned();
-                    rest = pending.rest;
-                }
-                // "What do you want to do with the scout?" "Attack."
-                Asked::Missing { before, after }
-                    if current
-                        && before.is_empty()
-                        && line.split_whitespace().count() <= 2
-                        && line
-                            .split_whitespace()
-                            .next()
-                            .and_then(|w| lexicon::parse_verb(&w.to_lowercase()))
-                            .is_some() =>
-                {
-                    line = format!("{line} {after}");
-                    rest = pending.rest;
-                }
-                Asked::WeaponConfirm { then, preview } => match yes_or_no(&line) {
-                    Some(true) if current && preview.current(link.client()) => {
-                        self.confirmed_weapon = Some(*preview);
-                        chain.push_back(Ok(then));
-                        chain.extend(pending.rest.into_iter().map(Err));
-                    }
-                    Some(true) => {
-                        record.say("Things have changed since the preview. Choose again.");
-                        return Ok(Outcome::Passage(narrate::compose(&record)));
-                    }
-                    Some(false) => {
-                        record.say("All right.");
-                        return Ok(Outcome::Passage(narrate::compose(&record)));
-                    }
-                    None if current && !is_command => {
-                        record.say("Please answer yes or no, or type a new command.");
-                        self.pending = Some(Pending {
-                            asked: Asked::WeaponConfirm { then, preview },
-                            ..pending
-                        });
-                        return Ok(Outcome::Passage(narrate::compose(&record)));
-                    }
-                    None => {}
-                },
-                Asked::Confirm(then) => {
-                    match yes_or_no(&line) {
-                        Some(true) if current => {
-                            chain.push_back(Ok(then));
-                            chain.extend(pending.rest.into_iter().map(Err));
-                        }
-                        Some(true) => {
-                            record.say("Things have changed since you were asked. Look around and try again.");
-                            return Ok(Outcome::Passage(narrate::compose(&record)));
-                        }
-                        Some(false) => {
-                            record.say("All right.");
-                            return Ok(Outcome::Passage(narrate::compose(&record)));
-                        }
-                        None if current && !is_command => {
-                            record.say("Please answer yes or no, or type a new command.");
-                            self.pending = Some(Pending {
-                                asked: Asked::Confirm(then),
-                                ..pending
-                            });
-                            return Ok(Outcome::Passage(narrate::compose(&record)));
-                        }
-                        None => {}
-                    }
-                }
-                Asked::Missing { .. } => {}
+            if self.resume_pending(link, &mut record, pending, &mut line, &mut chain, &mut rest) {
+                return Ok(Outcome::Passage(narrate::compose(&record)));
             }
         }
         if chain.is_empty() && line.parse::<u64>().is_ok() {
@@ -770,107 +909,11 @@ impl Engine {
         while let Some(next) = chain.pop_front() {
             let interpretation = match next {
                 Ok(interpretation) => interpretation,
-                Err(text) => {
-                    let (text, modifiers) = idiom::normalize(&text);
-                    let text = if modifiers.again {
-                        self.again(&text)
-                    } else {
-                        text
-                    };
-                    if let Some(input) = crate::hold_input(&text, link.client().state()) {
-                        match input {
-                            Ok(Input::Command(Command::Act {
-                                action: Action::Escape { hold },
-                                ..
-                            })) => {
-                                let canonical = format!("escape hold #{hold}");
-                                self.last_sentence = Some(canonical.clone());
-                                if let Some(last) = &mut self.last_line {
-                                    let mut parts = sentences(last);
-                                    if let Some(part) = parts
-                                        .iter_mut()
-                                        .find(|part| idiom::normalize(part).0 == text)
-                                    {
-                                        *part = canonical;
-                                        *last = parts.join(". ");
-                                    }
-                                }
-                                chain.push_front(Ok(Interpretation::Goals(vec![
-                                    verbs::Goal::Escape { hold },
-                                ])));
-                            }
-                            Err(error) => {
-                                record.say(error);
-                                break;
-                            }
-                            _ => unreachable!("hold input produces only an Escape action"),
-                        }
-                        continue;
-                    }
-                    if let Some(input) = crate::magic_input(&text, link.client().state()) {
-                        match input {
-                            Ok(Input::Command(Command::Act { action, .. })) => {
-                                chain.push_front(Ok(Interpretation::Goals(vec![
-                                    verbs::Goal::MagicItem { action },
-                                ])))
-                            }
-                            Err(error) => {
-                                record.say(error);
-                                break;
-                            }
-                            _ => unreachable!("magic input produces only item actions"),
-                        }
-                        continue;
-                    }
-                    if let Some(input) = crate::intention_input(&text) {
-                        match input {
-                            Ok(input) => chain.push_front(Ok(Interpretation::Tool(input))),
-                            Err(error) => {
-                                record.say(error);
-                                break;
-                            }
-                        }
-                        continue;
-                    }
-                    let tokens = parser::tokenize(&text);
-                    match parser::match_disclosed_sentence(
-                        &tokens,
-                        &text,
-                        &seen(link.client()).observation,
-                    ) {
-                        Ok(ParsedCommand::Again) => match &self.last_sentence {
-                            Some(last) => {
-                                chain.push_front(Err(last.clone()));
-                                continue;
-                            }
-                            None => {
-                                record.say("There's nothing to repeat.");
-                                break;
-                            }
-                        },
-                        Ok(command) => {
-                            let command = if modifiers.persist {
-                                persist(command)
-                            } else {
-                                command
-                            };
-                            if acts(&command) {
-                                self.last_sentence = Some(text.clone());
-                            }
-                            let state = seen(link.client());
-                            let scene = self.scene(&state, link.palette());
-                            let mut referents = self.referents.clone();
-                            let meant = verbs::interpret(&command, &scene, &mut referents);
-                            drop(scene);
-                            self.referents = referents;
-                            meant
-                        }
-                        Err(message) => {
-                            record.say(message);
-                            break;
-                        }
-                    }
-                }
+                Err(text) => match self.read_sentence(link, &mut record, &text, &mut chain) {
+                    SentenceStep::Understood(interpretation) => interpretation,
+                    SentenceStep::Queued => continue,
+                    SentenceStep::Stopped => break,
+                },
             };
             let go_on = self
                 .carry_out(link, &mut record, interpretation, &mut chain)
@@ -1721,6 +1764,19 @@ impl Engine {
         self.finish(link, &mut record, start.as_deref());
         narrate::compose(&record)
     }
+}
+
+/// What one queued sentence means for the rest of the line.
+// Returned once and matched immediately; boxing would only add an
+// allocation per sentence.
+#[allow(clippy::large_enum_variant)]
+enum SentenceStep {
+    /// The sentence is understood and should be carried out now.
+    Understood(Interpretation),
+    /// The sentence put its meaning back on the chain.
+    Queued,
+    /// The sentence was refused; the rest of the line is dropped.
+    Stopped,
 }
 
 enum Flow {

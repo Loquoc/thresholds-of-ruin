@@ -948,7 +948,7 @@ fn participation_engine_with_visibility(case: ParticipationFixture, caster_lit: 
             ParticipationFixture::PersonalDifficulty
             | ParticipationFixture::DormantTargetFailure
             | ParticipationFixture::ImmunePersonalDifficulty
-            | ParticipationFixture::ImmuneDormantTargetFailure => ("user", difficulty.clone()),
+            | ParticipationFixture::ImmuneDormantTargetFailure => ("user", difficulty),
             ParticipationFixture::SelectedTargetFailure => (
                 "user",
                 serde_json::json!({"kind":"difficulty","formula":{"base":1000,"skill":null,"attribute":null}}),

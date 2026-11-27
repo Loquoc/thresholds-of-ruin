@@ -78,6 +78,8 @@ These are enforced in review and, where possible, by tests.
   development dependencies. New crates and intentional boundary changes need an
   explicit policy update in that script. The check isn't a sandbox: new external
   libraries still need review (for example, to avoid I/O in simulation code).
+  The same script keeps the few sources mirrored between `tor-protocol` and
+  `tor-simulation` (its `MIRRORED_SOURCES`) byte-for-byte identical.
 - **Original work.** Write original code and content. NetHack is a gameplay
   reference, not a source to copy.
 

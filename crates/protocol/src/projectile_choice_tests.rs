@@ -214,7 +214,7 @@ fn projectile_choices_echo_exact_query_and_accept_only_matching_phase_rows() {
         serde_json::from_value::<ProjectileChoicePage>(serde_json::to_value(&mixed).unwrap())
             .is_err()
     );
-    let mut other = page().query.clone();
+    let mut other = page().query;
     other.phase = ProjectileChoicePhase::Ammunition {
         launcher: EquippedProjectileWeapon {
             socket: 62,

@@ -534,6 +534,14 @@ class ActionCompletion(unittest.TestCase):
                     "state": {"observation": {"ready": ready,
                         "combat": {"dead": False, "preparation_active": active}}}}))
 
+    def test_headless_fight_skips_compact_background_frames(self):
+        # A compact background frame (here, the waiting message seen during a
+        # loaded run) deliberately omits the derived state. It cannot complete
+        # the fight, and it must not end the wait with a KeyError either.
+        compact = {"type": "update", "message": {"type": "waiting", "on": "you"},
+                   "error": None, "map_hydration": {"complete": True}, "state_omitted": True}
+        self.assertFalse(headless_fight_completion(compact))
+
     def test_headless_fight_death_is_observable_without_action_permission(self):
         dead = {"intentions": [{"intention": "paid-1", "phase": "started"}],
                 "readiness": {"admission": False, "resume": [], "cancel": ["paid-1"]},

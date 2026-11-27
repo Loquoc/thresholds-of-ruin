@@ -204,3 +204,154 @@ fn aquator_keeps_its_four_solved_feet_when_corrosion_interrupts_a_step() {
         "first corrosion frame moved a grounded or swinging foot {worst:?} (distance, cue frame, leg)"
     );
 }
+
+fn ankles(app: &App, root: Entity) -> [Vec3; 2] {
+    let world = app.world();
+    let rig = world.get::<Rig>(root).unwrap();
+    [J::FootL, J::FootR].map(|joint| {
+        let mut entity = rig.joint(joint).unwrap();
+        let mut point = Vec3::ZERO;
+        loop {
+            point = world
+                .get::<Transform>(entity)
+                .unwrap()
+                .transform_point(point);
+            if entity == root {
+                return point;
+            }
+            entity = world.get::<ChildOf>(entity).unwrap().parent();
+        }
+    })
+}
+
+#[test]
+fn hobgoblin_keeps_its_footing_when_a_strike_interrupts_braking() {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    let look = Look::preview_adjusted(CreatureModel::Hobgoblin, 31, |variant| {
+        *variant = Variant::default();
+    });
+    let braking = || {
+        let (mut app, root) = animate_look(look.clone(), 1, |_| Vec3::ZERO);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            20,
+        )));
+        {
+            let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+            *anim = Anim::new(31, Vec3::ZERO);
+            anim.yaw = 0.0;
+            anim.target_yaw = Some(0.0);
+        }
+        for tick in 0..=81_u32 {
+            app.world_mut()
+                .get_mut::<Transform>(root)
+                .unwrap()
+                .translation
+                .z = 0.011 * tick.clamp(4, 72).saturating_sub(4) as f32;
+            app.update();
+        }
+        (app, root)
+    };
+
+    let (mut attack, root) = braking();
+    let (mut stop, stop_root) = braking();
+    let before = ankles(&attack, root);
+    assert_eq!(before, ankles(&stop, stop_root));
+    assert!(
+        attack
+            .world()
+            .get::<Anim>(root)
+            .unwrap()
+            .contacts
+            .settle
+            .is_some(),
+        "strike must interrupt an unfinished, supported stop"
+    );
+    attack
+        .world_mut()
+        .get_mut::<Anim>(root)
+        .unwrap()
+        .act(Move::Strike);
+    attack.update();
+    stop.update();
+    let Some((Move::Strike, phase)) = attack.world().get::<Anim>(root).unwrap().action else {
+        panic!("strike cue must present on the first gameplay frame");
+    };
+    assert!((phase * Move::Strike.duration() - 0.02).abs() < 1e-5);
+    let walking = ankles(&stop, stop_root);
+    let strike = ankles(&attack, root);
+    for i in 0..2 {
+        let control = before[i].distance(walking[i]);
+        assert!(
+            control < 0.055,
+            "ordinary brake moved foot {i} by {control:.3}"
+        );
+        let jump = before[i].distance(strike[i]);
+        assert!(
+            jump < 0.065,
+            "strike ripped foot {i} by {jump:.3} units in 20 ms from its braking pose (stop control: {control:.3})"
+        );
+    }
+}
+
+#[test]
+fn hobgoblin_resumes_walking_during_strike_recovery_without_an_ankle_jump() {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    fn run(strike: bool, restart: u32) -> (f32, u32) {
+        let look = Look::preview_adjusted(CreatureModel::Hobgoblin, 31, |variant| {
+            *variant = Variant::default();
+        });
+        let (mut app, root) = animate_look(look, 1, |_| Vec3::ZERO);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            20,
+        )));
+        let mut initial = Anim::new(31, Vec3::ZERO);
+        initial.yaw = 0.0;
+        initial.target_yaw = Some(0.0);
+        *app.world_mut().get_mut::<Anim>(root).unwrap() = initial;
+        let mut last = ankles(&app, root);
+        let mut worst = (0.0, 0);
+        for tick in 0..=134_u32 {
+            app.world_mut()
+                .get_mut::<Transform>(root)
+                .unwrap()
+                .translation
+                .z =
+                0.011 * (tick.clamp(4, 72).saturating_sub(4) + tick.saturating_sub(restart)) as f32;
+            if strike && tick == 82 {
+                app.world_mut()
+                    .get_mut::<Anim>(root)
+                    .unwrap()
+                    .act(Move::Strike);
+            }
+            app.update();
+            if tick % 2 == 0 {
+                let now = ankles(&app, root);
+                if (104..=132).contains(&tick) {
+                    let jump = now[0].distance(last[0]).max(now[1].distance(last[1]));
+                    if jump > worst.0 {
+                        worst = (jump, tick);
+                    }
+                }
+                last = now;
+            }
+        }
+        worst
+    }
+
+    let ordinary = run(false, 103);
+    let after_strike = run(true, 116);
+    assert!(
+        ordinary.0 < 0.105 && after_strike.0 < 0.105,
+        "control: {ordinary:?} {after_strike:?}"
+    );
+    let overlap = run(true, 103);
+    assert!(
+        overlap.0 < 0.105,
+        "restarting during recovery moved an ankle by {:.3} units in 40 ms at tick {}; controls: {ordinary:?} {after_strike:?}",
+        overlap.0, overlap.1
+    );
+}

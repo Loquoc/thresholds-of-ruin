@@ -671,7 +671,7 @@ fn ambush_adds_exactly_one_edge_to_the_first_outgoing_primary_and_nothing_else()
         .ability_plan(OWNER, &id("basic_melee"), SUBJECT)
         .unwrap();
     assert_eq!(game, before, "preview cannot reserve an ambush");
-    let mut revealed = game.clone();
+    let mut revealed = game;
     revealed.reveal_guise(OWNER).unwrap();
     let ordinary = revealed
         .ability_plan(OWNER, &id("basic_melee"), SUBJECT)

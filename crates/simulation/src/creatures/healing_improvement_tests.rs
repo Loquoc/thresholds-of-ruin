@@ -418,10 +418,10 @@ fn resolved_improvement_claims_reject_forgery_without_partial_healing() {
     let mut bad = value.clone();
     bad["improvements"][0]["previous"] = json!(1000);
     assert!(serde_json::from_value::<ResolvedEffect>(bad).is_err());
-    let mut bad = value.clone();
+    let mut bad = value;
     bad["improvements"][0]["extra"] = json!(1);
     assert!(serde_json::from_value::<ResolvedEffect>(bad).is_err());
-    let mut creature = original.clone();
+    let mut creature = original;
     creature.damage(1);
     let before = creature.clone();
     let mut changed = claim;

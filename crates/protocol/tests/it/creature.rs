@@ -353,7 +353,7 @@ fn personal_conditions_have_closed_bounded_shapes_without_private_provenance() {
     let mut value = serde_json::to_value(stats()).unwrap();
     let condition = serde_json::json!({"condition":{"id":"fixture_pause","name":"Fixture Pause"},
         "phase":"active","appearance":"status_indicator","cue":"status","remaining_ticks":"200"});
-    value["conditions"] = serde_json::json!([condition.clone()]);
+    value["conditions"] = serde_json::json!([condition]);
     let parsed: OwnStats =
         serde_json::from_value(value.clone()).expect("personal condition projection");
     assert_eq!(serde_json::to_value(parsed).unwrap(), value);
@@ -547,7 +547,7 @@ fn persistent_personal_conditions_require_null_and_never_disclose_private_identi
     use serde_json::json;
     let condition = json!({"condition":{"id":"fixture_haste","name":"Fixture Haste"},"phase":"active","appearance":"status_indicator","cue":"status","remaining_ticks":null});
     let mut value = serde_json::to_value(stats()).unwrap();
-    value["conditions"] = json!([condition.clone()]);
+    value["conditions"] = json!([condition]);
     let parsed: OwnStats = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(serde_json::to_value(parsed).unwrap(), value);
     for mutation in 0..5 {
