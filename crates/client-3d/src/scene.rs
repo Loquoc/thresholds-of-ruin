@@ -334,7 +334,7 @@ fn align(commands: &mut Commands, game: &mut Game, view: &View) {
     for (_, entity) in game.actors.drain() {
         commands.entity(entity).try_despawn();
     }
-    for (_, (entity, _)) in game.cells.drain() {
+    for (_, (entity, _, _)) in game.cells.drain() {
         commands.entity(entity).try_despawn();
     }
     for (_, entity) in game.chunks.drain() {
@@ -394,8 +394,7 @@ fn build_cells(
     view: &View,
 ) {
     let mut solids = HashMap::new();
-    let mut open = HashSet::new();
-    let mut lit_open = HashSet::new();
+    let mut open = HashMap::new();
     let mut blocked: HashSet<IVec3> = view
         .items
         .iter()
@@ -428,10 +427,8 @@ fn build_cells(
             });
             continue;
         }
-        open.insert(bevy_cell(at));
-        if seen && cell.lit {
-            lit_open.insert(bevy_cell(at));
-        }
+        open.entry(bevy_cell(at))
+            .or_insert(lighting::Appearance::terrain(seen, cell.lit));
         if cell.trap.is_some() && !(cell.door.is_some() || cell.stairs_up || cell.stairs_down) {
             // A trap lies on open floor; it does not block the way.
             wanted.entry(at).or_insert((look(&cell), cell));
@@ -441,11 +438,10 @@ fn build_cells(
             continue;
         }
         blocked.insert(bevy_cell(at));
-        let _ = seen;
         wanted.entry(at).or_insert((look(&cell), cell));
     }
     let started = std::time::Instant::now();
-    let dirty = game.cave.update(solids, open, lit_open, blocked);
+    let dirty = game.cave.update(solids, open, blocked);
     let count = dirty.len();
     rebuild_chunks(commands, game, palette, meshes, dirty);
     if std::env::var_os("TOR_3D_DEBUG").is_some() {
@@ -455,8 +451,10 @@ fn build_cells(
         );
     }
     let door_leaves = &mut game.door_leaves;
-    game.cells.retain(|at, (entity, current)| {
-        let keep = wanted.get(at).is_some_and(|(look, _)| look == current);
+    game.cells.retain(|at, (entity, current, remembered)| {
+        let keep = wanted
+            .get(at)
+            .is_some_and(|(look, cell)| look == current && cell.seen != *remembered);
         if !keep {
             commands.entity(*entity).despawn();
             door_leaves.remove(at);
@@ -470,18 +468,20 @@ fn build_cells(
         .collect();
     for (at, (look, cell)) in &wanted {
         let at = *at;
-        let lit = lighting::Lit(lighting::at(view, cell.position));
-        if let Some((entity, _)) = game.cells.get(&at) {
+        let appearance = lighting::Appearance::terrain(cell.seen, cell.lit);
+        let remembered = !cell.seen;
+        if let Some((entity, _, _)) = game.cells.get(&at) {
             commands.entity(*entity).insert((
-                lit,
+                appearance,
                 crate::picking::Pick(tor_client_3d_model::Focus::Cell(cell.position)),
             ));
             continue;
         }
         let base = stand(at);
+        use props::TerrainProp;
         let entity = match look {
             CellLook::Object(kind) => {
-                let model = library.item(*kind, meshes);
+                let model = library.terrain(TerrainProp::Object(*kind), remembered, meshes);
                 let scale = if *kind == ItemModel::Stairs {
                     1.0
                 } else {
@@ -510,7 +510,8 @@ fn build_cells(
                     std::f32::consts::FRAC_PI_2
                 };
                 let open = cell.door == Some(true);
-                let (frame, leaf_model) = (library.door_frame(meshes), library.door_leaf(meshes));
+                let frame = library.terrain(TerrainProp::DoorFrame, remembered, meshes);
+                let leaf_model = library.terrain(TerrainProp::DoorLeaf, remembered, meshes);
                 let leaf = commands
                     .spawn((
                         DoorLeaf { open },
@@ -543,21 +544,21 @@ fn build_cells(
                     .id()
             }
             CellLook::Trap(family) => {
-                let model = library.trap(*family, meshes);
+                let model = library.terrain(TerrainProp::Trap(*family), remembered, meshes);
                 commands
                     .spawn((Transform::from_translation(base), Visibility::default()))
                     .with_children(|parent| model.attach(parent))
                     .id()
             }
             CellLook::StairsUp => {
-                let model = library.stairs_up(meshes);
+                let model = library.terrain(TerrainProp::StairsUp, remembered, meshes);
                 commands
                     .spawn((Transform::from_translation(base), Visibility::default()))
                     .with_children(|parent| model.attach(parent))
                     .id()
             }
             CellLook::StairsDown => {
-                let model = library.stairs_down(meshes);
+                let model = library.terrain(TerrainProp::StairsDown, remembered, meshes);
                 commands
                     .spawn((Transform::from_translation(base), Visibility::default()))
                     .with_children(|parent| {
@@ -577,10 +578,10 @@ fn build_cells(
             }
         };
         commands.entity(entity).insert((
-            lit,
+            appearance,
             crate::picking::Pick(tor_client_3d_model::Focus::Cell(cell.position)),
         ));
-        game.cells.insert(at, (entity, *look));
+        game.cells.insert(at, (entity, *look, remembered));
     }
     // Doors already standing swing to their new state.
     for (at, (_, cell)) in &wanted {
@@ -613,7 +614,7 @@ fn rebuild_chunks(
         }
         let entity = commands
             .spawn((
-                lighting::Lit(true),
+                lighting::Appearance::Lit,
                 Transform::default(),
                 Visibility::default(),
             ))
@@ -730,12 +731,16 @@ fn build_actors(
         let goal = stand(ivec(anchor(actor)) + game.offset);
         // A tall body is fully illuminated only when all its disclosed cells
         // are lit. This avoids lighting dark portions from another body cell.
-        let lit = lighting::Lit(
-            view.actors
-                .iter()
-                .filter(|other| other.id == actor.id)
-                .all(|other| lighting::at(view, other.position)),
-        );
+        let lit = if view
+            .actors
+            .iter()
+            .filter(|other| other.id == actor.id)
+            .all(|other| lighting::is_lit(view, other.position))
+        {
+            lighting::Appearance::Lit
+        } else {
+            lighting::Appearance::Unlit
+        };
         let mut at = goal;
         let mut walk = crate::playback::Walk::default();
         if let Some(entity) = game.actors.get(&actor.id).copied() {
@@ -1249,7 +1254,7 @@ fn build_items(
         // current light source. A disclosed corpse below may restore it.
         commands
             .entity(body.entity)
-            .insert(lighting::Lit(false))
+            .insert(lighting::Appearance::Undisclosed)
             .remove::<crate::picking::Pick>();
     }
     // Corpses stay where they lie: keep the ones still seen in place.
@@ -1270,7 +1275,7 @@ fn build_items(
     let mut piled = HashSet::new();
     for item in items {
         let at = ivec(item.position) + game.offset;
-        let lit = lighting::Lit(lighting::at(view, item.position));
+        let lit = lighting::disclosed(view, item.position);
         let count = per_cell.entry(at).or_insert(0);
         let index = *count;
         if item.model != ItemModel::Corpse {

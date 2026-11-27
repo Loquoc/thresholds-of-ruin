@@ -169,7 +169,13 @@ fn setup(
     ] {
         blocked.insert(cell);
     }
-    let chunks: HashSet<IVec3> = cave.update(solids, open.clone(), open, blocked);
+    let chunks: HashSet<IVec3> = cave.update(
+        solids,
+        open.into_iter()
+            .map(|cell| (cell, crate::lighting::Appearance::Lit))
+            .collect(),
+        blocked,
+    );
     for chunk in chunks {
         let built = cave.build(chunk);
         if let Some(mesh) = built.rock {
@@ -228,8 +234,8 @@ fn setup(
             },
         ));
     }
-    let frame = library.door_frame(&mut meshes);
-    let leaf = library.door_leaf(&mut meshes);
+    let frame = library.terrain(crate::props::TerrainProp::DoorFrame, false, &mut meshes);
+    let leaf = library.terrain(crate::props::TerrainProp::DoorLeaf, false, &mut meshes);
     for (cell, open, label) in [
         (IVec3::new(-1, 0, 0), false, "door"),
         (IVec3::new(-1, 0, 2), true, "open door"),
@@ -294,8 +300,8 @@ fn setup(
             },
         ));
     }
-    let up = library.stairs_up(&mut meshes);
-    let down = library.stairs_down(&mut meshes);
+    let up = library.terrain(crate::props::TerrainProp::StairsUp, false, &mut meshes);
+    let down = library.terrain(crate::props::TerrainProp::StairsDown, false, &mut meshes);
     for (cell, model, label) in [
         (IVec3::new(10, 0, 0), up, "stairs up"),
         (IVec3::new(10, 0, 2), down, "stairs down"),

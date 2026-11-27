@@ -4,35 +4,66 @@ use bevy::pbr::NotShadowCaster;
 #[cfg(test)]
 mod tests;
 
-/// Lighting of a scene root. Descendants (including held objects) inherit it.
-#[derive(Component, Clone, Copy)]
-pub(super) struct Lit(pub bool);
+/// Renderer treatment of a scene root. Descendants inherit it, but only
+/// `Lit` permits decorative light sources. Dark perception is still current.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Appearance {
+    Lit,
+    Unlit,
+    Remembered,
+    Undisclosed,
+}
+
+impl Appearance {
+    pub(super) fn terrain(seen: bool, lit: bool) -> Self {
+        match (seen, lit) {
+            (true, true) => Self::Lit,
+            (true, false) => Self::Unlit,
+            (false, _) => Self::Remembered,
+        }
+    }
+}
 
 /// Per-body visual opacity for an unclaimed historical corpse.
 #[derive(Component, Clone, Copy)]
 pub(super) struct CorpseOpacity(pub f32);
 
-pub(super) fn at(view: &View, position: Position) -> bool {
+fn at(view: &View, position: Position) -> Appearance {
     view.visible
         .iter()
-        .any(|cell| cell.position == position && cell.lit)
+        .find(|cell| cell.position == position)
+        .map_or(Appearance::Undisclosed, |cell| {
+            Appearance::terrain(true, cell.lit)
+        })
+}
+
+pub(super) fn is_lit(view: &View, position: Position) -> bool {
+    at(view, position) == Appearance::Lit
+}
+
+/// Actors and loose items may be disclosed independently of the terrain.
+pub(super) fn disclosed(view: &View, position: Position) -> Appearance {
+    match at(view, position) {
+        Appearance::Lit => Appearance::Lit,
+        _ => Appearance::Unlit,
+    }
 }
 
 fn scope(
     mut entity: Entity,
     parents: &Query<&ChildOf>,
-    roots: &Query<&Lit>,
+    roots: &Query<&Appearance>,
     dead: &Query<&creatures::Snuffed>,
-) -> (bool, bool, Entity) {
+) -> (Appearance, bool, Entity) {
     let mut snuffed = false;
     loop {
         snuffed |= dead.contains(entity);
         if let Ok(lit) = roots.get(entity) {
-            return (lit.0, snuffed, entity);
+            return (*lit, snuffed, entity);
         }
         let Ok(parent) = parents.get(entity) else {
             // No disclosed source cell, so never invent a light source.
-            return (false, snuffed, entity);
+            return (Appearance::Undisclosed, snuffed, entity);
         };
         entity = parent.parent();
     }
@@ -45,7 +76,7 @@ pub(super) fn effects(
     mut commands: Commands,
     game: Res<Game>,
     effects: Query<
-        (Entity, &Transform, Option<&Lit>),
+        (Entity, &Transform, Option<&Appearance>),
         Or<(With<creatures::Bolt>, With<creatures::Fade>)>,
     >,
 ) {
@@ -56,9 +87,12 @@ pub(super) fn effects(
             y: p.z.round() as i32 - game.offset.y,
             z: (p.y + 0.5).floor() as i32 - game.offset.z,
         };
-        let lit = game.view.as_ref().is_some_and(|view| at(view, position));
-        if previous.is_none_or(|previous| previous.0 != lit) {
-            commands.entity(entity).insert(Lit(lit));
+        let appearance = game
+            .view
+            .as_ref()
+            .map_or(Appearance::Undisclosed, |view| at(view, position));
+        if previous != Some(&appearance) {
+            commands.entity(entity).insert(appearance);
         }
     }
 }
@@ -66,6 +100,10 @@ pub(super) fn effects(
 pub(super) trait ShadeMaterial: Material + Clone {
     fn base(&self) -> &StandardMaterial;
     fn base_mut(&mut self) -> &mut StandardMaterial;
+
+    fn suppress_emission(&mut self) {
+        self.base_mut().emissive = LinearRgba::BLACK;
+    }
 }
 
 impl ShadeMaterial for StandardMaterial {
@@ -86,11 +124,19 @@ impl ShadeMaterial for crate::surface::ModelMaterial {
     fn base_mut(&mut self) -> &mut StandardMaterial {
         &mut self.base
     }
+
+    fn suppress_emission(&mut self) {
+        self.base.emissive = LinearRgba::BLACK;
+        // The surface shader can add rim, sheen or wrap on top of base
+        // emission. Leave grain, roughness and sculpt lighting intact.
+        self.extension.params.finish.x = 0.0;
+    }
 }
 
 pub(super) struct MaterialShadeState<M: ShadeMaterial> {
     meshes: HashMap<Entity, MeshShade<M>>,
     dark: Option<Handle<M>>,
+    readable: HashMap<(AssetId<M>, bool), Handle<M>>,
     fades: HashMap<(Entity, AssetId<M>), FadeMaterial<M>>,
 }
 
@@ -99,6 +145,7 @@ impl<M: ShadeMaterial> Default for MaterialShadeState<M> {
         Self {
             meshes: HashMap::default(),
             dark: None,
+            readable: HashMap::new(),
             fades: HashMap::default(),
         }
     }
@@ -117,6 +164,39 @@ struct FadeMaterial<M: Material> {
 }
 
 impl<M: ShadeMaterial> MaterialShadeState<M> {
+    fn readable(
+        &mut self,
+        assets: &mut Assets<M>,
+        source: &Handle<M>,
+        remembered: bool,
+    ) -> Option<Handle<M>> {
+        use std::collections::hash_map::Entry;
+        let slot = match self.readable.entry((source.id(), remembered)) {
+            Entry::Occupied(slot) => return Some(slot.get().clone()),
+            Entry::Vacant(slot) => slot,
+        };
+        let mut copy = assets.get(source)?.clone();
+        copy.suppress_emission();
+        let base = copy.base_mut();
+        let mut tint = base.base_color.to_linear();
+        // Emissive recipes must not shine without real light. Keep their
+        // geometry and albedo, and let the scene's studio fill reveal them.
+        base.unlit = remembered;
+        if remembered {
+            // The terrain mesh has already converted vertex pigments to gray.
+            let value = (tint.red * 0.2126 + tint.green * 0.7152 + tint.blue * 0.0722) * 0.46;
+            tint.red = value;
+            tint.green = value;
+            tint.blue = value;
+        } else {
+            tint.red *= 0.86;
+            tint.green *= 0.95;
+            tint.blue *= 1.02;
+        }
+        base.base_color = tint.into();
+        Some(slot.insert(assets.add(copy)).clone())
+    }
+
     fn faded(
         &mut self,
         assets: &mut Assets<M>,
@@ -141,9 +221,7 @@ impl<M: ShadeMaterial> MaterialShadeState<M> {
             Entry::Vacant(slot) => {
                 let mut copy = assets.get(source)?.clone();
                 let source_alpha = copy.base().base_color.alpha();
-                copy.base_mut()
-                    .base_color
-                    .set_alpha(source_alpha * opacity);
+                copy.base_mut().base_color.set_alpha(source_alpha * opacity);
                 // Recipe transparency still contributes to the dissolve.
                 copy.base_mut().alpha_mode = AlphaMode::Blend;
                 let handle = assets.add(copy);
@@ -163,8 +241,8 @@ fn shade_with<M: ShadeMaterial>(
     commands: &mut Commands,
     assets: &mut Assets<M>,
     parents: &Query<&ChildOf>,
-    roots: &Query<&Lit>,
-    changed_roots: &Query<(), Changed<Lit>>,
+    roots: &Query<&Appearance>,
+    changed_roots: &Query<(), Changed<Appearance>>,
     removed_materials: &mut RemovedComponents<MeshMaterial3d<M>>,
     dead: &Query<&creatures::Snuffed>,
     dead_changed: bool,
@@ -195,6 +273,9 @@ fn shade_with<M: ShadeMaterial>(
     let dark = state.dark.get_or_insert_with(|| make_dark(assets)).clone();
     if refresh {
         state.meshes.retain(|entity, _| materials.contains(*entity));
+        state
+            .readable
+            .retain(|(source, _), _| assets.contains(*source));
     }
     if fading_ended {
         state.fades.retain(|(root, _), _| fading.contains(*root));
@@ -209,14 +290,17 @@ fn shade_with<M: ShadeMaterial>(
         if material.0.id() != mesh.applied && material.0 != dark {
             mesh.source = material.0.clone();
         }
-        let (lit, snuffed, root) = scope(entity, parents, roots, dead);
+        let (appearance, snuffed, root) = scope(entity, parents, roots, dead);
         if let Some(handle) = resolve_snuff(snuffed, &mesh.source) {
             mesh.source = handle;
         }
-        let mut wanted = if lit {
-            mesh.source.clone()
-        } else {
-            dark.clone()
+        let source = mesh.source.clone();
+        let mut wanted = match appearance {
+            Appearance::Lit => source,
+            Appearance::Unlit | Appearance::Remembered => state
+                .readable(assets, &source, appearance == Appearance::Remembered)
+                .unwrap_or_else(|| dark.clone()),
+            Appearance::Undisclosed => dark.clone(),
         };
         let fade = fading
             .get(root)
@@ -225,8 +309,9 @@ fn shade_with<M: ShadeMaterial>(
         let mesh = state.meshes.get_mut(&entity).unwrap();
         if let Some(handle) = fade {
             wanted = handle;
-            // Alpha blending does not fade Bevy's shadow-map silhouette.
-            // Drop that opaque trace as the visual body starts dissolving.
+        }
+        // Remembered geometry and fading corpses must not cast a live shadow.
+        if fading.contains(root) || appearance == Appearance::Remembered {
             if !mesh.suppressed_shadow && !shadowless {
                 commands.entity(entity).insert(NotShadowCaster);
                 mesh.suppressed_shadow = true;
@@ -256,16 +341,16 @@ fn shade_with<M: ShadeMaterial>(
     }
 }
 
-/// Muted unlit silhouettes cannot receive the artistic directional/fill light.
-/// Restore the recipe's material when authoritative illumination returns.
+/// Apply readable current darkness or subdued map memory, without changing
+/// the scene's authoritative light sources.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn shade(
     mut commands: Commands,
     library: Res<PropLibrary>,
     mut assets: ResMut<Assets<StandardMaterial>>,
     parents: Query<&ChildOf>,
-    roots: Query<&Lit>,
-    changed_roots: Query<(), Changed<Lit>>,
+    roots: Query<&Appearance>,
+    changed_roots: Query<(), Changed<Appearance>>,
     mut removed_materials: RemovedComponents<MeshMaterial3d<StandardMaterial>>,
     dead: Query<&creatures::Snuffed>,
     changed_dead: Query<(), Changed<creatures::Snuffed>>,
@@ -323,8 +408,8 @@ pub(super) fn shade_models(
     mut commands: Commands,
     mut assets: ResMut<Assets<crate::surface::ModelMaterial>>,
     parents: Query<&ChildOf>,
-    roots: Query<&Lit>,
-    changed_roots: Query<(), Changed<Lit>>,
+    roots: Query<&Appearance>,
+    changed_roots: Query<(), Changed<Appearance>>,
     mut removed_materials: RemovedComponents<MeshMaterial3d<crate::surface::ModelMaterial>>,
     dead: Query<&creatures::Snuffed>,
     fading: Query<&CorpseOpacity>,
@@ -376,21 +461,25 @@ pub(super) fn shade_models(
 /// Point lights must obey the same rule as their visible glowing meshes.
 pub(super) fn lamps(
     parents: Query<&ChildOf>,
-    roots: Query<&Lit>,
+    roots: Query<&Appearance>,
     dead: Query<&creatures::Snuffed>,
     mut lights: Query<(Entity, &mut PointLight), Without<Torch>>,
     mut levels: Local<HashMap<Entity, (f32, f32)>>,
 ) {
     levels.retain(|entity, _| lights.contains(*entity));
     for (entity, mut light) in &mut lights {
-        let (lit, snuffed, _) = scope(entity, &parents, &roots, &dead);
+        let (appearance, snuffed, _) = scope(entity, &parents, &roots, &dead);
         let (source, applied) = levels
             .entry(entity)
             .or_insert((light.intensity, light.intensity));
         if light.intensity != *applied && !snuffed {
             *source = light.intensity;
         }
-        let wanted = if lit && !snuffed { *source } else { 0.0 };
+        let wanted = if appearance == Appearance::Lit && !snuffed {
+            *source
+        } else {
+            0.0
+        };
         if light.intensity != wanted {
             light.intensity = wanted;
         }

@@ -733,7 +733,7 @@ struct Game {
     snap_camera: bool,
     view: Option<View>,
     feet_world: IVec3,
-    cells: HashMap<IVec3, (Entity, CellLook)>,
+    cells: HashMap<IVec3, (Entity, CellLook, bool)>,
     cave: CaveWorld,
     chunks: HashMap<IVec3, Entity>,
     door_leaves: HashMap<IVec3, Entity>,

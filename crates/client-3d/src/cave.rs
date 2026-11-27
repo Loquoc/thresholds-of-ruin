@@ -5,7 +5,8 @@
 //! sampled in world space. Neighbouring faces share lattice points, so they
 //! displace identically and the rock stays watertight across cells and
 //! chunks. Meshes are flat shaded for a faceted, hand-cut look; vertex colour
-//! carries ambient occlusion and the dimming of remembered cells.
+//! carries ambient occlusion and a separate current/light/memory mask.
+use super::lighting::Appearance;
 use bevy::{
     asset::weak_handle,
     pbr::{
@@ -137,9 +138,7 @@ pub fn chunk_of(cell: IVec3) -> IVec3 {
 pub struct CaveWorld {
     pub solids: HashMap<IVec3, Solid>,
     /// Known open cells: decoration only grows where one stands above rock.
-    pub open: HashSet<IVec3>,
-    /// Currently disclosed open cells with authoritative illumination.
-    pub lit_open: HashSet<IVec3>,
+    pub open: HashMap<IVec3, Appearance>,
     /// Open cells holding stairs, doors or items, kept clear of decoration.
     pub blocked: HashSet<IVec3>,
     displacement: HashMap<IVec3, Vec3>,
@@ -160,8 +159,7 @@ impl CaveWorld {
     pub fn update(
         &mut self,
         solids: HashMap<IVec3, Solid>,
-        open: HashSet<IVec3>,
-        lit_open: HashSet<IVec3>,
+        open: HashMap<IVec3, Appearance>,
         blocked: HashSet<IVec3>,
     ) -> HashSet<IVec3> {
         let mut dirty = HashSet::new();
@@ -185,18 +183,21 @@ impl CaveWorld {
                 touch(*cell);
             }
         }
-        for cell in open.symmetric_difference(&self.open) {
-            touch(*cell);
+        for (cell, appearance) in &open {
+            if self.open.get(cell) != Some(appearance) {
+                touch(*cell);
+            }
         }
-        for cell in lit_open.symmetric_difference(&self.lit_open) {
-            touch(*cell);
+        for cell in self.open.keys() {
+            if !open.contains_key(cell) {
+                touch(*cell);
+            }
         }
         for cell in blocked.symmetric_difference(&self.blocked) {
             touch(*cell);
         }
         self.solids = solids;
         self.open = open;
-        self.lit_open = lit_open;
         self.blocked = blocked;
         dirty
     }
@@ -226,21 +227,31 @@ impl CaveWorld {
         let mut crystals = [Builder::default(), Builder::default()];
         let mut lights = Vec::new();
         for (cell, solid) in cells {
-            rock.lit = f32::from(u8::from(solid.seen && solid.lit));
-            let dim = if solid.seen {
-                Vec3::ONE
-            } else {
-                Vec3::new(0.30, 0.32, 0.40)
-            };
+            let appearance = Appearance::terrain(solid.seen, solid.lit);
             for d in DIRS {
                 if self.solid(cell + d) {
                     continue;
                 }
-                self.face(&mut rock, cell, d, dim);
+                // A floor is seen from the open square it supports. A known
+                // wall also takes that face's chart state where available.
+                rock.coverage = self.open.get(&(cell + d)).copied().unwrap_or(appearance);
+                self.face(&mut rock, cell, d, Vec3::ONE);
             }
             let above = cell + IVec3::Y;
-            if !self.solid(above) && self.open.contains(&above) && !self.blocked.contains(&above) {
-                self.decorate(&mut rock, &mut crystals, &mut lights, cell, solid, dim);
+            if let Some(&open) = self
+                .open
+                .get(&above)
+                .filter(|_| !self.solid(above) && !self.blocked.contains(&above))
+            {
+                rock.coverage = open;
+                self.decorate(
+                    &mut rock,
+                    &mut crystals,
+                    &mut lights,
+                    cell,
+                    solid,
+                    Vec3::ONE,
+                );
             }
         }
         ChunkMeshes {
@@ -318,14 +329,15 @@ impl CaveWorld {
             let toward = side.as_vec3();
             let across = Vec3::new(toward.z, 0.0, -toward.x);
             if roll < 0.14 {
-                let lit = solid.seen && solid.lit && self.lit_open.contains(&(cell + IVec3::Y));
+                let lit = solid.seen && solid.lit && rock.coverage == Appearance::Lit;
                 let glow = if r(2) < 0.6 { Glow::Teal } else { Glow::Violet };
                 let base = surface(top + toward * 0.33 + across * (r(3) - 0.5) * 0.5);
                 let count = 3 + (r(4) * 4.0) as u32;
-                let rock_light = rock.lit;
-                if !lit {
-                    rock.lit = 0.0;
+                let original = rock.coverage;
+                if !lit && original == Appearance::Lit {
+                    rock.coverage = Appearance::Unlit;
                 }
+
                 for k in 0..count {
                     let spread = across * (rand(solid.key, 10 + k) - 0.5) * 0.36
                         + toward * rand(solid.key, 20 + k) * 0.08;
@@ -350,7 +362,7 @@ impl CaveWorld {
                 if lit {
                     lights.push((base + Vec3::Y * 0.35 - toward * 0.15, glow));
                 }
-                rock.lit = rock_light;
+                rock.coverage = original;
             } else if roll < 0.28 {
                 let height = 0.3 + r(5) * 0.6;
                 let base = surface(top + toward * 0.3 + across * (r(6) - 0.5) * 0.4);
@@ -402,7 +414,7 @@ fn displacement(p: Vec3) -> Vec3 {
 }
 
 struct Builder {
-    lit: f32,
+    coverage: Appearance,
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     colors: Vec<[f32; 4]>,
@@ -411,7 +423,7 @@ struct Builder {
 impl Default for Builder {
     fn default() -> Self {
         Self {
-            lit: 1.0,
+            coverage: Appearance::Lit,
             positions: Vec::new(),
             normals: Vec::new(),
             colors: Vec::new(),
@@ -429,7 +441,12 @@ impl Builder {
             self.positions.push(p[k].to_array());
             self.normals.push(n.to_array());
             let c = dim * shade[k];
-            self.colors.push([c.x, c.y, c.z, self.lit]);
+            let coverage = match self.coverage {
+                Appearance::Lit => 1.0,
+                Appearance::Unlit => 0.5,
+                Appearance::Remembered | Appearance::Undisclosed => 0.0,
+            };
+            self.colors.push([c.x, c.y, c.z, coverage]);
         }
     }
 

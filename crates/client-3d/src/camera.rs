@@ -303,7 +303,7 @@ pub(super) fn torch_flicker(
         let lit = game
             .view
             .as_ref()
-            .is_some_and(|view| lighting::at(view, view.feet));
+            .is_some_and(|view| lighting::is_lit(view, view.feet));
         light.intensity = if lit {
             260_000.0 * flicker * (1.0 + red)
         } else {

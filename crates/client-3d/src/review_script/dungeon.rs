@@ -121,7 +121,13 @@ fn room(script: &Script) -> (CaveWorld, HashSet<IVec3>) {
         }))
         .collect();
     let mut cave = CaveWorld::default();
-    let dirty = cave.update(solids, open.clone(), open, blocked);
+    let dirty = cave.update(
+        solids,
+        open.into_iter()
+            .map(|cell| (cell, crate::lighting::Appearance::Lit))
+            .collect(),
+        blocked,
+    );
     (cave, dirty)
 }
 

@@ -172,7 +172,8 @@ impl PropMaterials {
             skin: materials.add(crate::surface::SurfaceRecipe::SKIN.to_standard_material()),
             wood: materials.add(crate::surface::SurfaceRecipe::WOOD.to_standard_material()),
             chitin: materials.add(crate::surface::SurfaceRecipe::CHITIN.to_standard_material()),
-            steel: materials.add(crate::surface::SurfaceRecipe::POLISHED_STEEL.to_standard_material()),
+            steel: materials
+                .add(crate::surface::SurfaceRecipe::POLISHED_STEEL.to_standard_material()),
             gold: materials.add(crate::surface::SurfaceRecipe::GOLD.to_standard_material()),
             stone: materials.add(crate::surface::SurfaceRecipe::STONE.to_standard_material()),
             glass: materials.add(crate::surface::SurfaceRecipe::GLASS.to_standard_material()),
@@ -244,6 +245,16 @@ impl PropMaterials {
     pub fn ghost(&self) -> Handle<StandardMaterial> {
         self.ghost.clone()
     }
+}
+
+/// Fixed terrain models that can be drawn from the player's map memory.
+pub(super) enum TerrainProp {
+    Object(Kind),
+    DoorFrame,
+    DoorLeaf,
+    StairsUp,
+    StairsDown,
+    Trap(Option<tor_protocol::TrapFamily>),
 }
 
 /// A finished model: meshes with their materials, positioned in model space,
@@ -899,29 +910,46 @@ impl PropLibrary {
         )
     }
 
-    pub fn door_frame(&mut self, meshes: &mut Assets<Mesh>) -> Model {
-        self.get("door-frame".into(), meshes, door_frame)
-    }
-
-    pub fn door_leaf(&mut self, meshes: &mut Assets<Mesh>) -> Model {
-        self.get("door-leaf".into(), meshes, door_leaf)
-    }
-
-    pub fn stairs_up(&mut self, meshes: &mut Assets<Mesh>) -> Model {
-        self.get("stairs-up".into(), meshes, stairs_up)
-    }
-
-    pub fn stairs_down(&mut self, meshes: &mut Assets<Mesh>) -> Model {
-        self.get("stairs-down".into(), meshes, stairs_down)
-    }
-
-    /// A discovered trap's floor plate, marked by its family once known.
-    pub fn trap(
+    pub(super) fn terrain(
         &mut self,
-        family: Option<tor_protocol::TrapFamily>,
+        kind: TerrainProp,
+        remembered: bool,
         meshes: &mut Assets<Mesh>,
     ) -> Model {
-        self.get(format!("trap:{family:?}"), meshes, move || trap(family))
+        use TerrainProp::*;
+        let key = match kind {
+            Object(kind) => format!("item:{kind:?}"),
+            DoorFrame => "door-frame".into(),
+            DoorLeaf => "door-leaf".into(),
+            StairsUp => "stairs-up".into(),
+            StairsDown => "stairs-down".into(),
+            Trap(family) => format!("trap:{family:?}"),
+        };
+        let build = || match kind {
+            Object(kind) => build_item(kind, "neutral"),
+            DoorFrame => door_frame(),
+            DoorLeaf => door_leaf(),
+            StairsUp => stairs_up(),
+            StairsDown => stairs_down(),
+            Trap(family) => trap(family),
+        };
+        if !remembered {
+            return self.get(key, meshes, build);
+        }
+        // Reuse the bounded model cache. Ordinary CPU mesh data is discarded
+        // after upload, so build the gray variant before its first extraction.
+        self.get_prepared(format!("memory:{key}"), meshes, build, |mesh| {
+            if let Some(VertexAttributeValues::Float32x4(colors)) =
+                mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+            {
+                for [r, g, b, _] in colors {
+                    let gray = *r * 0.2126 + *g * 0.7152 + *b * 0.0722;
+                    *r = gray;
+                    *g = gray;
+                    *b = gray;
+                }
+            }
+        })
     }
 
     pub fn glint(&mut self, meshes: &mut Assets<Mesh>) -> Model {
@@ -1114,8 +1142,7 @@ fn mace(p: &mut Parts) {
     let b = Vec3::new(0.26, 0.072, 0.0);
     let at = |t: f32| a.lerp(b, t);
     let axis = (b - a).normalize();
-    p.wood
-        .prism(at(0.05), at(0.72), 0.024, 0.027, 6, WOOD, 0.0);
+    p.wood.prism(at(0.05), at(0.72), 0.024, 0.027, 6, WOOD, 0.0);
     p.satin
         .prism(at(0.04), at(0.27), 0.031, 0.031, 6, LEATHER, 0.5);
     for t in [0.08, 0.15, 0.22] {

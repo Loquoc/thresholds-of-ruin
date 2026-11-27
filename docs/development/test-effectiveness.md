@@ -1623,3 +1623,17 @@ now skips both lighting and surface detail for unlit materials, then uses
 the normal fog and post-processing. The dark patch's mean-channel brightness varied by 26.45
 8-bit levels before the fix and 0.27 after (standard deviation). The lit
 comparison stayed unchanged. The ordinary bright-only shader smoke did not expose the defect.
+
+### Readable dungeon darkness
+
+A fixed-camera native capture of the old unlit shader recorded about 10% of
+the lit view's central linear luminance. The first readable treatment reached
+80% in the same scene and retained visible stairs, ground loot and a creature
+at gameplay distance. The remembered route kept its stair and geometry but
+not the creature or item; channel spread on its floor stayed below one 8-bit
+level. The windowless capture uses the production cave renderer and shading
+systems with authored disclosure snapshots, not a live playthrough.
+
+The spectral material regression reproduced an emissive rim even after its
+base emission was cleared. The dark material now suppresses that shader
+contribution without removing the normal detail or mutating the lit recipe.

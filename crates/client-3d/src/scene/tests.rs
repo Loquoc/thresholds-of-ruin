@@ -503,8 +503,11 @@ fn remembered_terrain_builds_dim_geometry_without_decorative_lighting() {
     let game = app.world().resource::<Game>();
     let solid = &game.cave.solids[&IVec3::new(2, 0, 2)];
     assert!(!solid.seen && !solid.lit);
-    assert!(game.cave.open.contains(&IVec3::new(3, 0, 2)));
-    assert!(!game.cave.lit_open.contains(&IVec3::new(3, 0, 2)));
+    assert!(game.cave.open.contains_key(&IVec3::new(3, 0, 2)));
+    assert_eq!(
+        game.cave.open[&IVec3::new(3, 0, 2)],
+        lighting::Appearance::Remembered
+    );
     assert!(
         !game.chunks.is_empty(),
         "remembered terrain must create renderable chunks"
@@ -779,7 +782,7 @@ fn unknown_stair_recipe_changes_scene_models_and_cure_restores_real_stairs() {
         }
         update(&mut app);
         let game = app.world().resource::<Game>();
-        let (entity, look) = game.cells[&ivec(at)];
+        let (entity, look, _) = game.cells[&ivec(at)];
         assert!(matches!(look, CellLook::Object(selected) if selected == model));
         assert!(!app.world().entities().contains(old));
         assert!(
@@ -1168,7 +1171,7 @@ fn a_discovered_trap_is_drawn_and_redrawn_once_its_family_is_known() {
         .visible
         .push(floor);
     update(&mut app);
-    let (first, look) = app.world().resource::<Game>().cells[&ivec(at)];
+    let (first, look, _) = app.world().resource::<Game>().cells[&ivec(at)];
     assert!(matches!(look, CellLook::Trap(None)));
     app.world_mut().resource_mut::<Fixture>().0.visible[1]
         .trap
@@ -1176,7 +1179,7 @@ fn a_discovered_trap_is_drawn_and_redrawn_once_its_family_is_known() {
         .unwrap()
         .family = Some(tor_protocol::TrapFamily::Teleport);
     update(&mut app);
-    let (second, look) = app.world().resource::<Game>().cells[&ivec(at)];
+    let (second, look, _) = app.world().resource::<Game>().cells[&ivec(at)];
     assert!(matches!(
         look,
         CellLook::Trap(Some(tor_protocol::TrapFamily::Teleport))
@@ -1305,8 +1308,8 @@ fn ground_stack_scene_transitions_preserve_disclosed_targets_and_remove_old_root
         tor_client_3d_model::Focus::Cell(cell) if cell == at)
     );
     assert_eq!(
-        app.world().get::<lighting::Lit>(pile[0]).unwrap().0,
-        lighting::at(&app.world().resource::<Fixture>().0, at)
+        *app.world().get::<lighting::Appearance>(pile[0]).unwrap(),
+        lighting::disclosed(&app.world().resource::<Fixture>().0, at)
     );
     app.world_mut()
         .resource_mut::<Fixture>()
@@ -1819,4 +1822,289 @@ fn a_late_corpse_item_claim_stops_the_fade_and_removal_does_not_restart_it() {
     app.world_mut().resource_mut::<Game>().dying[0].holds = false;
     app.update();
     assert!(!app.world().entities().contains(entity));
+}
+
+#[test]
+fn current_stairs_keep_their_recipe_in_darkness_then_use_only_map_memory() {
+    use bevy::render::mesh::VertexAttributeValues;
+    use lighting::Appearance;
+    use tor_protocol::RememberedMapCell;
+
+    let mut app = app(CreatureModel::Placeholder);
+    app.add_systems(
+        Update,
+        (project_terrain, lighting::shade, lighting::lamps)
+            .chain()
+            .after(project),
+    );
+    let at = Position { x: 2, y: 0, z: 0 };
+    let mut stair = app.world().resource::<Fixture>().0.visible[0].clone();
+    stair.position = at;
+    stair.key = "review-stair".into();
+    stair.stairs_down = true;
+    app.world_mut()
+        .resource_mut::<Fixture>()
+        .0
+        .visible
+        .push(stair.clone());
+    update(&mut app);
+    let current = app.world().resource::<Game>().cells[&ivec(at)].0;
+    assert_eq!(
+        app.world().get::<Appearance>(current),
+        Some(&Appearance::Lit)
+    );
+
+    app.world_mut().resource_mut::<Fixture>().0.visible[1].lit = false;
+    update(&mut app);
+    assert_eq!(app.world().resource::<Game>().cells[&ivec(at)].0, current);
+    assert_eq!(
+        app.world().get::<Appearance>(current),
+        Some(&Appearance::Unlit)
+    );
+    assert_eq!(
+        app.world().resource::<Game>().cave.open[&bevy_cell(ivec(at))],
+        Appearance::Unlit
+    );
+
+    {
+        let mut fixture = app.world_mut().resource_mut::<Fixture>();
+        fixture.0.visible.pop();
+        fixture.0.memory.push(RememberedMapCell {
+            object_presentation: None,
+            key: stair.key.clone(),
+            position: at,
+            wall: false,
+            material: String::new(),
+            asset: None,
+            place_hint: false,
+            stairs_up: false,
+            stairs_down: true,
+            trap: None,
+            door: None,
+            ground_items: vec![],
+        });
+    }
+    update(&mut app);
+    let world = app.world();
+    let game = world.resource::<Game>();
+    let (remembered, look, _) = game.cells[&ivec(at)];
+    assert!(matches!(look, CellLook::StairsDown));
+    assert!(!world.entities().contains(current));
+    assert_eq!(
+        world.get::<Appearance>(remembered),
+        Some(&Appearance::Remembered)
+    );
+    assert_eq!(game.cave.open[&bevy_cell(ivec(at))], Appearance::Remembered);
+    let mut rendered_parts = 0;
+    for child in world.get::<Children>(remembered).unwrap().iter() {
+        if let Some(mesh) = world.get::<Mesh3d>(child) {
+            let meshes = world.resource::<Assets<Mesh>>();
+            let Some(VertexAttributeValues::Float32x4(colors)) = meshes
+                .get(&mesh.0)
+                .unwrap()
+                .attribute(Mesh::ATTRIBUTE_COLOR)
+            else {
+                panic!("remembered stairs have gray vertex pigments");
+            };
+            assert!(colors.iter().all(|[r, g, b, _]| r == g && r == b));
+            rendered_parts += 1;
+        }
+        if let Some(lamp) = world.get::<PointLight>(child) {
+            assert_eq!(lamp.intensity, 0.0);
+        }
+    }
+    assert!(rendered_parts > 0);
+    let never_seen = bevy_cell(ivec(Position { x: 3, ..at }));
+    assert!(!game.cave.open.contains_key(&never_seen));
+    assert!(!game.cave.solids.contains_key(&never_seen));
+}
+
+#[test]
+fn a_disclosed_actor_without_terrain_does_not_reveal_or_light_a_tile() {
+    let mut app = app(CreatureModel::Placeholder);
+    app.add_systems(Update, project_terrain.after(project));
+    let (at, actor_id) = {
+        let mut fixture = app.world_mut().resource_mut::<Fixture>();
+        let at = Position { x: 3, y: 2, z: 0 };
+        fixture.0.actors[0].position = at;
+        (at, fixture.0.actors[0].id)
+    };
+    update(&mut app);
+    let world = app.world();
+    let game = world.resource::<Game>();
+    let actor = game.actors[&actor_id];
+    assert_eq!(
+        world.get::<lighting::Appearance>(actor),
+        Some(&lighting::Appearance::Unlit)
+    );
+    assert!(!game.cave.open.contains_key(&bevy_cell(ivec(at))));
+    assert!(!game.cave.solids.contains_key(&bevy_cell(ivec(at))));
+}
+
+#[test]
+fn server_awareness_keeps_the_creature_and_disclosed_neighbor_cells_current_in_darkness() {
+    use crate::local_host::{new_game, ScenarioChoice};
+    use crate::net::{Event, Network};
+    use lighting::Appearance;
+    use std::{
+        fs,
+        path::Path,
+        time::{Duration, Instant},
+    };
+
+    // Start authoritative standalone servers on the same authored chamber.
+    // The only difference is region illumination. Nothing in this fixture
+    // calculates the radius or writes CellView rows on the client.
+    let root = crate::launch::repo_root()
+        .join(".local/3d-awareness")
+        .join(uuid::Uuid::new_v4().to_string());
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios/menagerie");
+    // The wire chart is anchored on the owner's body, not the region origin.
+    let at = |x, y| Position {
+        x: x - 2,
+        y: y - 4,
+        z: 0,
+    };
+    let subject = at(4, 4);
+    let loot = at(5, 4);
+    let edge = at(6, 4);
+    let beyond = at(7, 4);
+    let occluded = at(2, 6);
+    let neighbors = [subject, at(3, 4), loot, at(4, 3), at(4, 5), edge];
+    for lit in [true, false] {
+        let package = root.join(if lit { "lit" } else { "dark" });
+        fs::create_dir_all(package.join("regions")).unwrap();
+        fs::create_dir_all(package.join("catalog")).unwrap();
+        for name in [
+            "scenario.toml",
+            "rules.toml",
+            "catalog/actors.toml",
+            "catalog/items.toml",
+        ] {
+            fs::copy(source.join(name), package.join(name)).unwrap();
+        }
+        let species = fs::read_to_string(source.join("catalog/creatures.toml")).unwrap();
+        let (header, remaining) = species
+            .split_once("[creatures.species.\"rogue.emu\"]")
+            .unwrap();
+        assert!(header.contains("awareness = 1"));
+        fs::write(
+            package.join("catalog/creatures.toml"),
+            format!(
+                "{}[creatures.species.\"rogue.emu\"]{remaining}",
+                header.replacen("awareness = 1", "awareness = 3", 1)
+            ),
+        )
+        .unwrap();
+        fs::write(
+            package.join("regions/1.toml"),
+            format!(r#"
+id = 1
+name = "Awareness review chamber"
+size = [12, 9, 2]
+chamber = true
+gravity = [0, 0, -1]
+lit = {lit}
+anchors = {{ start = [2, 4, 0] }}
+walls = [[2, 5, 0], [2, 5, 1]]
+actors = [{{ id = 2, at = [4, 4, 0], archetype = "rogue.hobgoblin", controller = "ai", ai = "wander" }}]
+items = [
+  {{ id = 101, at = [5, 4, 0], archetype = "rogue.ration" }},
+  {{ id = 102, at = [7, 4, 0], archetype = "rogue.clean_bandage" }}
+]
+"#),
+        ).unwrap();
+        tor_server::scenario_package::validate(&package).expect("valid local scenario");
+        let started = new_game(
+            &ScenarioChoice {
+                id: "menagerie".into(),
+                version: "1.0".into(),
+                path: package,
+            },
+            42,
+            &root.join(if lit { "lit-saves" } else { "dark-saves" }),
+        )
+        .unwrap();
+        let mut network = Network::start(started.host.address(), started.token, ActorId(1), false);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let view = 'receive: loop {
+            for event in network.frame_events() {
+                match event {
+                    Event::View(view) if view.has_control && !view.visible.is_empty() => {
+                        break 'receive *view
+                    }
+                    Event::Fatal(error) => panic!("{error}"),
+                    _ => {}
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no controlled observation received"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        network.shutdown().unwrap();
+        started.host.shutdown().unwrap();
+        assert_eq!(view.feet, at(2, 4));
+        for position in neighbors {
+            assert!(
+                view.visible
+                    .iter()
+                    .any(|cell| cell.position == position && !cell.wall && cell.lit == lit),
+                "server did not disclose {position:?}, lit={lit}"
+            );
+        }
+        let sensed = view
+            .actors
+            .iter()
+            .find(|actor| !actor.is_self && actor.position == subject)
+            .expect("server disclosed the creature");
+        let sensed_id = sensed.id;
+        let item = view
+            .items
+            .iter()
+            .find(|item| item.position == loot)
+            .expect("the server disclosed the item beside the creature")
+            .id;
+        assert_eq!(view.items.iter().any(|item| item.position == beyond), lit);
+        assert_eq!(view.visible.iter().any(|cell| cell.position == beyond), lit);
+        assert!(
+            !view.visible.iter().any(|cell| cell.position == occluded),
+            "a wall still blocks discovery"
+        );
+
+        let mut client = app(CreatureModel::Placeholder);
+        client.world_mut().resource_mut::<Fixture>().0 = view;
+        client.add_systems(Update, project_terrain.after(project));
+        update(&mut client);
+        let world = client.world();
+        let game = world.resource::<Game>();
+        let cell_at = |position| bevy_cell(ivec(position) + game.offset);
+        let want = if lit {
+            Appearance::Lit
+        } else {
+            Appearance::Unlit
+        };
+        for position in neighbors {
+            assert_eq!(game.cave.open.get(&cell_at(position)), Some(&want));
+        }
+        assert_eq!(
+            world.get::<Appearance>(game.actors[&sensed_id]),
+            Some(&want)
+        );
+        let item_entity = game
+            .items
+            .iter()
+            .find(|entity| {
+                matches!(
+                    world.get::<crate::picking::Pick>(**entity),
+                    Some(crate::picking::Pick(tor_client_3d_model::Focus::Item(id))) if *id == item
+                )
+            })
+            .expect("the disclosed item has a rendered presentation");
+        assert_eq!(world.get::<Appearance>(*item_entity), Some(&want));
+        assert_eq!(game.cave.open.contains_key(&cell_at(beyond)), lit);
+        assert!(!game.cave.open.contains_key(&cell_at(occluded)));
+    }
+    fs::remove_dir_all(root).unwrap();
 }
