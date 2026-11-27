@@ -123,6 +123,23 @@ broader performance and scaling work is finished.
 
 ## Retained or resolved findings
 
+### CH-026: Whole-tree reference and suppression audits
+
+- **Category/status:** maintainability; audited on branch
+  `claude/code-docs-refactor-ovqedk`. No correction was needed.
+- **Documentation references:** every backticked code-like name (snake_case
+  with an underscore, or CamelCase) in the 97 Markdown files was matched against
+  the repository's code and configuration. Of 1,024 distinct names, 40 have no
+  match in code. Each is a Clippy lint name, a Rogue 5.4.4 source name in the
+  research notes, a third-party crate name, a name a plan proposes, a wire code
+  that serde renders in snake_case, a JSON wizard operation, a deliberately
+  historical test name, or the bad half of a naming example. None is a stale
+  reference to renamed code.
+- **Markers and suppressions:** no `TODO`, `FIXME`, `XXX` or `HACK` remains in
+  Rust or Python sources. All 15 `allow(dead_code)`/`allow(unused…)`
+  attributes are in test support, benchmark examples that include shared test
+  modules through `#[path]`, or 3D GPU uniform and platform-specific code.
+
 ### CH-025: Oversized dispatch and validation functions
 
 - **Category/status:** maintainability; partly corrected on branch
