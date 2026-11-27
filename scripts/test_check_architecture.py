@@ -1,10 +1,11 @@
 """Behavior tests for the workspace dependency boundary check."""
 
 from pathlib import Path
+import tempfile
 import tomllib
 import unittest
 
-from check_architecture import violations
+from check_architecture import MIRRORED_SOURCES, mirror_violations, violations
 
 
 def metadata(packages):
@@ -112,6 +113,41 @@ class ArchitectureTests(unittest.TestCase):
             ]),
         ])
         self.assertEqual(violations(graph), ["tor-protocol -> outside-helper is forbidden"])
+
+
+class MirroredSourceTests(unittest.TestCase):
+    def write(self, root, path, text):
+        target = Path(root) / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+    def test_repository_mirrors_are_identical(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertTrue(MIRRORED_SOURCES)
+        self.assertEqual(mirror_violations(root), [])
+
+    def test_identical_copies_pass(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "a/x.rs", "fn x() {}\n")
+            self.write(root, "b/x.rs", "fn x() {}\n")
+            self.assertEqual(mirror_violations(Path(root), [("a/x.rs", "b/x.rs")]), [])
+
+    def test_a_drifted_copy_is_reported(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "a/x.rs", "fn x() {}\n")
+            self.write(root, "b/x.rs", "fn x() { todo!() }\n")
+            self.assertEqual(
+                mirror_violations(Path(root), [("a/x.rs", "b/x.rs")]),
+                ["b/x.rs differs from its mirror a/x.rs"],
+            )
+
+    def test_a_missing_copy_is_reported(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, "a/x.rs", "fn x() {}\n")
+            self.assertEqual(
+                mirror_violations(Path(root), [("a/x.rs", "b/x.rs")]),
+                ["b/x.rs is missing; it mirrors a/x.rs"],
+            )
 
 
 if __name__ == "__main__":
