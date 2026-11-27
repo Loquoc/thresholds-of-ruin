@@ -375,7 +375,40 @@ impl Canvas {
         );
     }
 
+    /// Draw open screens and prompts over the map, in stacking order: later
+    /// overlays draw over earlier ones.
     fn draw_screens(&mut self, app: &App) {
+        if app.command_line.is_some() {
+            return self.draw_command_line(app);
+        }
+        if app.charts_open {
+            return self.draw_charts(app);
+        }
+        self.draw_end_summary(app);
+        self.draw_wizard_editor(app);
+        self.draw_note_editor(app);
+        self.draw_door_prompt(app);
+        self.draw_zap_prompt(app);
+        self.draw_item_picker(app);
+        self.draw_inventory(app);
+        self.draw_message_log(app);
+        self.draw_discoveries(app);
+        self.draw_help(app);
+        self.draw_stats(app);
+        self.draw_ability_choices(app);
+        self.draw_hold_choices(app);
+        self.draw_advancement(app);
+        self.draw_supplies(app);
+        self.draw_projectile_menu(app);
+        self.draw_weapon_preview(app);
+        self.draw_weapon_choices(app);
+        self.draw_places(app);
+        self.draw_history(app);
+        self.draw_identification(app);
+    }
+
+    /// The extended-command picker; it hides every other overlay.
+    fn draw_command_line(&mut self, app: &App) {
         if let Some(line) = &app.command_line {
             self.screen(
                 "EXTENDED COMMANDS",
@@ -401,8 +434,11 @@ impl Canvas {
                 self.text(72, 152, "No supported command matches.", MUTED, 2, 65);
             }
             self.text(72, 662, &format!("# {line}"), GOLD, 2, 65);
-            return;
         }
+    }
+
+    /// Read-only detection charts; they hide every other overlay.
+    fn draw_charts(&mut self, app: &App) {
         if app.charts_open {
             self.screen(
                 "DETECTION CHARTS — READ ONLY",
@@ -417,8 +453,11 @@ impl Canvas {
             {
                 self.text(72, 156 + i * 22, line, TEXT, 1, 96);
             }
-            return;
         }
+    }
+
+    /// The death or victory summary until it is dismissed.
+    fn draw_end_summary(&mut self, app: &App) {
         if let Some(state) = &app.state {
             let combat = state.state().observation.combat.as_ref();
             if let Some(combat) = combat.filter(|c| c.terminal && !app.end_dismissed) {
@@ -444,6 +483,9 @@ impl Canvas {
                 );
             }
         }
+    }
+
+    fn draw_wizard_editor(&mut self, app: &App) {
         if let Some(draft) = &app.wizard_command {
             self.panel(60, 180, 1080, 424);
             self.text(84, 206, "WIZARD COMMAND", ACCENT, 2, 60);
@@ -462,6 +504,9 @@ impl Canvas {
                 self.text(84, 290 + i * 26, line, TEXT, 2, 64);
             }
         }
+    }
+
+    fn draw_note_editor(&mut self, app: &App) {
         if let Some(draft) = &app.note {
             self.panel(60, 180, 1080, 424);
             self.text(
@@ -494,6 +539,9 @@ impl Canvas {
                 self.text(84, 274 + i * 26, line, TEXT, 2, 64);
             }
         }
+    }
+
+    fn draw_door_prompt(&mut self, app: &App) {
         if let Some(open) = app.door_direction {
             self.panel(160, 176, 880, 160);
             self.text(
@@ -511,12 +559,18 @@ impl Canvas {
             self.text(188, 250, "hjklyubn or arrow keys", TEXT, 2, 50);
             self.text(188, 292, "Esc cancels without taking a turn", MUTED, 1, 80);
         }
+    }
+
+    fn draw_zap_prompt(&mut self, app: &App) {
         if app.zap_item().is_some() {
             self.panel(160, 176, 880, 160);
             self.text(188, 204, "ZAP IN WHICH DIRECTION?", ACCENT, 2, 50);
             self.text(188, 250, "hjklyubn, arrows, or < >", TEXT, 2, 50);
             self.text(188, 292, "Esc cancels without taking a turn", MUTED, 1, 80);
         }
+    }
+
+    fn draw_item_picker(&mut self, app: &App) {
         if !app.pickup.is_empty() {
             self.panel(160, 150, 880, 480);
             let title = match app.item_operation {
@@ -557,6 +611,9 @@ impl Canvas {
                 );
             }
         }
+    }
+
+    fn draw_inventory(&mut self, app: &App) {
         if app.inventory_open {
             self.screen("INVENTORY", &app.secondary_weapon_hint());
             if let Some(state) = &app.state {
@@ -591,6 +648,9 @@ impl Canvas {
                 }
             }
         }
+    }
+
+    fn draw_message_log(&mut self, app: &App) {
         if let Some(scroll) = app.message_log {
             self.screen(
                 "MESSAGES",
@@ -606,6 +666,9 @@ impl Canvas {
                 self.text(72, 152 + i * 22, row, TEXT, 2, crate::messages::WIDTH);
             }
         }
+    }
+
+    fn draw_discoveries(&mut self, app: &App) {
         if let Some(rows) = &app.discovery_rows {
             self.screen("DISCOVERIES", "UP/DOWN scroll   ESC closes");
             if rows.is_empty() {
@@ -620,12 +683,18 @@ impl Canvas {
                 self.text(72, 152 + i * 22, row, TEXT, 2, 66);
             }
         }
+    }
+
+    fn draw_help(&mut self, app: &App) {
         if let Some(page) = app.help_page {
             self.screen(page.title(), "LEFT / RIGHT change page    ESC or ? closes");
             for (i, line) in page.rows().iter().enumerate() {
                 self.text(72, 150 + i * 26, line, TEXT, 2, 66);
             }
         }
+    }
+
+    fn draw_stats(&mut self, app: &App) {
         if app.stats_open {
             self.screen(
                 app.stats_title(),
@@ -639,6 +708,9 @@ impl Canvas {
                 self.text(72, 152 + i * 22, row, TEXT, 2, crate::STATS_WIDTH);
             }
         }
+    }
+
+    fn draw_ability_choices(&mut self, app: &App) {
         if !app.ability_choices.is_empty() {
             self.screen(
                 "ABILITIES",
@@ -663,6 +735,9 @@ impl Canvas {
                 );
             }
         }
+    }
+
+    fn draw_hold_choices(&mut self, app: &App) {
         if !app.hold_choices.is_empty() {
             self.screen(
                 "ESCAPE A HOLD",
@@ -691,6 +766,9 @@ impl Canvas {
                 );
             }
         }
+    }
+
+    fn draw_advancement(&mut self, app: &App) {
         if app.advancement_open {
             self.screen(
                 "ADVANCEMENT",
@@ -719,6 +797,9 @@ impl Canvas {
                 .collect();
             self.text(72, 668, &format!("> {tail}"), GOLD, 2, 65);
         }
+    }
+
+    fn draw_supplies(&mut self, app: &App) {
         if app.supply_selection.is_some() {
             self.screen(
                 "SUPPLIES",
@@ -730,6 +811,9 @@ impl Canvas {
                 self.text(72, 152 + index * 26, row, TEXT, 2, 70);
             }
         }
+    }
+
+    fn draw_projectile_menu(&mut self, app: &App) {
         if let Some(menu) = app
             .projectile_selection
             .as_ref()
@@ -745,6 +829,9 @@ impl Canvas {
                 self.text(72, 152 + index * 26, row, TEXT, 2, 70);
             }
         }
+    }
+
+    fn draw_weapon_preview(&mut self, app: &App) {
         if app.weapon_confirmation.is_some() && app.projectile_prompt().is_none() {
             self.screen(
                 "EXACT WEAPON ACTION PREVIEW",
@@ -765,6 +852,9 @@ impl Canvas {
                 }
             }
         }
+    }
+
+    fn draw_weapon_choices(&mut self, app: &App) {
         if app.weapon_selection.is_some() {
             self.screen(
                 "WEAPON FOR THIS ACTION",
@@ -776,6 +866,9 @@ impl Canvas {
                 self.text(72, 152 + index * 26, row, TEXT, 2, 70);
             }
         }
+    }
+
+    fn draw_places(&mut self, app: &App) {
         if app.places_open {
             self.screen(
                 "REMEMBERED PLACES",
@@ -821,6 +914,9 @@ impl Canvas {
                 }
             }
         }
+    }
+
+    fn draw_history(&mut self, app: &App) {
         if let Some(page) = &app.history_page {
             self.screen(
                 "HISTORY",
@@ -838,6 +934,9 @@ impl Canvas {
                 self.text(72, 156, "No history entries yet.", MUTED, 2, 60);
             }
         }
+    }
+
+    fn draw_identification(&mut self, app: &App) {
         if let Some(choice) = app.identification_choice() {
             self.screen(
                 &format!(

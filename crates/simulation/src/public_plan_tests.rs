@@ -1,0 +1,1031 @@
+use super::*;
+
+fn observer() -> (Game, ActorId) {
+    let build = crate::test_creatures::build(crate::test_creatures::species());
+    let mut game = Game::two_room_in_stone(42, build.content().clone());
+    let actor = game
+        .spawn_actor(
+            Location {
+                region: RegionId(1),
+                position: Position { x: 1, y: 1, z: 0 },
+            },
+            std::num::NonZeroU64::new(100).unwrap(),
+        )
+        .unwrap();
+    game.configure_creature(
+        actor,
+        crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.observer".parse().unwrap(),
+            name: "observer".into(),
+            faction: "neutral".into(),
+        },
+        build,
+    )
+    .unwrap();
+    (game, actor)
+}
+
+#[test]
+fn repeated_observation_without_new_knowledge_preserves_shared_storage_and_state() {
+    let (mut game, actor) = observer();
+    let ability = game
+        .actors
+        .get(&actor)
+        .unwrap()
+        .recognized_abilities
+        .iter()
+        .next()
+        .unwrap()
+        .clone();
+    let name = game.content.rules.ability(&ability).unwrap().name.clone();
+    let mut view = game.observe(actor).unwrap();
+    for repeat_known_event in [false, true] {
+        view.combat.as_mut().unwrap().events = if repeat_known_event {
+            vec![
+                crate::combat::DisclosedCombatEvent::Ability {
+                    caster_reference: Some(crate::perception::ActorReferenceKind::Creature),
+                    target_reference: Some(crate::perception::ActorReferenceKind::Creature),
+                    caster: Some(actor),
+                    target: Some(actor),
+                    id: ability.clone(),
+                    name: name.clone(),
+                    outcome: crate::abilities::OutcomeStatus::Applied,
+                    strike: None,
+                };
+                2
+            ]
+        } else {
+            vec![]
+        };
+        let before = game.clone();
+        let known = game
+            .actors
+            .get(&actor)
+            .unwrap()
+            .recognized_abilities
+            .clone();
+        let counts = crate::diagnostics::work_counts();
+        game.record_observation_knowledge(&view).unwrap();
+        assert_eq!(game, before);
+        assert!(game
+            .actors
+            .get(&actor)
+            .unwrap()
+            .recognized_abilities
+            .shares_storage(&known));
+        assert_eq!(
+            crate::diagnostics::work_counts().actor_table_copies,
+            counts.actor_table_copies
+        );
+    }
+}
+
+#[test]
+fn ordinary_damage_without_new_grants_preserves_recognition_storage() {
+    let (mut game, actor) = observer();
+    let known = game
+        .actors
+        .get(&actor)
+        .unwrap()
+        .recognized_abilities
+        .clone();
+    let before = game.creature(actor).unwrap().health().injury();
+    crate::test_creatures::injure(&mut game, actor, 1).unwrap();
+    assert_eq!(game.creature(actor).unwrap().health().injury(), before + 1);
+    assert_eq!(
+        &*game.actors.get(&actor).unwrap().recognized_abilities,
+        &*known
+    );
+    assert!(game
+        .actors
+        .get(&actor)
+        .unwrap()
+        .recognized_abilities
+        .shares_storage(&known));
+}
+#[test]
+fn public_plan_idle_and_private_work_have_one_uniform_frozen_result() {
+    use crate::abilities::{PlannedEffect, ResolutionPlan, Snapshot};
+    use crate::{Action, EquipmentSlotId, EquipmentSpec, IntentionOrigin, ItemClass, ItemSpec};
+    let (mut idle, observer) = observer();
+    let subject = idle
+        .spawn_actor(
+            Location {
+                region: RegionId(1),
+                position: Position { x: 2, y: 1, z: 0 },
+            },
+            std::num::NonZeroU64::new(300).unwrap(),
+        )
+        .unwrap();
+    idle.configure_creature(
+        subject,
+        crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.visible-subject".parse().unwrap(),
+            name: "visible subject".into(),
+            faction: "neutral".into(),
+        },
+        crate::test_creatures::build(crate::test_creatures::species()),
+    )
+    .unwrap();
+    let slot = idle
+        .actors
+        .get(&subject)
+        .unwrap()
+        .anatomy
+        .slots
+        .iter()
+        .position(|slot| slot.as_str() == "body_armor")
+        .unwrap();
+    let mut equipment = ItemSpec::ordinary(
+        "item.test.private-mail".parse().unwrap(),
+        "private mail".into(),
+    );
+    equipment.class = ItemClass::Armor;
+    equipment.equipment = Some(EquipmentSpec {
+        periodic_relocation: None,
+        potency_modifiers: Vec::new(),
+        weapon_profile: None,
+        armor: None,
+        slot: crate::EquipmentSlot::new("body_armor").unwrap(),
+        attack: None,
+        modifiers: vec![],
+    });
+    let item = idle
+        .place_item_stack(
+            10,
+            idle.actors.get(&subject).unwrap().location,
+            Some(subject),
+            1,
+            equipment,
+        )
+        .unwrap();
+    let mut private = idle.clone();
+    for game in [&mut idle, &mut private] {
+        game.act(observer, Action::Wait).unwrap();
+    }
+    idle.act(subject, Action::Wait).unwrap();
+    private
+        .admit_intention(
+            subject,
+            Action::Equip {
+                item,
+                slot: EquipmentSlotId(slot as u16),
+            },
+            IntentionOrigin::Human,
+        )
+        .unwrap();
+    private.execute_next_intention().unwrap().outcome.unwrap();
+    assert_eq!(idle.tick(), private.tick());
+    assert_eq!(
+        idle.observe(observer).unwrap(),
+        private.observe(observer).unwrap(),
+        "public evidence must match before observing"
+    );
+    assert!(idle.preparation(subject).is_none());
+    assert!(private
+        .preparation(subject)
+        .unwrap()
+        .plan
+        .as_ability()
+        .is_none());
+    let expected = idle
+        .capture_public_plan_observation(observer, subject)
+        .unwrap();
+    let actual = private
+        .capture_public_plan_observation(observer, subject)
+        .unwrap();
+    assert_eq!(
+        actual, expected,
+        "private work must not create a separate status, label, aim or exact-work payload"
+    );
+    assert_eq!(
+        serde_json::to_value(&actual).unwrap()["state"],
+        serde_json::json!({"kind":"no_public_plan"})
+    );
+    let effects = [
+        PlannedEffect::ObservePublicPlan,
+        PlannedEffect::ApplyQualifiedConditionToSource {
+            id: crate::content_ids::ConditionId::new("readied").unwrap(),
+            duration: 300,
+            ability_tag: crate::content_ids::AbilityTagId::new("weapon_attack").unwrap(),
+        },
+    ];
+    for game in [&mut idle, &mut private] {
+        let input = ResolutionPlan::Effects {
+            actor: observer,
+            target: subject,
+            effects: &effects,
+        };
+        let target = game.creature(subject).unwrap().into_owned();
+        let snapshot = Snapshot::capture(&target)
+            .with_context(game.resolution_context(input, observer, subject).unwrap());
+        let result = crate::abilities::resolve(input, &snapshot, &mut 42, &mut ()).unwrap();
+        assert_eq!(result.effects.len(), 2);
+        game.apply(result).unwrap();
+        assert_eq!(game.public_plan_observation(observer), Some(&expected));
+    }
+    assert_eq!(
+        idle.creature(observer).unwrap(),
+        private.creature(observer).unwrap(),
+        "Readied grant and recipient timing are identical"
+    );
+    let before = private.clone();
+    assert_eq!(private.public_plan_observation(observer), Some(&expected));
+    assert_eq!(
+        private, before,
+        "inspection does not advance or reclassify private work"
+    );
+    private.pause_preparation(subject).unwrap();
+    assert_eq!(private.public_plan_observation(observer), Some(&expected));
+    let mut shared = crate::checkpoint::SharedState::default();
+    let checkpoint = private.checkpoint(&mut shared);
+    let restored =
+        Game::restore_checkpoint(checkpoint, &shared, private.content().clone()).unwrap();
+    assert_eq!(restored.public_plan_observation(observer), Some(&expected));
+}
+fn restored(game: &Game) -> Result<Game, crate::checkpoint::PersistError> {
+    let mut shared = crate::checkpoint::SharedState::default();
+    let checkpoint = game.checkpoint(&mut shared);
+    Game::restore_checkpoint(checkpoint, &shared, game.content().clone())
+}
+fn retain_unobserved_synthetic_event(game: &mut Game, event: crate::combat::CombatEvent) {
+    assert!(game.event_log.is_empty());
+    game.event_log.push(event);
+    // Deliberately synthetic history has a complete current envelope but no
+    // observer authority. This isolates outcome validation from receipt shape.
+    game.event_receipts = serde_json::from_value(serde_json::json!({
+        "generation": 1,
+        "sealed": game.event_log.len(),
+        "bindings": 0,
+        "observers": {},
+    }))
+    .unwrap();
+    assert!(game.event_receipts_valid());
+}
+#[test]
+fn public_plan_restore_requires_knowledge_of_current_own_grants() {
+    let (game, actor) = observer();
+    assert!(restored(&game).is_ok(), "untampered current actor is valid");
+    let mut missing = game.clone();
+    missing
+        .actors
+        .get_mut(&actor)
+        .unwrap()
+        .recognized_abilities
+        .clear();
+    assert!(
+        restored(&missing).is_err(),
+        "a current own grant cannot become undiscovered on restore"
+    );
+}
+#[test]
+fn public_plan_restore_rejects_a_historical_name_without_observer_license() {
+    let (mut game, actor) = observer();
+    let id = AbilityId::new("spark_lance_fire").unwrap();
+    assert!(!game
+        .actors
+        .get(&actor)
+        .unwrap()
+        .recognized_abilities
+        .contains(&id));
+    let ability = game.content.rules.ability(&id).unwrap();
+    let record = PublicPlanObservation {
+        observed_at: game.tick(),
+        subject_name: "remembered foe".into(),
+        state: PublicPlanState::Preparing {
+            ability: Some(ObservedAbility {
+                id: id.clone(),
+                name: ability.name.clone(),
+            }),
+            aim: ObservedAim::Unavailable,
+            remaining_work: 100,
+        },
+    };
+    game.actors.get_mut(&actor).unwrap().public_plan = Some(tor_world::Shared::new(record));
+    assert!(
+        restored(&game).is_err(),
+        "valid catalog identity is not an observer license"
+    );
+    game.actors
+        .get_mut(&actor)
+        .unwrap()
+        .recognized_abilities
+        .insert(id);
+    assert!(
+        restored(&game).is_ok(),
+        "licensed historical names remain valid"
+    );
+}
+#[test]
+fn public_plan_restore_never_reveals_a_historical_unknown_after_recognition() {
+    let (mut game, actor) = observer();
+    let record = PublicPlanObservation {
+        observed_at: game.tick(),
+        subject_name: "remembered foe".into(),
+        state: PublicPlanState::Preparing {
+            ability: None,
+            aim: ObservedAim::Unavailable,
+            remaining_work: 100,
+        },
+    };
+    game.actors.get_mut(&actor).unwrap().public_plan = Some(tor_world::Shared::new(record.clone()));
+    game.actors
+        .get_mut(&actor)
+        .unwrap()
+        .recognized_abilities
+        .insert(AbilityId::new("spark_lance_fire").unwrap());
+    assert_eq!(
+        restored(&game).unwrap().public_plan_observation(actor),
+        Some(&record)
+    );
+    game.actors
+        .get_mut(&actor)
+        .unwrap()
+        .public_plan
+        .as_mut()
+        .unwrap()
+        .observed_at = game.tick() + 1;
+    assert!(
+        restored(&game).is_err(),
+        "future records are not historical knowledge"
+    );
+}
+fn retained_record(game: &Game, actor: ActorId) -> PublicPlanObservation {
+    PublicPlanObservation {
+        observed_at: game.tick(),
+        subject_name: "remembered foe".into(),
+        state: PublicPlanState::Preparing {
+            ability: None,
+            remaining_work: 200,
+            aim: ObservedAim::Disclosed {
+                location: game.actors.get(&actor).unwrap().location,
+                occurrences: (0..1024).map(|x| Position { x, y: 0, z: 0 }).collect(),
+            },
+        },
+    }
+}
+#[test]
+fn body_origin_public_plan_bound_survives_strict_checkpoint_json_roundtrip() {
+    let (mut game, actor) = observer();
+    assert!(restored(&game).is_ok(), "valid current checkpoint baseline");
+    let mut record = retained_record(&game, actor);
+    let PublicPlanState::Preparing {
+        aim: ObservedAim::Disclosed { occurrences, .. },
+        ..
+    } = &mut record.state
+    else {
+        panic!("disclosed historical record")
+    };
+    *occurrences = (0..61_619).map(|x| Position { x, y: 0, z: 0 }).collect();
+    let encoded = serde_json::to_vec(&record).unwrap();
+    let decoded: PublicPlanObservation = serde_json::from_slice(&encoded)
+        .expect("complete body-origin historical envelope remains decodable");
+    assert_eq!(decoded, record);
+    assert!(decoded.valid(&game.content.rules, &game.world));
+    game.actors.get_mut(&actor).unwrap().public_plan = Some(tor_world::Shared::new(record.clone()));
+    let mut shared = crate::checkpoint::SharedState::default();
+    let snapshot = game.checkpoint(&mut shared);
+    let snapshot = serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap();
+    let shared = serde_json::from_slice(&serde_json::to_vec(&shared).unwrap()).unwrap();
+    let reopened = Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();
+    assert_eq!(reopened, game);
+    assert_eq!(reopened.public_plan_observation(actor), Some(&record));
+
+    let PublicPlanState::Preparing {
+        aim: ObservedAim::Disclosed { occurrences, .. },
+        ..
+    } = &mut record.state
+    else {
+        unreachable!()
+    };
+    occurrences.push(Position {
+        x: 61_619,
+        y: 0,
+        z: 0,
+    });
+    assert!(!record.valid(&game.content.rules, &game.world));
+    assert!(
+        serde_json::from_slice::<PublicPlanObservation>(&serde_json::to_vec(&record).unwrap())
+            .is_err()
+    );
+    assert!(serde_json::from_value::<PublicPlanObservation>(
+        serde_json::to_value(&record).unwrap()
+    )
+    .is_err());
+}
+fn aim_storage(record: &PublicPlanObservation) -> *const Position {
+    let PublicPlanState::Preparing {
+        aim: ObservedAim::Disclosed { occurrences, .. },
+        ..
+    } = &record.state
+    else {
+        panic!("disclosed historical record")
+    };
+    occurrences.as_ptr()
+}
+fn retain_record(game: &mut Game, actor: ActorId, record: PublicPlanObservation) {
+    game.apply(crate::abilities::Outcome {
+        resistance: None,
+        actor,
+        target: actor,
+        ability: None,
+        intention: None,
+        result: crate::abilities::OutcomeStatus::Applied,
+        check: None,
+        participation: crate::abilities::AttemptedParticipation::source(),
+        target_rider_participated: false,
+        effects: vec![crate::abilities::ResolvedEffect::ObservePublicPlan {
+            observation: tor_world::Shared::new(record),
+        }],
+    })
+    .unwrap();
+}
+#[test]
+fn public_plan_storage_ordinary_lifecycle_keeps_the_same_immutable_offsets() {
+    let (mut game, actor) = observer();
+    let record = retained_record(&game, actor);
+    retain_record(&mut game, actor, record);
+    let old = game.clone();
+    let pointer = aim_storage(old.public_plan_observation(actor).unwrap());
+    crate::test_creatures::injure(&mut game, actor, 1).unwrap();
+    assert_eq!(
+        game.public_plan_observation(actor),
+        old.public_plan_observation(actor)
+    );
+    assert_eq!(
+        aim_storage(game.public_plan_observation(actor).unwrap()),
+        pointer,
+        "ordinary lifecycle snapshots must not clone an unchanged historical payload"
+    );
+}
+#[test]
+fn public_plan_storage_application_context_and_outcome_clones_share_offsets() {
+    use crate::abilities::{Outcome, OutcomeStatus, PlannedEffect, ResolutionPlan, ResolvedEffect};
+    let (mut game, actor) = observer();
+    let record = retained_record(&game, actor);
+    retain_record(&mut game, actor, record);
+    let stored = game
+        .actors
+        .get(&actor)
+        .unwrap()
+        .public_plan
+        .as_ref()
+        .unwrap();
+    let pointer = aim_storage(stored);
+    let effects = [PlannedEffect::ApplyQualifiedConditionToSource {
+        id: crate::content_ids::ConditionId::new("readied").unwrap(),
+        duration: 300,
+        ability_tag: crate::content_ids::AbilityTagId::new("weapon_attack").unwrap(),
+    }];
+    let context = game
+        .resolution_context(
+            ResolutionPlan::Effects {
+                actor,
+                target: actor,
+                effects: &effects,
+            },
+            actor,
+            actor,
+        )
+        .unwrap();
+    assert_eq!(
+        aim_storage(
+            context
+                .source
+                .as_ref()
+                .unwrap()
+                .observed_plan
+                .as_ref()
+                .unwrap()
+        ),
+        pointer
+    );
+    assert_eq!(
+        aim_storage(
+            context
+                .clone()
+                .source
+                .as_ref()
+                .unwrap()
+                .observed_plan
+                .as_ref()
+                .unwrap()
+        ),
+        pointer
+    );
+    let outcome = Outcome {
+        resistance: None,
+        actor,
+        target: actor,
+        ability: None,
+        intention: None,
+        result: OutcomeStatus::Applied,
+        check: None,
+        participation: crate::abilities::AttemptedParticipation::source(),
+        target_rider_participated: false,
+        effects: vec![ResolvedEffect::ObservePublicPlan {
+            observation: stored.clone(),
+        }],
+    };
+    let retained = outcome.clone();
+    let ResolvedEffect::ObservePublicPlan { observation } = &retained.effects[0] else {
+        unreachable!()
+    };
+    assert_eq!(
+        aim_storage(observation),
+        pointer,
+        "retained outcome/history snapshots share the immutable payload too"
+    );
+}
+#[test]
+fn public_plan_storage_replacement_preserves_the_prior_snapshot_and_save_shape() {
+    let (mut game, actor) = observer();
+    let record = retained_record(&game, actor);
+    let canonical = serde_json::to_value(&record).unwrap();
+    retain_record(&mut game, actor, record.clone());
+    let old = game.clone();
+    let mut replacement = record.clone();
+    replacement.subject_name = "a later selected foe".into();
+    retain_record(&mut game, actor, replacement.clone());
+    assert_eq!(old.public_plan_observation(actor), Some(&record));
+    assert_eq!(game.public_plan_observation(actor), Some(&replacement));
+    let captured = crate::actor_record::ActorRecord::capture(old.actors.get(&actor).unwrap());
+    assert_eq!(
+        serde_json::to_value(captured).unwrap()["public_plan"],
+        canonical,
+        "ownership must not introduce any saved wrapper or schema change"
+    );
+}
+// Append inside public_plan::tests after the frozen batch.
+#[test]
+fn public_plan_name_uses_the_same_unnamed_fallback_as_ordinary_projection() {
+    let (mut baseline, observer) = observer();
+    let subject = baseline
+        .spawn_actor(
+            Location {
+                region: RegionId(1),
+                position: Position { x: 2, y: 1, z: 0 },
+            },
+            std::num::NonZeroU64::new(100).unwrap(),
+        )
+        .unwrap();
+    let build = crate::test_creatures::build(crate::test_creatures::species());
+    for (name, corpse_identity) in [
+        ("   ", "item.corpse.test.blank-persona"),
+        ("  Guard  ", "item.corpse.test.padded-guard"),
+        ("Guard", "item.corpse.test.guard"),
+    ] {
+        let mut game = baseline.clone();
+        game.configure_creature(
+            subject,
+            crate::CreatureIdentity {
+                corpse_identity: corpse_identity.parse().unwrap(),
+                name: name.into(),
+                faction: "neutral".into(),
+            },
+            build.clone(),
+        )
+        .unwrap();
+        let view = game.observe(observer).unwrap();
+        let ordinary = &view
+            .visible_actors
+            .iter()
+            .find(|actor| actor.id == subject)
+            .unwrap()
+            .name;
+        let public = game
+            .capture_public_plan_observation(observer, subject)
+            .unwrap();
+        if name.trim().is_empty() {
+            assert_eq!(ordinary, "", "ordinary unnamed path stays generic");
+            assert_eq!(public.subject_name, "figure");
+        } else {
+            assert_eq!(ordinary, name, "valid authored name is preserved exactly");
+            assert_eq!(public.subject_name, *ordinary);
+        }
+        assert!(public.valid(game.content().rules(), &game.world));
+    }
+}
+#[test]
+fn public_plan_recipient_invalid_later_source_effect_rolls_back_the_whole_payload() {
+    use crate::abilities::{Outcome, OutcomeStatus, ResolvedEffect, RuleError};
+    let (mut game, actor) = observer();
+    let before = game.clone();
+    let mut invalid = retained_record(&game, actor);
+    invalid.observed_at = game.tick() + 1;
+    let result = game.apply(Outcome {
+        resistance: None,
+        actor,
+        target: actor,
+        ability: None,
+        intention: None,
+        result: OutcomeStatus::Applied,
+        check: None,
+        participation: crate::abilities::AttemptedParticipation::source(),
+        target_rider_participated: false,
+        effects: vec![
+            ResolvedEffect::ApplyQualifiedConditionToSource {
+                id: crate::content_ids::ConditionId::new("readied").unwrap(),
+                duration: 300,
+                qualification: crate::conditions::TokenQualification {
+                    opponent: actor,
+                    ability_tag: crate::content_ids::AbilityTagId::new("weapon_attack").unwrap(),
+                },
+            },
+            ResolvedEffect::ObservePublicPlan {
+                observation: tor_world::Shared::new(invalid),
+            },
+        ],
+    });
+    assert_eq!(result, Err(crate::GameError::Rule(RuleError::InvalidPlan)));
+    assert_eq!(
+        game, before,
+        "no token, record, lifecycle event or actor state from a rejected payload may escape"
+    );
+}
+
+fn replace_retained_aim(record: &mut PublicPlanObservation, location: Location) {
+    let PublicPlanState::Preparing {
+        aim: ObservedAim::Disclosed { location: at, .. },
+        ..
+    } = &mut record.state
+    else {
+        panic!("disclosed aim fixture")
+    };
+    *at = location;
+}
+fn malformed_historical_aim(location: Location) {
+    let (mut game, actor) = observer();
+    let mut record = retained_record(&game, actor);
+    assert!(restored(&game).is_ok(), "untampered control");
+    replace_retained_aim(&mut record, location);
+    game.actors.get_mut(&actor).unwrap().public_plan = Some(tor_world::Shared::new(record));
+    assert!(
+        restored(&game).is_err(),
+        "impossible historical address {location:?} must not restore"
+    );
+}
+#[test]
+fn public_plan_review_restore_rejects_zero_region_aim() {
+    malformed_historical_aim(Location {
+        region: RegionId(0),
+        position: Position { x: 1, y: 1, z: 0 },
+    });
+}
+#[test]
+fn public_plan_review_restore_rejects_missing_region_aim() {
+    malformed_historical_aim(Location {
+        region: RegionId(999),
+        position: Position { x: 1, y: 1, z: 0 },
+    });
+}
+#[test]
+fn public_plan_review_restore_rejects_out_of_bounds_aim() {
+    malformed_historical_aim(Location {
+        region: RegionId(1),
+        position: Position {
+            x: i32::MAX,
+            y: 1,
+            z: 0,
+        },
+    });
+}
+#[test]
+fn public_plan_review_apply_rejects_impossible_aim_without_partial_publication() {
+    use crate::abilities::{Outcome, OutcomeStatus, ResolvedEffect, RuleError};
+    let (mut game, actor) = observer();
+    let mut record = retained_record(&game, actor);
+    replace_retained_aim(
+        &mut record,
+        Location {
+            region: RegionId(999),
+            position: Position { x: 1, y: 1, z: 0 },
+        },
+    );
+    let before = game.clone();
+    let result = game.apply(Outcome {
+        resistance: None,
+        actor,
+        target: actor,
+        ability: None,
+        intention: None,
+        result: OutcomeStatus::Applied,
+        check: None,
+        participation: crate::abilities::AttemptedParticipation::source(),
+        target_rider_participated: false,
+        effects: vec![ResolvedEffect::ObservePublicPlan {
+            observation: tor_world::Shared::new(record),
+        }],
+    });
+    assert_eq!(result, Err(crate::GameError::Rule(RuleError::InvalidPlan)));
+    assert_eq!(game, before);
+}
+#[test]
+fn public_plan_review_changed_wall_preserves_the_historical_aim() {
+    let (mut game, actor) = observer();
+    let aim = Location {
+        region: RegionId(1),
+        position: Position { x: 3, y: 1, z: 0 },
+    };
+    let mut record = retained_record(&game, actor);
+    replace_retained_aim(&mut record, aim);
+    retain_record(&mut game, actor, record.clone());
+    game.set_wall(aim, true).unwrap();
+    let after = restored(&game).expect("wall changes do not invalidate past observations");
+    assert_eq!(after.public_plan_observation(actor), Some(&record));
+}
+#[test]
+fn public_plan_review_detached_region_preserves_aim_without_loading_or_pinning() {
+    use crate::streaming::{MemoryRecords, RegionState, RegionTransition};
+    let (mut game, actor) = observer();
+    let region = RegionId(3);
+    game.add_chamber(tor_world::Region {
+        id: region,
+        name: "historical gallery".into(),
+        bounds: tor_world::Extent::new(3, 3, 2).unwrap(),
+    })
+    .unwrap();
+    let aim = Location {
+        region,
+        position: Position { x: 1, y: 1, z: 0 },
+    };
+    let mut record = retained_record(&game, actor);
+    replace_retained_aim(&mut record, aim);
+    retain_record(&mut game, actor, record.clone());
+    let proposed = RegionTransition {
+        active: std::collections::BTreeSet::from([RegionId(1), RegionId(2)]),
+        loaded: std::collections::BTreeSet::from([RegionId(1), RegionId(2)]),
+    };
+    let mut records = MemoryRecords::default();
+    let (_, report) = game.transition_regions(&proposed, &mut records).unwrap();
+    assert_eq!(report.detached, vec![region]);
+    assert_eq!(game.region_state(region), Some(RegionState::Detached));
+    let after = restored(&game).expect("historical addresses remain valid in detached metadata");
+    assert_eq!(after.region_state(region), Some(RegionState::Detached));
+    assert!(after.world.region(region).is_none());
+    assert!(after.world.knows(aim));
+    assert_eq!(after.public_plan_observation(actor), Some(&record));
+}
+#[test]
+fn public_plan_review_retained_outcome_rejects_invalid_historical_aim() {
+    let (mut game, actor) = observer();
+    let record = retained_record(&game, actor);
+    retain_record(&mut game, actor, record.clone());
+    let events = game.event_log.clone();
+    let receipts = game.event_receipts.clone();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, crate::combat::CombatEvent::Resolved { .. })));
+    game.act(actor, crate::Action::Wait).unwrap();
+    assert!(game.tick() > record.observed_at);
+    game.event_log = events;
+    game.event_receipts = receipts;
+    assert!(
+        restored(&game).is_ok(),
+        "older retained outcomes remain historical"
+    );
+    for event in &mut game.event_log {
+        let crate::combat::CombatEvent::Resolved { outcome, .. } = event else {
+            continue;
+        };
+        for effect in &mut outcome.effects {
+            if let crate::abilities::ResolvedEffect::ObservePublicPlan { observation } = effect {
+                replace_retained_aim(
+                    observation,
+                    Location {
+                        region: RegionId(999),
+                        position: Position { x: 1, y: 1, z: 0 },
+                    },
+                );
+            }
+        }
+    }
+    assert_eq!(
+        game.public_plan_observation(actor),
+        Some(&record),
+        "actor copy remains valid to isolate retained outcome validation"
+    );
+    assert!(
+        restored(&game).is_err(),
+        "a saved outcome must not smuggle an impossible historical address"
+    );
+}
+
+#[test]
+fn public_plan_review_publication_and_saved_outcome_reject_inconsistent_evidence() {
+    use crate::abilities::{
+        AttemptedParticipation, CheckParticipation, Outcome, OutcomeStatus, PayloadParticipation,
+        ResolvedEffect, UnselectedReason,
+    };
+    let (game, actor) = observer();
+    let valid = Outcome {
+        resistance: None,
+        actor,
+        target: actor,
+        ability: None,
+        intention: None,
+        result: OutcomeStatus::Unaffected,
+        check: None,
+        participation: AttemptedParticipation::target(),
+        target_rider_participated: false,
+        effects: vec![ResolvedEffect::Heal { amount: 0 }],
+    };
+    let mut control = game.clone();
+    control.apply(valid.clone()).unwrap();
+    assert!(restored(&control).is_ok());
+    for participation in [
+        AttemptedParticipation::source(),
+        AttemptedParticipation::empty(),
+        AttemptedParticipation {
+            check: CheckParticipation::TargetInvolved,
+            payload: PayloadParticipation::Target,
+        },
+        AttemptedParticipation {
+            check: CheckParticipation::None,
+            payload: PayloadParticipation::Unselected {
+                reason: UnselectedReason::Dead,
+            },
+        },
+    ] {
+        let mut invalid = valid.clone();
+        invalid.participation = participation;
+        let mut candidate = game.clone();
+        assert!(candidate.apply(invalid.clone()).is_err());
+        assert_eq!(candidate, game, "invalid evidence cannot publish any state");
+        retain_unobserved_synthetic_event(
+            &mut candidate,
+            crate::combat::CombatEvent::Resolved {
+                outcome: invalid,
+                strike: None,
+                source_disclosure: crate::combat::SourceAbilityDisclosure::Public,
+            },
+        );
+        assert!(
+            restored(&candidate).is_err(),
+            "typed in-memory checkpoint cannot bypass the byte reader"
+        );
+    }
+}
+
+#[test]
+fn public_plan_status_review_typed_restore_rejects_noncanonical_results() {
+    use crate::abilities::{
+        AttemptedParticipation, CheckParticipation, Outcome, OutcomeStatus, PayloadParticipation,
+        ResolvedCheck, ResolvedEffect,
+    };
+    let (game, actor) = observer();
+    let base = Outcome {
+        resistance: None,
+        actor,
+        target: actor,
+        ability: None,
+        intention: None,
+        result: OutcomeStatus::Unaffected,
+        check: None,
+        participation: AttemptedParticipation::empty(),
+        target_rider_participated: false,
+        effects: vec![],
+    };
+    // Trusted callers retain the established result-hint normalization.
+    for (hint, effects, expected) in [
+        (OutcomeStatus::Applied, vec![], OutcomeStatus::Unaffected),
+        (
+            OutcomeStatus::Unaffected,
+            vec![ResolvedEffect::Damage { amount: 1 }],
+            OutcomeStatus::Applied,
+        ),
+    ] {
+        let mut candidate = game.clone();
+        let mut input = base.clone();
+        input.result = hint;
+        input.effects = effects;
+        input.participation = AttemptedParticipation::target();
+        candidate.apply(input).unwrap();
+        assert!(candidate.combat_events().iter().any(|event| matches!(event, crate::combat::CombatEvent::Resolved { outcome, .. } if outcome.result == expected)));
+        assert!(
+            restored(&candidate).is_ok(),
+            "publication has already normalized its retained result"
+        );
+    }
+    let mut invalid = Vec::new();
+    let mut empty_applied = base.clone();
+    empty_applied.result = OutcomeStatus::Applied;
+    invalid.push(("empty Applied", empty_applied));
+    let mut damage_unaffected = base.clone();
+    damage_unaffected.participation = AttemptedParticipation::target();
+    damage_unaffected.effects = vec![ResolvedEffect::Damage { amount: 1 }];
+    invalid.push(("positive damage Unaffected", damage_unaffected));
+    let mut failed_empty = base.clone();
+    failed_empty.check = Some(ResolvedCheck {
+        actor: crate::rules::CheckActor::User,
+        success: false,
+        opposed: false,
+    });
+    failed_empty.participation.check = CheckParticipation::UserOnly;
+    invalid.push(("failed User empty Unaffected", failed_empty.clone()));
+    for (label, payload) in [
+        ("source Miss", PayloadParticipation::Source),
+        ("target Miss", PayloadParticipation::Target),
+    ] {
+        let mut miss = failed_empty.clone();
+        miss.result = OutcomeStatus::Miss;
+        miss.participation.payload = payload;
+        invalid.push((label, miss));
+    }
+    let accepted: Vec<_> = invalid
+        .into_iter()
+        .filter_map(|(label, outcome)| {
+            let mut candidate = game.clone();
+            retain_unobserved_synthetic_event(
+                &mut candidate,
+                crate::combat::CombatEvent::Resolved {
+                    outcome,
+                    strike: None,
+                    source_disclosure: crate::combat::SourceAbilityDisclosure::Public,
+                },
+            );
+            restored(&candidate).is_ok().then_some(label)
+        })
+        .collect();
+    assert!(
+        accepted.is_empty(),
+        "typed restore accepted noncanonical outcome status: {accepted:?}"
+    );
+}
+
+#[test]
+fn public_plan_status_review_coherent_erased_history_is_not_authenticated() {
+    use crate::abilities::{AttemptedParticipation, Outcome, OutcomeStatus};
+    let (game, actor) = observer();
+    // With all effects erased, both are internally coherent historical facts.
+    // Checkpoint restoration validates shape and consistency, not original intent.
+    // A coherent synthetic envelope still grants no historical observation.
+    for participation in [
+        AttemptedParticipation::source(),
+        AttemptedParticipation::target(),
+    ] {
+        let mut candidate = game.clone();
+        retain_unobserved_synthetic_event(
+            &mut candidate,
+            crate::combat::CombatEvent::Resolved {
+                outcome: Outcome {
+                    resistance: None,
+                    actor,
+                    target: actor,
+                    ability: Some(AbilityId::new("basic_melee").unwrap()),
+                    intention: None,
+                    result: OutcomeStatus::Unaffected,
+                    check: None,
+                    participation,
+                    target_rider_participated: false,
+                    effects: vec![],
+                },
+                strike: Some(0),
+                source_disclosure: crate::combat::SourceAbilityDisclosure::Public,
+            },
+        );
+        let restored = restored(&candidate)
+            .expect("coherent user-edited history is outside the existing authenticity guarantee");
+        assert_eq!(restored.combat_events(), candidate.combat_events());
+        assert!(restored
+            .observe(actor)
+            .unwrap()
+            .combat
+            .unwrap()
+            .events
+            .is_empty());
+    }
+}
+
+#[test]
+fn public_plan_rider_review_restored_summary_requires_primary_event_context() {
+    use crate::abilities::{AttemptedParticipation, Outcome, OutcomeStatus};
+    let (game, actor) = observer();
+    let outcome = Outcome {
+        resistance: None,
+        actor,
+        target: actor,
+        ability: Some(AbilityId::new("basic_melee").unwrap()),
+        intention: None,
+        result: OutcomeStatus::Unaffected,
+        check: None,
+        participation: AttemptedParticipation::source(),
+        target_rider_participated: true,
+        effects: vec![],
+    };
+    for strike in [None, Some(crate::limits::STRIKES as u16)] {
+        let mut candidate = game.clone();
+        retain_unobserved_synthetic_event(
+            &mut candidate,
+            crate::combat::CombatEvent::Resolved {
+                outcome: outcome.clone(),
+                strike,
+                source_disclosure: crate::combat::SourceAbilityDisclosure::Public,
+            },
+        );
+        assert!(
+            restored(&candidate).is_err(),
+            "a rider summary requires a valid primary strike context"
+        );
+    }
+}
