@@ -585,9 +585,17 @@ class ProjectileProcesses(ProcessTestCase):
         self.assertIsNone(self.sockets(after)[bow])
         shown = self.ascii_frame(window, lambda f: "it is cursed" in f["messages"]["turn"])
         self.assertIn("dagger", shown["messages"]["turn"])
+        # As in the successful swap, the refusal can reach the observer before
+        # the ASCII window has reconciled its picture and can accept a key.
+        self.ascii_frame(window, lambda f: (
+            not f["busy"] and f["observation_current"] and f["character_ready"]
+            and f["can_admit_intention"] and not f["intentions"]
+            and self.sockets(f).get(dagger) == 0
+        ))
         inventory = self.key(window, "inventory")
-        self.assertTrue(any("shortbow" in row and "secondary weapon" in row
-                            for row in inventory["inventory_rows"]))
+        rows = inventory["inventory_rows"]
+        self.assertIsNotNone(rows, "the ready client must open the inventory")
+        self.assertTrue(any("shortbow" in row and "secondary weapon" in row for row in rows))
 
     def test_ascii_wield_one_command_replaces_the_primary_weapon(self):
         window, before, dagger, bow = self.ascii_primary_weapon()

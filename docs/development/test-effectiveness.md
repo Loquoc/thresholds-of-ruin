@@ -438,6 +438,21 @@ errors were the same four arena-search owners, which failed with
 `PackageNotFoundError: optuna`. All 17 tests in those three modules passed in
 the pinned environment.
 
+A selected six-module process run after the `advance_preparation` extraction
+failed one method,
+`test_projectile_process.ProjectileProcesses.test_ascii_secondary_weapon_stays_designated_when_swap_is_blocked`.
+The inventory key returned no `inventory_rows`. The cursed swap is refused before
+equip resolves, so the extracted equip step never runs on that path. The method
+then passed six isolated runs on the same binaries. Root cause: the test opened
+the inventory as soon as the refusal message appeared, before the ASCII window
+could accept another key. Its sibling, the successful swap test, had already
+gained a ready-frame wait for the same race on 25 November (`1ad84e0`); the
+blocked-swap test had not. Classification: stale test (one root cause, one
+distinct method, one failing execution). The fix waits for the same ready frame
+and asserts that the inventory opens. The race could not be made to fail on
+demand, so there is no deterministic first-red; the evidence is the one failure
+under load, the matching sibling fix, and repeated passes afterwards.
+
 ### Pre-existing 3D library failures, 27 November
 
 A local `cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d --lib`
