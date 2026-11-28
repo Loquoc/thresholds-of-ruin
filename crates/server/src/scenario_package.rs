@@ -49,6 +49,8 @@ pub(crate) use spatial_runtime::tests::package as spatial_audit_test_package;
 pub(crate) use spatial_runtime::{HistoricalSourceAudit, SpatialAudit};
 #[cfg(test)]
 pub(crate) use spatial_sources::unroot_live_rogue_supplement;
+#[path = "scenario_planes.rs"]
+pub mod planes;
 #[path = "scenario_rules.rs"]
 mod rules_source;
 #[path = "scenario_scripts.rs"]
@@ -199,6 +201,9 @@ pub struct Manifest {
     /// Luau scripts and the hooks they react to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scripting: Option<ScriptingManifest>,
+    /// Coexisting planes besides the material one.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub planes: BTreeMap<String, planes::PlaneDecl>,
 }
 /// Arena source settings; runtime counters and outcomes belong to simulation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1367,6 +1372,9 @@ impl Package {
             .find(region)
     }
     fn structural_definition(&self, seed: u64, region: u64) -> Result<Arc<RegionDef>, Failure> {
+        if let Some(derived) = self.derived_structural_definition(seed, region) {
+            return derived;
+        }
         if let Some((id, family)) = self.procedural_family(region) {
             return family
                 .describe(id, seed, region)?
@@ -3021,6 +3029,7 @@ impl Package {
         self.check_identity()?;
         self.check_generation_groups()?;
         self.check_procedural_worlds()?;
+        self.check_planes()?;
         require(
             self.index.regions.len() <= MAX_REGIONS
                 && (!self.index.regions.is_empty() || !self.manifest.procedural_worlds.is_empty()),
@@ -3826,6 +3835,15 @@ impl Package {
             generated_rooms.insert(identity, group.rooms);
             defs.extend(group.regions.into_values().map(Arc::new));
         }
+        // A full build also builds every derived plane region.
+        for derive in self
+            .manifest
+            .planes
+            .values()
+            .flat_map(|plane| &plane.derive)
+        {
+            defs.push(index.region(self, derive.id)?);
+        }
         for r in &defs {
             self.check_region(r)?;
         }
@@ -3892,6 +3910,7 @@ impl Package {
         self.configure_run(&mut game, &index)?;
         game.initialize_discovery()
             .map_err(|error| fail(format!("Initial discovery publication: {error:?}")))?;
+        self.install_planes(&mut game, seed)?;
         self.install_scripts(&mut game, seed)?;
         Ok(game)
     }
@@ -4239,6 +4258,7 @@ impl Package {
         if self.manifest.arena.is_none() {
             self.configure_run(&mut game, &index)?;
         }
+        self.install_planes(&mut game, seed)?;
         self.install_scripts(&mut game, seed)?;
         Ok(game)
     }
@@ -4342,9 +4362,13 @@ impl Package {
             }
         }
         shell.sort_by_key(|s| s.id);
+        // A derived region is built from its source's file.
         let files = shell
             .iter()
-            .map(|s| s.id)
+            .map(|s| {
+                self.derived_region(s.id)
+                    .map_or(s.id, |(_, derive)| derive.from)
+            })
             .filter(|id| self.index.region(*id).is_some())
             .collect();
         let shell: Vec<&RegionDef> = shell.iter().map(|s| &**s).collect();
@@ -5244,7 +5268,16 @@ mod region_lifecycle_tests {
             .iter()
             .map(|r| RegionId(r.id))
             .collect();
-        let mut procedural = 0;
+        // Derived plane regions are part of every package that declares them.
+        let derived = package
+            .manifest
+            .planes
+            .values()
+            .flat_map(|plane| &plane.derive)
+            .map(|derive| RegionId(derive.id));
+        let before = selected.len();
+        selected.extend(derived);
+        let mut procedural = selected.len() - before;
         for (identity, family) in &package.manifest.procedural_worlds {
             let last = family.depth_limit(identity, seed);
             let depths = BTreeSet::from([1, 2.min(last), 27.min(last), last]);

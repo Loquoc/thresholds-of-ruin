@@ -434,6 +434,9 @@ impl Chronicler {
                 Event::Escaped { .. } => beats.push(Beat::Escaped(
                     tor_client_common::narration::action(event, a),
                 )),
+                Event::PlaneReturned => beats.push(Beat::PlaneReturned(
+                    tor_client_common::narration::action(event, a),
+                )),
                 Event::Crumbled { quantity, .. } => beats.push(Beat::Crumbled {
                     quantity: *quantity,
                 }),

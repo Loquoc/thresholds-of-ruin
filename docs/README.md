@@ -44,6 +44,7 @@ rather than treating a historical plan as current behavior.
 | Body/personal HD, purchases, expertise, drain/restoration and earned growth | [Progression](reference/progression.md) |
 | Baleful transformations and pending return | [Polymorph](reference/polymorph.md) |
 | Steps, doors, stairs, travel and durable places | [Movement and interaction](reference/movement.md) |
+| Coexisting planes, overlaps, shifting and plane movement modes | [Planes](reference/planes.md) |
 | Package structure, validation, pinning and overrides | [Scenario packages](reference/scenario-packages.md) |
 | Declarative recipes and generation groups | [Generation](reference/generation.md) |
 | Complete message-family index, authority gates, paging and worked recovery | [Protocol lifecycle](reference/protocol-lifecycle.md) |

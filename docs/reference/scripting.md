@@ -65,6 +65,8 @@ so an edited script makes the certificate stale.
 | `died` | `actor`, `at` | `anchor`, `region`, `actor` |
 | `region_first_visit` | `actor`, `region` | `anchor`, `region`, `actor` |
 | `escaped` | `actor`, `at` | `anchor`, `region`, `actor` |
+| `plane_shifted` | `actor`, `from`, `to`, `from_plane`, `plane` | `anchor`, `region`, `actor` |
+| `plane_shift_blocked` | `actor`, `at`, `plane` | `anchor`, `region`, `actor` |
 | `timer` | `timer`, `arg` | not bindable; a timer calls its own handler |
 
 Every fact also carries `kind` and `tick`. Cells are read-only tables
@@ -97,6 +99,7 @@ heard something or its timer is due, never merely because a tick passed.
 
 `ctx:tick()`, `ctx:anchor(name)`, `ctx:location(actor)`, `ctx:alive(actor)`,
 `ctx:is_character(actor)`, `ctx:characters()`, `ctx:selected()`,
+`ctx:plane(actor)` (the plane's name; the material plane is `"material"`),
 `ctx:faction(actor)`, `ctx:actors_at(cell)`,
 `ctx:health(actor)`, `ctx:carried(actor)`, `ctx:items_at(cell)`,
 `ctx:item_identity(item)`, `ctx:door_open(cell)`, `ctx:var(name, scope?)`,
@@ -117,6 +120,7 @@ handler returns.
 | `ctx:set_door(cell, open)` | Open or close a door, with no actor needed |
 | `ctx:place_item(identity, name, cell)`, `ctx:remove_item(item)` | Items on the ground |
 | `ctx:teleport(actor, cell)` | Move an actor |
+| `ctx:shift(actor, plane, { returns?, duration? })` | Move an actor to its counterpart on another [plane](planes.md); `returns` is `action` (default), `expiry_only` or `none`. A blocked shift moves nothing and notes `plane_shift_blocked` |
 | `ctx:win(actor?, { continue? })`, `ctx:lose(actor?)` | Win or lose an adventure run; `continue = true` records the victory and keeps playing |
 | `ctx:end_arena(faction?)` | End an arena with a participant faction as winner, or nobody |
 | `ctx:set_goal(text, { cell?, to? })`, `ctx:clear_goal({ to? })` | The goal clients show; `to` is an actor, otherwise every character |

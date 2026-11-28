@@ -22,6 +22,12 @@ fn cell(region: u64, x: i32, y: i32) -> Location {
 fn spec(glide: Option<i32>) -> PlaneSpec {
     PlaneSpec {
         name: "ethereal".into(),
+        mysterious: "a grey mist".into(),
+        revealed: "the Ethereal Plane".into(),
+        channels: vec![ChannelSpec {
+            to: PlaneId::MATERIAL,
+            range: 12,
+        }],
         glide: glide.map(|dc| GlideRule {
             skill: crate::attributes::Skill::Discipline,
             dc,
@@ -158,6 +164,7 @@ fn expiry_only_stays_end_at_the_next_boundary_after_their_duration() {
             plane: ETHEREAL,
             returns: ReturnPolicy::ExpiryOnly,
             duration: NonZeroU64::new(150),
+            reveals: false,
         },
     )
     .unwrap();
@@ -186,6 +193,7 @@ fn a_blocked_forced_return_keeps_the_stay_and_retries() {
             plane: ETHEREAL,
             returns: ReturnPolicy::None,
             duration: NonZeroU64::new(1),
+            reveals: false,
         },
     )
     .unwrap();
@@ -278,7 +286,10 @@ fn plane_rules_reject_malformed_declarations() {
             ETHEREAL,
             PlaneSpec {
                 name: "material".into(),
+                mysterious: String::new(),
+                revealed: String::new(),
                 glide: None,
+                channels: Vec::new(),
             },
         )]),
         BTreeMap::from([(ETHEREAL, spec(Some(MAX_PLANE_DC + 1)))]),
@@ -289,4 +300,95 @@ fn plane_rules_reject_malformed_declarations() {
     assert_eq!(game.plane_by_name("ethereal"), Some(ETHEREAL));
     assert_eq!(game.plane_by_name("material"), Some(PlaneId::MATERIAL));
     assert_eq!(game.plane_name(ETHEREAL), Some("ethereal"));
+}
+
+#[test]
+fn two_cell_bodies_glide_in_zero_gravity() {
+    let (mut game, actor) = game(Some(0));
+    game.world.set_gravity(RegionId(1), [0, 0, -1]).unwrap();
+    game.set_body(
+        actor,
+        crate::BodySpec {
+            cells: vec![[0, 0, 0], [0, 0, 1]],
+            eye: [0, 0, 1],
+            mass: 80,
+        },
+    )
+    .unwrap();
+    creature(&mut game, actor);
+    game.shift_actor(actor, ShiftRequest::to(ETHEREAL)).unwrap();
+    let moved = game.act(actor, Action::Move(Direction::West));
+    assert!(moved.is_ok(), "{moved:?}");
+}
+
+#[test]
+fn the_channel_shows_the_material_plane_from_the_counterpart_eye() {
+    let (mut game, actor) = game(Some(0));
+    let walker = game
+        .spawn_actor(cell(1, 3, 2), NonZeroU64::new(100).unwrap())
+        .unwrap();
+    creature(&mut game, walker);
+    game.shift_actor(actor, ShiftRequest::to(ETHEREAL)).unwrap();
+    let views = game.plane_channel_views(actor);
+    assert_eq!(views.len(), 1);
+    let view = &views[0];
+    assert_eq!(view.plane, PlaneId::MATERIAL);
+    // Every echo cell is a material cell, relative to the observer's feet.
+    assert!(view.cells.iter().all(|c| c.location.region == RegionId(1)));
+    assert!(view
+        .cells
+        .iter()
+        .any(|c| c.location == cell(1, 1, 1) && c.offset == Position { x: 0, y: 0, z: 0 }));
+    // The material walker is seen across the planes, two east and one north.
+    assert!(
+        view.actors
+            .iter()
+            .any(|a| a.actor == walker && a.offset == Position { x: 2, y: 1, z: 0 }),
+        "{:?}",
+        view.actors
+    );
+    // A material observer has no channel in this fixture.
+    assert!(game.plane_channel_views(walker).is_empty());
+}
+
+#[test]
+fn an_eye_inside_solid_material_sees_nothing_of_it() {
+    let (mut game, actor) = game(Some(0));
+    game.shift_actor(actor, ShiftRequest::to(ETHEREAL)).unwrap();
+    game.world.set_wall(cell(1, 1, 1), true).unwrap();
+    let views = game.plane_channel_views(actor);
+    assert!(views[0].cells.is_empty());
+}
+
+#[test]
+fn plane_knowledge_changes_the_description_and_survives_saves() {
+    let game_fixture = game;
+    let (mut game, actor) = game_fixture(Some(0));
+    game.shift_actor(actor, ShiftRequest::to(ETHEREAL)).unwrap();
+    let seen = game.plane_observation(actor).unwrap();
+    assert!(!seen.known);
+    assert_eq!(seen.description, "a grey mist");
+    assert_eq!(seen.echoes[0].2, "the material world");
+    assert!(game.reveal_plane(actor, ETHEREAL));
+    assert!(!game.reveal_plane(actor, ETHEREAL), "already known");
+    let known = game.plane_observation(actor).unwrap();
+    assert!(known.known);
+    assert_eq!(known.description, "the Ethereal Plane");
+    let mut shared = SharedState::default();
+    let snapshot = game.checkpoint(&mut shared);
+    let restored = Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();
+    assert!(restored.knows_plane(actor, ETHEREAL));
+
+    // A revealing shift teaches the plane on arrival.
+    let (mut taught, other) = game_fixture(Some(0));
+    taught
+        .shift_actor(
+            other,
+            ShiftRequest {
+                reveals: true,
+                ..ShiftRequest::to(ETHEREAL)
+            },
+        )
+        .unwrap();
+    assert!(taught.knows_plane(other, ETHEREAL));
 }

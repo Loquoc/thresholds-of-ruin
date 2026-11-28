@@ -39,14 +39,74 @@ pub struct GlideRule {
 pub struct PlaneSpec {
     /// The package's name for the plane, used by scripts and authoring.
     pub name: String,
+    /// Told to observers that do not know the plane.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mysterious: String,
+    /// Told to observers that know it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub revealed: String,
     /// A movement mode the plane grants everyone on it who does not fly:
     /// unsupported movement in any direction, after a check on each move.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glide: Option<GlideRule>,
+    /// What observers on this plane perceive of other planes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<ChannelSpec>,
+}
+
+/// A one-way perception channel: observers on the declaring plane also see
+/// the plane `to` from the counterpart of their eye, within `range`
+/// Manhattan cells, whatever that plane's lighting (a fixed light level).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelSpec {
+    pub to: PlaneId,
+    pub range: u8,
+}
+
+/// Longest channel range, the ordinary sight range.
+pub const MAX_CHANNEL_RANGE: u8 = 16;
+
+/// One cell seen through a channel, relative to the observer's reference
+/// cell in its own frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChannelCell {
+    pub location: Location,
+    pub offset: tor_world::Position,
+    pub wall: bool,
+    pub material: &'static str,
+}
+
+/// An actor seen through a channel: one row per perceived body cell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChannelActor {
+    pub actor: ActorId,
+    pub offset: tor_world::Position,
+    /// The public name of what is seen; empty when nothing names it.
+    pub name: String,
+}
+
+/// What an observer is told about planes: its own and those it sees.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlaneObservation {
+    pub plane: PlaneId,
+    pub known: bool,
+    pub description: String,
+    pub echoes: Vec<(ChannelView, bool, String)>,
+}
+
+/// What an observer sees of one other plane.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChannelView {
+    pub plane: PlaneId,
+    pub cells: Vec<ChannelCell>,
+    pub actors: Vec<ChannelActor>,
 }
 
 /// How a stay away from home may end.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ReturnPolicy {
     /// An ordinary timed return action is available.
@@ -77,15 +137,18 @@ pub struct ShiftRequest {
     pub plane: PlaneId,
     pub returns: ReturnPolicy,
     pub duration: Option<NonZeroU64>,
+    /// Whether arriving teaches the actor what the plane is.
+    pub reveals: bool,
 }
 
 impl ShiftRequest {
-    /// A shift with the default return action and no expiry.
+    /// A shift with the default return action, no expiry and no reveal.
     pub fn to(plane: PlaneId) -> Self {
         Self {
             plane,
             returns: ReturnPolicy::Action,
             duration: None,
+            reveals: false,
         }
     }
 }
@@ -107,6 +170,15 @@ pub enum ShiftResult {
 pub struct PlaneState {
     specs: BTreeMap<PlaneId, PlaneSpec>,
     stays: BTreeMap<ActorId, PlaneStay>,
+    /// Planes each observer knows. The material plane is always known.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    known: BTreeMap<ActorId, std::collections::BTreeSet<PlaneId>>,
+}
+
+/// Whether a name can name a plane in content: the material plane or a
+/// declared plane's name shape. Content refers to planes by name.
+pub(crate) fn valid_plane_name(name: &str) -> bool {
+    name == "material" || valid_name(name)
 }
 
 fn valid_name(name: &str) -> bool {
@@ -127,10 +199,24 @@ impl PlaneState {
                 *id != PlaneId::MATERIAL
                     && valid_name(&spec.name)
                     && names.insert(spec.name.as_str())
+                    && [&spec.mysterious, &spec.revealed]
+                        .iter()
+                        .all(|text| text.len() <= 240 && !text.chars().any(char::is_control))
                     && spec
                         .glide
                         .is_none_or(|rule| (0..=MAX_PLANE_DC).contains(&rule.dc))
+                    && spec.channels.iter().all(|channel| {
+                        channel.to != *id
+                            && (1..=MAX_CHANNEL_RANGE).contains(&channel.range)
+                            && (channel.to == PlaneId::MATERIAL
+                                || self.specs.contains_key(&channel.to))
+                    })
             })
+            && self
+                .known
+                .values()
+                .flatten()
+                .all(|plane| self.specs.contains_key(plane))
             && self
                 .stays
                 .values()
@@ -152,13 +238,11 @@ impl Game {
             self.planes = None;
             return Ok(());
         }
+        let previous = self.planes.clone().unwrap_or_default();
         let state = PlaneState {
             specs,
-            stays: self
-                .planes
-                .as_ref()
-                .map(|state| state.stays.clone())
-                .unwrap_or_default(),
+            stays: previous.stays,
+            known: previous.known,
         };
         if !state.valid() {
             return Err(GameError::InvalidLocation);
@@ -276,6 +360,9 @@ impl Game {
         self.apply_outcome(outcome)?;
         self.sync_actor_lifecycle(id)?;
         self.record_stay(id, from_plane, request);
+        if request.reveals {
+            self.reveal_plane(id, request.plane);
+        }
         let to = destination.location;
         self.note_moved(id, from, to);
         self.note_plane_shifted(id, from, to, from_plane, request.plane);
@@ -321,6 +408,41 @@ impl Game {
         })
     }
 
+    /// Apply a resolved `plane_shift` effect to its recipient. An unknown
+    /// plane name or a blocked shift moves nothing; a blocked shift notes
+    /// `plane_shift_blocked` for scripts.
+    pub(crate) fn apply_planned_plane_shift(
+        &mut self,
+        target: ActorId,
+        effect: &crate::abilities::PlannedEffect,
+    ) -> Result<(), GameError> {
+        let crate::abilities::PlannedEffect::PlaneShift {
+            plane,
+            returns,
+            duration,
+            reveals,
+        } = effect
+        else {
+            return Ok(());
+        };
+        let Some(plane) = self.plane_by_name(plane) else {
+            return Ok(());
+        };
+        if !self.actors.get(&target).is_some_and(crate::Actor::alive) {
+            return Ok(());
+        }
+        self.shift_actor_in_transaction(
+            target,
+            ShiftRequest {
+                plane,
+                returns: *returns,
+                duration: *duration,
+                reveals: *reveals,
+            },
+        )
+        .map(|_| ())
+    }
+
     /// Where the voluntary return action would put the actor.
     ///
     /// # Errors
@@ -361,8 +483,147 @@ impl Game {
             plane: stay.home,
             returns: stay.returns,
             duration: None,
+            reveals: false,
         };
         self.shift_actor_in_transaction(id, request).map(|_| ())
+    }
+
+    /// Whether an observer knows what a plane is.
+    pub fn knows_plane(&self, id: ActorId, plane: PlaneId) -> bool {
+        plane == PlaneId::MATERIAL
+            || self
+                .planes
+                .as_ref()
+                .and_then(|state| state.known.get(&id))
+                .is_some_and(|known| known.contains(&plane))
+    }
+
+    /// Teach an observer what a plane is. Returns whether it was new.
+    pub fn reveal_plane(&mut self, id: ActorId, plane: PlaneId) -> bool {
+        if plane == PlaneId::MATERIAL || self.plane_spec(plane).is_none() {
+            return false;
+        }
+        self.planes
+            .as_mut()
+            .is_some_and(|state| state.known.entry(id).or_default().insert(plane))
+    }
+
+    /// What an observer perceives of other planes through its plane's
+    /// channels. Each channel runs an ordinary eye pass on the other plane
+    /// from the counterpart of the observer's eye cell, within the channel's
+    /// range, regardless of that plane's lighting. Walls there block it; an
+    /// eye inside solid matter sees nothing.
+    pub fn plane_channel_views(&self, id: ActorId) -> Vec<ChannelView> {
+        let Some(state) = self.planes.as_ref() else {
+            return Vec::new();
+        };
+        let Some(actor) = self.actors.get(&id) else {
+            return Vec::new();
+        };
+        let Some(spec) = state.specs.get(&self.world.plane_of(actor.location.region)) else {
+            return Vec::new();
+        };
+        let Some(cells) = self.body_cells(actor.location, actor.orientation, &actor.body) else {
+            return Vec::new();
+        };
+        let Some((eye_location, eye_frame)) = actor
+            .body
+            .cells
+            .iter()
+            .zip(cells)
+            .find_map(|(offset, cell)| (*offset == actor.body.eye).then_some(cell))
+        else {
+            return Vec::new();
+        };
+        let eye = actor.body.eye;
+        let mut views = Vec::new();
+        for channel in &spec.channels {
+            let Some((mapped, rotation)) = self.world.counterpart(eye_location, channel.to) else {
+                continue;
+            };
+            let frame = compose_rotation(eye_frame, rotation);
+            let mut seen = Vec::new();
+            let mut at = std::collections::BTreeMap::new();
+            if !self.world.is_wall(mapped) {
+                for cell in self.world.eye_scene(mapped, frame, channel.range) {
+                    let offset = tor_world::Position {
+                        x: cell.offset.x + eye[0],
+                        y: cell.offset.y + eye[1],
+                        z: cell.offset.z + eye[2],
+                    };
+                    at.entry(cell.location).or_insert(offset);
+                    seen.push(ChannelCell {
+                        location: cell.location,
+                        offset,
+                        wall: cell.wall,
+                        material: crate::observation::material_name(&self.world, cell.location),
+                    });
+                }
+            }
+            let mut actors = Vec::new();
+            for (&other, subject) in self.actors.iter() {
+                if other == id || !subject.alive() || subject.guise.appearance().is_some() {
+                    continue;
+                }
+                let name = crate::observation::projected_actor_name(actor, subject).to_owned();
+                let Some(body) =
+                    self.body_cells(subject.location, subject.orientation, &subject.body)
+                else {
+                    continue;
+                };
+                for (location, _) in body {
+                    if let Some(offset) = at.get(&location) {
+                        actors.push(ChannelActor {
+                            actor: other,
+                            offset: *offset,
+                            name: name.clone(),
+                        });
+                    }
+                }
+            }
+            views.push(ChannelView {
+                plane: channel.to,
+                cells: seen,
+                actors,
+            });
+        }
+        views
+    }
+
+    /// The description of a plane as an observer knows it.
+    pub fn plane_description(&self, id: ActorId, plane: PlaneId) -> String {
+        if plane == PlaneId::MATERIAL {
+            return "the material world".into();
+        }
+        let Some(spec) = self.plane_spec(plane) else {
+            return String::new();
+        };
+        if self.knows_plane(id, plane) {
+            spec.revealed.clone()
+        } else {
+            spec.mysterious.clone()
+        }
+    }
+
+    /// The observer's plane observation; `None` in games without planes.
+    pub fn plane_observation(&self, id: ActorId) -> Option<PlaneObservation> {
+        self.planes.as_ref()?;
+        let plane = self.actor_plane(id)?;
+        let echoes = self
+            .plane_channel_views(id)
+            .into_iter()
+            .map(|view| {
+                let known = self.knows_plane(id, view.plane);
+                let description = self.plane_description(id, view.plane);
+                (view, known, description)
+            })
+            .collect();
+        Some(PlaneObservation {
+            plane,
+            known: self.knows_plane(id, plane),
+            description: self.plane_description(id, plane),
+            echoes,
+        })
     }
 
     /// The plane-granted movement mode an actor would use to move now: only

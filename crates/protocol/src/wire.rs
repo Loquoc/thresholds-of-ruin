@@ -937,6 +937,10 @@ pub struct Observation {
     pub inventory: Vec<ItemView>,
     pub visible_actors: Vec<ActorView>,
     pub ready: bool,
+    /// The observer's plane and its echoes of other planes; absent in games
+    /// without planes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane: Option<crate::PlaneView>,
 }
 
 /// The display and authoring limits are shared so a valid package cannot put an

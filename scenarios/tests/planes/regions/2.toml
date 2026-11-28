@@ -1,0 +1,8 @@
+id = 2
+name = "Vestry"
+size = [6, 3, 2]
+chamber = true
+gravity = [0,0,-1]
+anchors = { "west" = [0, 1, 0] }
+portals = [{ "at" = [0, 1, 0], "direction" = "west", "to" = "1/east", "height" = 2 }]
+items = [{ "id" = 1, "at" = [1, 1, 0], "archetype" = "incense" }]

@@ -767,11 +767,19 @@ impl Game {
                     self.note_first_visit(actor, to.region);
                 }
             }
+            ScriptEffect::RevealPlane { actor, plane } => {
+                if !self.actors.contains_key(actor) {
+                    return Err("unknown actor");
+                }
+                let plane = self.plane_by_name(plane).ok_or("unknown plane")?;
+                self.reveal_plane(*actor, plane);
+            }
             ScriptEffect::ShiftPlane {
                 actor,
                 plane,
                 returns,
                 duration,
+                reveals,
             } => {
                 if !self.actors.contains_key(actor) {
                     return Err("unknown actor");
@@ -781,6 +789,7 @@ impl Game {
                     plane,
                     returns: *returns,
                     duration: *duration,
+                    reveals: *reveals,
                 };
                 self.shift_actor(*actor, request)
                     .map_err(|_| "plane shift unavailable")?;

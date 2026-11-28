@@ -14,6 +14,7 @@ fn client(kind: ChartKind, mode: ChartMode, status: ChartStatus) -> ClientState 
         }),
     };
     let observation = Observation {
+        plane: None,
         charts: vec![summary],
         public_effects: vec![],
         level_name: None,

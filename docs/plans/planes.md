@@ -1,11 +1,13 @@
 # Coexisting planes
 
-**Status: proposed design, not an authorized milestone.** This plan records the
-design decisions for coexisting planes (the Ethereal Plane first; later the Plane
-of Shadow, Shadesmar and others) and the generator identity change they depend
-on. Each milestone below still needs the maintainer's explicit authorization.
-The maintainer has authorized the compatibility break in
-[milestone 4](#generator-identity-blocks) (removing `base_region`).
+**Status: accepted; implementation in progress.** This plan records the design
+decisions for coexisting planes (the Ethereal Plane first; later the Plane of
+Shadow, Shadesmar and others) and the generator identity change they depend on.
+The maintainer authorized implementing the plan, including the format and
+protocol version changes it needs and the compatibility break in
+[milestone 4](#generator-identity-blocks) (removing `base_region`). Milestone 1
+is implemented; the [planes reference](../reference/planes.md) owns its
+behavior.
 
 ## Model
 

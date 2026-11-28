@@ -319,11 +319,7 @@ impl RawWorldFacts {
                     door_reachable: false,
                     door_secret: false,
                     door_approaches: Vec::new(),
-                    material: match game.world.terrain(location) {
-                        Some(tor_world::Terrain::Solid(material)) => material.name(),
-                        _ if game.world.is_chamber(location.region) => "",
-                        _ => "stone",
-                    },
+                    material: material_name(&game.world, location),
                     location,
                     wall: game.world.is_wall(location),
                     place_hint: game.world.has_place_hint(location),
@@ -678,6 +674,15 @@ pub struct CellView {
     pub place_hint: bool,
 }
 
+/// The cosmetic material name a disclosed cell reports.
+pub(crate) fn material_name(world: &tor_world::World, location: Location) -> &'static str {
+    match world.terrain(location) {
+        Some(tor_world::Terrain::Solid(material)) => material.name(),
+        _ if world.is_chamber(location.region) => "",
+        _ => "stone",
+    }
+}
+
 /// Mutate only an observation-owned projection, never a retained raw template.
 /// Shared-handle clones copy no rows; the first actual COW detachment does.
 pub(crate) fn observation_cells_mut(
@@ -719,6 +724,8 @@ pub struct Observation {
     pub visible_actors: Vec<ActorView>,
     pub exits: Vec<ExitView>,
     pub known_places: Vec<KnownPlace>,
+    /// The observer's plane and echoes of others; `None` without planes.
+    pub plane: Option<crate::planes::PlaneObservation>,
 }
 
 /// Ordinary map-learning appearance facts, without inventory, combat or charts.
@@ -1422,6 +1429,7 @@ impl Game {
                         .clone(),
                 })
                 .collect(),
+            plane: self.plane_observation(id),
         };
         self.apply_hallucinated_presentation(&mut view, sight)?;
         Ok(view)

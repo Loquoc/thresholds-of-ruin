@@ -63,6 +63,29 @@ impl<'a> ScriptView<'a> {
     pub fn actor_plane(&self, actor: ActorId) -> Option<&'a str> {
         self.game.plane_name(self.game.actor_plane(actor)?)
     }
+    /// Whether an actor knows the named plane. Unknown names are unknown.
+    pub fn knows_plane(&self, actor: ActorId, name: &str) -> bool {
+        self.game
+            .plane_by_name(name)
+            .is_some_and(|plane| self.game.knows_plane(actor, plane))
+    }
+    /// A skill check against `dc` for `actor`, with the same skill, edge and
+    /// bonus rules as environmental checks, drawn from the script's own stream.
+    /// It spends no next-check sources. `None` for actors without creature
+    /// statistics or an out-of-range difficulty.
+    pub fn check(
+        &self,
+        actor: ActorId,
+        skill: crate::attributes::Skill,
+        dc: i32,
+        rng: &mut u64,
+    ) -> Option<bool> {
+        let creature = self.game.creature(actor)?;
+        let captured =
+            crate::hazard_checks::capture_hazard_skill_check(&creature, actor, skill, dc, &[])
+                .ok()?;
+        Some(crate::abilities::resolve_escape_check(&captured.check, rng))
+    }
     /// Whether a plane name is one the game declares (or `"material"`).
     pub fn plane_known(&self, name: &str) -> bool {
         self.game.plane_by_name(name).is_some()

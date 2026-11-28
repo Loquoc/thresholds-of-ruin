@@ -431,6 +431,12 @@ pub enum ScriptEffect {
         plane: String,
         returns: crate::planes::ReturnPolicy,
         duration: Option<std::num::NonZeroU64>,
+        reveals: bool,
+    },
+    /// Teach an actor what a plane is.
+    RevealPlane {
+        actor: ActorId,
+        plane: String,
     },
     /// `terminal: false` records a victory and lets play continue.
     EndRun {
@@ -481,6 +487,7 @@ impl ScriptEffect {
             | Self::RemoveItem { .. }
             | Self::Teleport { .. }
             | Self::ShiftPlane { .. }
+            | Self::RevealPlane { .. }
             | Self::EndRun { .. }
             | Self::StopArena { .. } => true,
         }

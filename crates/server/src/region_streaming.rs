@@ -152,6 +152,35 @@ impl RegionCatalog {
                 .expect("indexed region")
                 .outgoing = outgoing;
         }
+        // A derived region has its source's shape and anchors, and links to
+        // the derived counterparts of its source's linked regions.
+        for decl in package.manifest.planes.values() {
+            let derived: BTreeMap<_, _> = decl
+                .derive
+                .iter()
+                .map(|d| (RegionId(d.from), RegionId(d.id)))
+                .collect();
+            for derive in &decl.derive {
+                let source = catalog
+                    .regions
+                    .get(&RegionId(derive.from))
+                    .cloned()
+                    .ok_or_else(|| invalid(format!("Unknown derive source {}", derive.from)))?;
+                let outgoing = source
+                    .outgoing
+                    .iter()
+                    .filter_map(|to| derived.get(to).copied())
+                    .collect();
+                let metadata = RegionMetadata { outgoing, ..source };
+                if catalog
+                    .regions
+                    .insert(RegionId(derive.id), metadata)
+                    .is_some()
+                {
+                    return Err(invalid("Duplicate derived region ID"));
+                }
+            }
+        }
         for (id, pair) in &package.manifest.stair_pairs {
             if id.is_empty()
                 || id.len() > 80

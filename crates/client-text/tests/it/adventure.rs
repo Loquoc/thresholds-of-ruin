@@ -2540,3 +2540,38 @@ fn play_test_report_preserves_body_and_uses_ordinary_actor_note() {
         Interpretation::Tool(_)
     ));
 }
+
+#[test]
+fn the_place_names_its_plane_and_what_is_glimpsed_of_another() {
+    use tor_protocol::{EchoActor, PlaneEcho, PlaneRef, PlaneView, Position};
+    let mut o = tor_client_common::test_support::observation();
+    let plane = |description: &str| PlaneRef {
+        key: description.into(),
+        description: description.into(),
+        known: true,
+    };
+    // On the material plane with nothing else seen, planes go unmentioned.
+    o.plane = Some(PlaneView {
+        plane: plane("the material world"),
+        echoes: Vec::new(),
+    });
+    assert!(tor_client_text::adventure::plane_lines(&o).is_empty());
+    o.plane = Some(PlaneView {
+        plane: plane("a grey, sourceless mist"),
+        echoes: vec![PlaneEcho {
+            plane: plane("the material world"),
+            cells: Vec::new(),
+            actors: vec![EchoActor {
+                position: Position { x: 2, y: 0, z: 0 },
+                name: "pilgrim".into(),
+            }],
+        }],
+    });
+    assert_eq!(
+        tor_client_text::adventure::plane_lines(&o),
+        [
+            "You are in a grey, sourceless mist.",
+            "Through it you glimpse the material world: a pilgrim to the east.",
+        ]
+    );
+}

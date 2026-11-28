@@ -389,6 +389,7 @@ fn narrowing_a_view_chooses_the_smaller_complete_encoded_update() {
         charts: o.charts.clone(),
         level_name: None,
         known_item_uses: o.known_item_uses.clone(),
+        plane: None,
         self_appearance: o.self_appearance.clone(),
         interactions: None,
         base_revision: base.revision,

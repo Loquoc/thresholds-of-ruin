@@ -949,6 +949,7 @@ pub(crate) fn observation_keyed(
     targets: &crate::wire_adapter::TargetScope,
 ) -> p::Observation {
     assert_eq!(keys.actor, view.actor.0, "cell keys belong to the observer");
+    let plane = view.plane.clone();
     let salt = keys.salt.clone();
     let salt = salt.as_str();
     let effect_anchors = effect_frame_anchors(&view, scene, keys);
@@ -1235,7 +1236,78 @@ pub(crate) fn observation_keyed(
                 asset: item.asset,
             })
             .collect(),
+        plane: plane.map(|plane| plane_view(plane, keys)),
     }
+}
+
+/// The observer's plane view in wire form. Plane keys are opaque per
+/// observer; echo cells carry their own cell keys, so memory of the other
+/// plane lines up when the observer later stands on it.
+fn plane_view(
+    plane: tor_simulation::planes::PlaneObservation,
+    keys: &mut CellKeys,
+) -> p::PlaneView {
+    let reference =
+        |plane: tor_world::PlaneId, known: bool, description: String, keys: &CellKeys| {
+            p::PlaneRef {
+                key: plane_key(keys.salt(), keys.actor(), plane),
+                description,
+                known,
+            }
+        };
+    p::PlaneView {
+        plane: reference(plane.plane, plane.known, plane.description, keys),
+        echoes: plane
+            .echoes
+            .into_iter()
+            .map(|(view, known, description)| p::PlaneEcho {
+                plane: reference(view.plane, known, description, keys),
+                cells: view
+                    .cells
+                    .iter()
+                    .map(|cell| p::EchoCell {
+                        key: keys.key(cell.location),
+                        position: p::Position {
+                            x: cell.offset.x,
+                            y: cell.offset.y,
+                            z: cell.offset.z,
+                        },
+                        wall: cell.wall,
+                        material: if cell.wall {
+                            cell.material.into()
+                        } else {
+                            String::new()
+                        },
+                    })
+                    .collect(),
+                actors: view
+                    .actors
+                    .into_iter()
+                    .map(|actor| p::EchoActor {
+                        position: p::Position {
+                            x: actor.offset.x,
+                            y: actor.offset.y,
+                            z: actor.offset.z,
+                        },
+                        name: actor.name,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+/// An opaque per-observer plane key, derived like cell keys but in its own
+/// domain, so it reveals no internal plane identity.
+pub fn plane_key(salt: &str, actor: u64, plane: tor_world::PlaneId) -> String {
+    use sha1::{Digest, Sha1};
+    let mut digest = Sha1::new();
+    digest.update(b"plane");
+    digest.update(salt.as_bytes());
+    digest.update(actor.to_le_bytes());
+    digest.update(plane.0.to_le_bytes());
+    digest.update(salt.as_bytes());
+    cell_key_hex(digest.finalize().into())
 }
 
 fn equipment_slot(slot: s::EquipmentSlotView) -> p::EquipmentSlot {

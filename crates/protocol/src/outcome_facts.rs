@@ -1453,6 +1453,7 @@ impl OutcomeFacts {
             inventory,
             visible_actors,
             ready,
+            plane,
         } = before;
         known_item_uses != &after.known_item_uses
             || charts != &after.charts
@@ -1471,6 +1472,7 @@ impl OutcomeFacts {
             || inventory != &after.inventory
             || visible_actors != &after.visible_actors
             || ready != &after.ready
+            || plane != &after.plane
     }
 }
 
@@ -1480,6 +1482,7 @@ mod tests {
 
     fn observation() -> Observation {
         Observation {
+            plane: None,
             charts: vec![],
             level_name: None,
             known_item_uses: Vec::new(),
