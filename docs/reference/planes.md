@@ -50,6 +50,7 @@ derive = [{ from = 1, id = 1001 }, { from = 3, id = 1003, volume = { min = [0, 0
 | `regions` | Authored regions on this plane. |
 | `overlaps` | Authored overlaps: a box `min`..`max` (inclusive) in region `from`, landing with `min` at `origin` in region `to`, rotated by `rotation`. |
 | `derive` | Regions built from an authored material region (below). |
+| `derive_families` | Procedural families whose every region is derived onto this plane (below). |
 
 Plane names are lowercase ASCII letters, digits, `_` and `-`, at most 64 bytes;
 `material` is reserved. A package declares at most 32 planes. Plane identities
@@ -68,6 +69,19 @@ it.
 A derived region's ID must not collide with an authored region or a procedural
 family's range, and a derived region cannot be derived from another. In this
 version the source must be an authored region.
+
+### Derived generated families
+
+`derive_families = ["dungeon"]` derives every region of a procedural family
+onto the plane. The family's [identity block](generation.md#identity-blocks)
+reserves one shadow span after its own regions for each plane that derives it,
+in plane-name order. The shadow of the family's `i`-th region is the `i`-th
+region of the span: an empty open room of the same size, on the plane, with the
+plane's gravity and light, overlapping its source over the whole room. The
+world stores each span as one overlap range, so an open family's unbounded
+address space needs no per-region overlap list. Joins that a generation group
+derives from its grid are not copied, so a family shadow is one room: an
+ethereal traveller there can shift back but not glide into the next room.
 
 ### Overlap groups
 
@@ -239,5 +253,7 @@ channel per observation.
   planes, the arrival and glimpse scripts run, and a glimpsed ghost becomes a
   target. Simulation tests cover cross-plane awareness rows, co-located
   contact, glimpse lifetime and saves, intangible strikes and magical items.
+- [`scenarios/tests/planes-generated`](../../scenarios/tests/planes-generated)
+  starts a run on the shadow of a generated room and returns home.
 - Clients: `crates/client-ascii/tests/it/planes.rs` and the text client's
   `adventure` tests cover the echo layer and plane sentences.

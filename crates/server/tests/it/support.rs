@@ -274,7 +274,6 @@ extra_connections = [0, 1]
 [procedural_worlds."caves.depths"]
 kind = "grid_chain"
 version = 1
-base_region = 1
 grid = [1, 1]
 size = [12, 10, 2]
 recipe = "caves.rooms"

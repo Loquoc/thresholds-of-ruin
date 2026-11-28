@@ -26,6 +26,55 @@ mod tests {
         }
     }
     #[test]
+    fn families_get_disjoint_blocks_in_name_order_above_authored_regions() {
+        let finite = |count| {
+            let mut f = family(Domain::Finite { count });
+            f.base_region = 0;
+            f
+        };
+        let mut families =
+            BTreeMap::from([("b".to_owned(), finite(2)), ("a".to_owned(), finite(3))]);
+        assign_family_blocks(&mut families, 10, &BTreeMap::new()).unwrap();
+        // Six slots per depth: "a" takes 3 depths, then "b" follows.
+        assert_eq!(families["a"].base_region, 10);
+        assert_eq!(families["a"].last_region(), Some(27));
+        assert_eq!(families["b"].base_region, 28);
+        // A recorded block is kept, and a new family is appended above it.
+        families.insert("aa".into(), finite(1));
+        assign_family_blocks(&mut families, 10, &BTreeMap::new()).unwrap();
+        assert_eq!(families["a"].base_region, 10);
+        assert_eq!(families["b"].base_region, 28);
+        assert_eq!(families["aa"].base_region, 40);
+        // A family derived onto a plane reserves a shadow span after its own.
+        let mut shadowed =
+            BTreeMap::from([("a".to_owned(), finite(3)), ("b".to_owned(), finite(2))]);
+        assign_family_blocks(&mut shadowed, 1, &BTreeMap::from([("a".to_owned(), 1)])).unwrap();
+        assert_eq!(shadowed["a"].base_region, 1);
+        assert_eq!(
+            shadowed["b"].base_region, 37,
+            "18 own regions and 18 shadows"
+        );
+    }
+    #[test]
+    fn authored_family_blocks_are_rejected() {
+        let authored = r#"
+kind = "grid_chain"
+version = 1
+base_region = 1
+domain = { kind = "finite", count = 2 }
+grid = [1, 1]
+size = [12, 10, 2]
+recipe = "rooms"
+"#;
+        assert!(toml::from_str::<WorldFamily>(authored).is_err());
+        let assigned: WorldFamily =
+            toml::from_str(&authored.replace("base_region = 1\n", "")).unwrap();
+        assert_eq!(
+            assigned.base_region, 0,
+            "unassigned until a package places it"
+        );
+    }
+    #[test]
     fn open_descriptor_is_compact_and_random_access_is_order_independent() {
         let f = family(Domain::Open {
             max_depth: 1_000_000,
@@ -142,6 +191,11 @@ mod tests {
 pub struct WorldFamily {
     pub kind: FamilyKind,
     pub version: u32,
+    /// The first region of the family's identity block. Assigned by the
+    /// engine, never authored: see [`assign_family_blocks`]. Package forms
+    /// omit it and reassign it deterministically; saves record the assigned
+    /// value in their own schema, so a save's table stays authoritative.
+    #[serde(skip)]
     pub base_region: u64,
     pub domain: Domain,
     pub grid: [u32; 2],
@@ -532,4 +586,50 @@ pub struct StairConnection {
     pub direction: tor_world::Direction,
     pub to: String,
     pub destination: u64,
+}
+
+/// Regions in a family's identity block: every address its domain allows.
+pub fn family_block_size(family: &WorldFamily) -> Option<u64> {
+    family
+        .slots()
+        .checked_mul(u64::from(family.address_depth_limit()))
+}
+
+/// Give every family without a block the next block above `first_free`, in
+/// family name order. A generator requests its block size; the engine places
+/// the blocks so they never overlap each other or lower identities. Families
+/// that already hold a block (from a save's recorded package) keep it, and new
+/// blocks start above every existing one, so assignment only ever appends.
+///
+/// # Errors
+///
+/// Fails if a block would not fit in the identity space.
+pub fn assign_family_blocks(
+    families: &mut std::collections::BTreeMap<String, WorldFamily>,
+    first_free: u64,
+    shadows: &std::collections::BTreeMap<String, u64>,
+) -> Result<(), Failure> {
+    // A family's block holds its own span, then one span per plane derived
+    // from it, in plane-name order.
+    let block = |id: &str, family: &WorldFamily| {
+        family_block_size(family)?.checked_mul(1 + shadows.get(id).copied().unwrap_or(0))
+    };
+    let mut next = families
+        .iter()
+        .filter(|(_, family)| family.base_region != 0)
+        .filter_map(|(id, family)| family.base_region.checked_add(block(id, family)?))
+        .fold(first_free.max(1), u64::max);
+    for (id, family) in families
+        .iter_mut()
+        .filter(|(_, family)| family.base_region == 0)
+    {
+        let size = block(id, family)
+            .filter(|size| *size > 0)
+            .ok_or_else(|| fail("Procedural family block size overflows"))?;
+        family.base_region = next;
+        next = next
+            .checked_add(size)
+            .ok_or_else(|| fail("Procedural family blocks exhaust the identity space"))?;
+    }
+    Ok(())
 }

@@ -5,7 +5,7 @@
   "ruleset_dependencies": {
     "interactions-v73": "88f4420962d955ad49de5812e186badf7c8e31c2d1f5e12a7feed32314698b62"
   },
-  "content_hash": "fe0e4cda1532b964a38756d7e5931e3b6627019c13b0d82c05dd5205879283d0",
+  "content_hash": "5a7600a6dd25721f519ed60f9f8133da899ceca349b7019a5a52461f0732a483",
   "files": {
     "catalog/actors.toml": "baa89e38c7874a2a8af8d99eaaac064a07cf41040feaf11c86c51f255dbc69d1",
     "catalog/bodies.toml": "c70ca7dc03c2cfea53b8f9f4f9430da104246c4745f0f5f002cd456806e5f005",
@@ -13,7 +13,7 @@
     "catalog/items.toml": "ec9d88d078ba15c36fae97a03932b856ebe2f3612e1b7a27ce0ba530130dd427",
     "index.json": "9bcdcd8e7340350480abf05c4edbe9b8a8ef04e77258d462167b598589354902",
     "rules.toml": "9055b04105bf1fbf249571ff3ef4dbf0eb455b981a67983796a9bcea1de51cac",
-    "scenario.toml": "a81e3def39352173ea98c73e61dbe3fc96764a4dfef990790615dea959db172f",
+    "scenario.toml": "7aaa9cd25dbef0054a02a4f4126ce55b8b5aeec68fa53ca4274fd358f415fb2c",
     "scripts/outcome.luau": "5225e0891b07a3f30f6c5b7c043de901a73e37d62a2a87c7c173ef3b71f2b664"
   },
   "regions": 0,

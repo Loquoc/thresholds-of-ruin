@@ -1392,20 +1392,19 @@ impl Game {
     /// The same place on several planes shares one residency: an overlap
     /// group is active if any member is, and loaded if any member is.
     fn overlap_closure(&self, t: &mut RegionTransition) {
-        if self.world.overlaps().is_empty() {
+        if !self.world.has_overlaps() {
             return;
         }
         let mut added = 0;
-        for group in tor_world::overlap_groups(self.world.overlaps()) {
-            if group.iter().any(|region| t.active.contains(region)) {
-                for region in &group {
-                    added += usize::from(t.active.insert(*region));
-                }
+        for region in t.active.clone() {
+            for member in self.world.overlap_group(region) {
+                added += usize::from(t.active.insert(member));
+                t.loaded.insert(member);
             }
-            if group.iter().any(|region| t.loaded.contains(region)) {
-                for region in &group {
-                    added += usize::from(t.loaded.insert(*region));
-                }
+        }
+        for region in t.loaded.clone() {
+            for member in self.world.overlap_group(region) {
+                added += usize::from(t.loaded.insert(member));
             }
         }
         crate::diagnostics::plane_coactivated(added);

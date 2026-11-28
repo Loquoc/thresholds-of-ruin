@@ -85,7 +85,6 @@ dungeon = "Dungeon Level {depth}"
 gravity = [0, 0, -1]
 kind = "grid_chain"
 version = 1
-base_region = 1
 grid = [3, 3]
 size = [26, 7, 2]
 recipe = "exploration"

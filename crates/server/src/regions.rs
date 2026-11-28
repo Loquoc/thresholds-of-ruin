@@ -225,6 +225,8 @@ pub(crate) struct Regions {
     /// Regions that are the same place on several planes, which are active
     /// and loaded together.
     overlap_groups: Arc<Vec<BTreeSet<RegionId>>>,
+    /// Region runs that are the same place, for generated families.
+    overlap_ranges: Arc<Vec<tor_world::OverlapRange>>,
     streaming: Streaming,
     resident: BTreeMap<RecordId, Shared<RegionRecord>>,
     /// Records known to be on disk; only these may leave memory.
@@ -309,6 +311,7 @@ impl Regions {
         Ok(Self {
             catalog: RegionCatalog::from_package_seed(&package, seed)?,
             overlap_groups: Arc::new(tor_world::overlap_groups(&package.package_overlaps(seed)?)),
+            overlap_ranges: Arc::new(package.package_overlap_ranges()?),
             index: package.index(seed)?,
             package,
             seed,
@@ -514,6 +517,17 @@ impl Regions {
             if group.iter().any(|region| t.loaded.contains(region)) {
                 t.loaded.extend(group.iter().copied());
             }
+        }
+        for range in self.overlap_ranges.iter() {
+            let partner = |region: &RegionId| {
+                range
+                    .partner_of_source(*region)
+                    .or_else(|| range.partner_of_derived(*region))
+            };
+            let active: Vec<_> = t.active.iter().filter_map(partner).collect();
+            let loaded: Vec<_> = t.loaded.iter().filter_map(partner).collect();
+            t.active.extend(active.iter().copied());
+            t.loaded.extend(active.into_iter().chain(loaded));
         }
         t
     }

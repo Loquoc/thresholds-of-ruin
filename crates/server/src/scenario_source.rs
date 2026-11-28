@@ -809,7 +809,6 @@ extra_connections = [0, 1]
 [procedural_worlds."demo.caves"]
 kind = "grid_chain"
 version = 1
-base_region = 100
 size = [12, 10, 2]
 grid = [1, 1]
 recipe = "demo.rooms"
@@ -854,7 +853,6 @@ lower = "100/up"
 [procedural_worlds."demo.caves"]
 kind = "grid_chain"
 version = 1
-base_region = 100
 size = [12, 10, 2]
 grid = [1, 1]
 recipe = "demo.missing"

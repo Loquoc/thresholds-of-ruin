@@ -1989,7 +1989,7 @@ impl Package {
     }
 
     fn assemble(
-        manifest: Manifest,
+        mut manifest: Manifest,
         manifest_text: &str,
         rules_source: &str,
         scripts: BTreeMap<String, String>,
@@ -1997,6 +1997,26 @@ impl Package {
         sources: RegionSources,
         directory: Option<&Path>,
     ) -> Result<Self, Failure> {
+        // Generator blocks start above every authored and plane region.
+        let highest = index
+            .regions
+            .iter()
+            .map(|region| region.id)
+            .chain(manifest.planes.values().flat_map(|plane| {
+                plane
+                    .regions
+                    .iter()
+                    .copied()
+                    .chain(plane.derive.iter().map(|derive| derive.id))
+            }))
+            .max()
+            .unwrap_or(0);
+        let shadows = planes::family_shadow_counts(&manifest.planes);
+        crate::procedural_world::assign_family_blocks(
+            &mut manifest.procedural_worlds,
+            highest.saturating_add(1),
+            &shadows,
+        )?;
         require(
             valid_rules_path(&manifest.ruleset),
             "Ruleset must name a relative TOML file",

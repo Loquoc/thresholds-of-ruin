@@ -76,6 +76,10 @@ pub struct PlaneDecl {
     pub overlaps: Vec<OverlapDecl>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub derive: Vec<DeriveDecl>,
+    /// Procedural families whose every region is derived onto this plane. A
+    /// family's block reserves one shadow span per deriving plane.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub derive_families: Vec<String>,
 }
 
 /// A one-way perception channel. `perception = "mirror"` is the only mode: an
@@ -322,6 +326,12 @@ impl Package {
                     context("movement check dc is out of range"),
                 )?;
             }
+            for family in &decl.derive_families {
+                require(
+                    self.manifest.procedural_worlds.contains_key(family),
+                    context(&format!("unknown procedural family {family}")),
+                )?;
+            }
             for species in &decl.cross_plane_reach {
                 require(
                     tor_simulation::content_ids::SpeciesId::new(species).is_ok(),
@@ -479,6 +489,10 @@ impl Package {
             game.add_overlap(overlap)
                 .map_err(|error| fail(format!("Overlap: {error:?}")))?;
         }
+        for range in self.package_overlap_ranges()? {
+            game.add_overlap_range(range)
+                .map_err(|error| fail(format!("Overlap range: {error:?}")))?;
+        }
         Ok(())
     }
 
@@ -488,10 +502,103 @@ impl Package {
         seed: u64,
         region: u64,
     ) -> Option<Result<Arc<RegionDef>, Failure>> {
+        if let Some((plane, source)) = self.family_shadow(region) {
+            let derive = DeriveDecl {
+                from: source,
+                id: region,
+                volume: None,
+            };
+            return Some((|| {
+                let source = self.structural_definition(seed, source)?;
+                Ok(Arc::new(self.derived_definition(&source, plane, &derive)?))
+            })());
+        }
         let (plane, derive) = self.derived_region(region)?;
         Some((|| {
             let source = self.structural_definition(seed, derive.from)?;
             Ok(Arc::new(self.derived_definition(&source, plane, derive)?))
         })())
+    }
+}
+
+/// One procedural family derived onto one plane.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FamilyShadow<'a> {
+    pub plane: &'a str,
+    pub family: &'a str,
+    pub base: u64,
+    pub span: u64,
+    /// The shadow span's first region.
+    pub first: u64,
+    pub max: Position,
+}
+
+/// How many planes derive each family.
+pub(crate) fn family_shadow_counts(planes: &BTreeMap<String, PlaneDecl>) -> BTreeMap<String, u64> {
+    let mut counts = BTreeMap::new();
+    for decl in planes.values() {
+        for family in &decl.derive_families {
+            *counts.entry(family.clone()).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
+impl Package {
+    /// Every family derived onto a plane, with its shadow span.
+    pub(crate) fn family_shadows(&self) -> Vec<FamilyShadow<'_>> {
+        let mut shadows = Vec::new();
+        let mut index: BTreeMap<&str, u64> = BTreeMap::new();
+        for (plane, decl) in &self.manifest.planes {
+            for family_id in &decl.derive_families {
+                let Some(family) = self.manifest.procedural_worlds.get(family_id) else {
+                    continue;
+                };
+                let Some(span) = crate::procedural_world::family_block_size(family) else {
+                    continue;
+                };
+                let k = index.entry(family_id.as_str()).or_insert(0);
+                *k += 1;
+                let Some(first) = span
+                    .checked_mul(*k)
+                    .and_then(|offset| family.base_region.checked_add(offset))
+                else {
+                    continue;
+                };
+                shadows.push(FamilyShadow {
+                    plane,
+                    family: family_id,
+                    base: family.base_region,
+                    span,
+                    first,
+                    max: position([family.size[0] - 1, family.size[1] - 1, family.size[2] - 1]),
+                });
+            }
+        }
+        shadows
+    }
+
+    /// The plane and material source of a family shadow region.
+    pub(crate) fn family_shadow(&self, region: u64) -> Option<(&str, u64)> {
+        self.family_shadows().into_iter().find_map(|shadow| {
+            let offset = region.checked_sub(shadow.first)?;
+            (offset < shadow.span).then(|| (shadow.plane, shadow.base + offset))
+        })
+    }
+
+    /// Overlap ranges for every family derived onto a plane.
+    pub(crate) fn package_overlap_ranges(&self) -> Result<Vec<tor_world::OverlapRange>, Failure> {
+        let ids = self.plane_ids();
+        Ok(self
+            .family_shadows()
+            .into_iter()
+            .map(|shadow| tor_world::OverlapRange {
+                from: RegionId(shadow.base),
+                to: RegionId(shadow.first),
+                count: shadow.span,
+                max: shadow.max,
+                plane: ids[shadow.plane],
+            })
+            .collect())
     }
 }

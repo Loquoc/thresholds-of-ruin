@@ -190,7 +190,7 @@ mod shared;
 pub use shared::{Shared, SharedIdentity};
 
 mod rotation;
-pub use planes::{overlap_groups, Overlap, PlaneId, MAX_OVERLAP_SCALE};
+pub use planes::{overlap_groups, Overlap, OverlapRange, PlaneId, MAX_OVERLAP_SCALE};
 pub use rotation::{compose_rotation, inverse_rotation, rotate_vector};
 
 mod reach;

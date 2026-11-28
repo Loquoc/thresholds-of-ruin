@@ -275,6 +275,16 @@ impl Game {
     }
 
     /// Declare an overlap between two regions on different planes.
+    /// Declare a run of region pairs that are the same place.
+    pub fn add_overlap_range(&mut self, range: tor_world::OverlapRange) -> Result<(), GameError> {
+        if self.plane_spec(range.plane).is_none() {
+            return Err(GameError::InvalidLocation);
+        }
+        self.world
+            .add_overlap_range(range)
+            .map_err(|_| GameError::InvalidLocation)
+    }
+
     pub fn add_overlap(&mut self, overlap: tor_world::Overlap) -> Result<(), GameError> {
         self.world
             .add_overlap(overlap)

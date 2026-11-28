@@ -30,6 +30,9 @@ pub struct RegionCatalog {
     family_themes: BTreeMap<String, BTreeSet<String>>,
     seed: u64,
     links: BTreeMap<RegionId, BTreeSet<RegionId>>,
+    /// Family shadow spans on derived planes: first region, span and the
+    /// family's own first region.
+    family_shadows: Vec<(u64, u64, u64)>,
 }
 
 /// Sorted, deterministic transition candidates with explicit query work counts.
@@ -140,6 +143,11 @@ impl RegionCatalog {
             family_themes,
             seed,
             links: BTreeMap::new(),
+            family_shadows: package
+                .family_shadows()
+                .iter()
+                .map(|shadow| (shadow.first, shadow.span, shadow.base))
+                .collect(),
         };
         for region in &package.index.regions {
             let mut outgoing = BTreeSet::new();
@@ -230,6 +238,16 @@ impl RegionCatalog {
                 return Some(Cow::Owned(metadata));
             }
             return Some(Cow::Borrowed(metadata));
+        }
+        if let Some(source) = self.family_shadows.iter().find_map(|(first, span, base)| {
+            let offset = id.0.checked_sub(*first)?;
+            (offset < *span).then(|| base + offset)
+        }) {
+            // A family shadow has its source's shape and anchors, and no links
+            // of its own: joins inside a generated group are not copied.
+            let mut metadata = self.region(RegionId(source))?.into_owned();
+            metadata.outgoing = BTreeSet::new();
+            return Some(Cow::Owned(metadata));
         }
         let (identity, family) = self.family_catalog().find(id.0)?;
         let def = family.describe(identity, self.seed, id.0).ok()??;
@@ -404,6 +422,7 @@ mod budget_tests {
             family_themes: BTreeMap::new(),
             seed: 0,
             links: BTreeMap::new(),
+            family_shadows: Vec::new(),
         }
     }
     #[test]

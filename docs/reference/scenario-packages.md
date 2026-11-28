@@ -235,7 +235,6 @@ extra_connections = [0, 1]
 [procedural_worlds."caves.depths"]
 kind = "grid_chain"
 version = 1
-base_region = 100
 grid = [1, 1]
 size = [12, 10, 2]
 recipe = "caves.rooms"
@@ -243,12 +242,13 @@ domain = { kind = "seeded_finite", min = 2, max = 6 }
 
 [stair_pairs."caves.entry"]
 upper = "1/descent"
-lower = "100/up"
+lower = "caves.depths/1/up"
 ```
 
 This declares two to six seed-selected floors without region stub files. The
-reserved generated identity range must not overlap authored regions or another
-family. The ordinary typed stair pair joins the authored anchor to a named
+engine assigns the family's identity block (see
+[generation](generation.md#identity-blocks)); authored references to generated
+regions use logical addresses such as `caves.depths/1/up`, never numbers. The ordinary typed stair pair joins the authored anchor to a named
 generated port; coordinates are selected when its generation unit materializes.
 The finite domain is a world-generation choice, not an implicit objective.
 Run `check` for the complete package before publishing its validation output.

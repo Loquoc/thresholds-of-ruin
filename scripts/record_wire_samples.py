@@ -323,6 +323,7 @@ CLIENT = [
                 {"type": "drop", "item": "i_" + "04" * 32, "quantity": None},
                 {"type": "escape", "hold": "h_" + "09" * 32},
                 {"type": "wait"},
+                {"type": "return_plane"},
             ]),
             {"type": "annotate", "anchor": {"type": "state", "snapshot": "sample-issued-snapshot"}, "text": "A note",
              "source": "user", "audience": "private", "category": "note"},

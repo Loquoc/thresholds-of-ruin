@@ -140,6 +140,50 @@ impl Overlap {
     }
 }
 
+/// A run of region pairs that are the same place, for generated families:
+/// region `from + i` (material) and region `to + i` (on `plane`), for every
+/// `i < count`, over the whole box `0..=max` with the identity transform. A
+/// run describes any number of pairs without listing them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverlapRange {
+    pub from: RegionId,
+    pub to: RegionId,
+    pub count: u64,
+    pub max: Position,
+    pub plane: PlaneId,
+}
+
+impl OverlapRange {
+    fn offset_in(start: RegionId, count: u64, region: RegionId) -> Option<u64> {
+        let offset = region.0.checked_sub(start.0)?;
+        (offset < count).then_some(offset)
+    }
+    /// The derived partner of a material region in the run.
+    pub fn partner_of_source(&self, region: RegionId) -> Option<RegionId> {
+        Self::offset_in(self.from, self.count, region).map(|i| RegionId(self.to.0 + i))
+    }
+    /// The material partner of a derived region in the run.
+    pub fn partner_of_derived(&self, region: RegionId) -> Option<RegionId> {
+        Self::offset_in(self.to, self.count, region).map(|i| RegionId(self.from.0 + i))
+    }
+    fn valid(&self) -> bool {
+        self.count > 0
+            && self.plane != PlaneId::MATERIAL
+            && self.from.0.checked_add(self.count).is_some()
+            && self.to.0.checked_add(self.count).is_some()
+            && self.max.x >= 0
+            && self.max.y >= 0
+            && self.max.z >= 0
+    }
+    fn runs(&self) -> [(u64, u64); 2] {
+        [
+            (self.from.0, self.from.0 + self.count),
+            (self.to.0, self.to.0 + self.count),
+        ]
+    }
+}
+
 /// Plane membership and overlaps, stored on [`World`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -148,15 +192,23 @@ pub(crate) struct PlaneTopology {
     pub(crate) planes: BTreeMap<RegionId, PlaneId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) overlaps: Vec<Overlap>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) ranges: Vec<OverlapRange>,
 }
 
 impl PlaneTopology {
     pub(crate) fn is_empty(&self) -> bool {
-        self.planes.is_empty() && self.overlaps.is_empty()
+        self.planes.is_empty() && self.overlaps.is_empty() && self.ranges.is_empty()
     }
 
     fn plane_of(&self, region: RegionId) -> PlaneId {
-        self.planes.get(&region).copied().unwrap_or_default()
+        if let Some(plane) = self.planes.get(&region) {
+            return *plane;
+        }
+        self.ranges
+            .iter()
+            .find(|range| range.partner_of_derived(region).is_some())
+            .map_or(PlaneId::MATERIAL, |range| range.plane)
     }
 
     /// Each side of an overlap: the region, its box there, and the plane the
@@ -194,9 +246,24 @@ impl PlaneTopology {
                 sides.push(side);
             }
         }
-        self.planes
-            .values()
-            .all(|plane| *plane != PlaneId::MATERIAL)
+        // Runs never share regions with each other or with listed planes or
+        // overlaps, so each region keeps one plane and one counterpart rule.
+        let runs: Vec<(u64, u64)> = self.ranges.iter().flat_map(OverlapRange::runs).collect();
+        let in_runs = |region: RegionId| runs.iter().any(|(a, b)| (*a..*b).contains(&region.0));
+        self.ranges.iter().all(OverlapRange::valid)
+            && runs
+                .iter()
+                .enumerate()
+                .all(|(i, (a, b))| runs.iter().skip(i + 1).all(|(c, d)| b <= c || d <= a))
+            && !self.planes.keys().copied().any(in_runs)
+            && !self
+                .overlaps
+                .iter()
+                .any(|overlap| in_runs(overlap.from) || in_runs(overlap.to))
+            && self
+                .planes
+                .values()
+                .all(|plane| *plane != PlaneId::MATERIAL)
     }
 }
 
@@ -254,6 +321,27 @@ impl World {
         Ok(())
     }
 
+    /// Declare a run of region pairs that are the same place.
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::InvalidEndpoint`] for an empty, overflowing or
+    /// material-plane run, or one sharing regions with other planes.
+    pub fn add_overlap_range(&mut self, range: OverlapRange) -> Result<(), WorldError> {
+        let mut next = (*self.planes).clone();
+        next.ranges.push(range);
+        if !next.valid() {
+            return Err(WorldError::InvalidEndpoint);
+        }
+        *self.planes = next;
+        Ok(())
+    }
+
+    /// Every declared overlap range.
+    pub fn overlap_ranges(&self) -> &[OverlapRange] {
+        &self.planes.ranges
+    }
+
     /// Every declared overlap, in declaration order.
     pub fn overlaps(&self) -> &[Overlap] {
         &self.planes.overlaps
@@ -265,6 +353,22 @@ impl World {
     pub fn counterpart(&self, at: Location, plane: PlaneId) -> Option<(Location, u8)> {
         if self.plane_of(at.region) == plane {
             return None;
+        }
+        let inside = |max: Position| {
+            (0..=max.x).contains(&at.position.x)
+                && (0..=max.y).contains(&at.position.y)
+                && (0..=max.z).contains(&at.position.z)
+        };
+        for range in &self.planes.ranges {
+            if let Some(to) = range.partner_of_source(at.region) {
+                if range.plane == plane && inside(range.max) {
+                    return Some((Location { region: to, ..at }, 0));
+                }
+            } else if let Some(from) = range.partner_of_derived(at.region) {
+                if plane == PlaneId::MATERIAL && inside(range.max) {
+                    return Some((Location { region: from, ..at }, 0));
+                }
+            }
         }
         self.planes.overlaps.iter().find_map(|overlap| {
             if overlap.from == at.region && self.plane_of(overlap.to) == plane {
@@ -305,16 +409,32 @@ impl World {
                     None
                 }
             })
+            .chain(self.planes.ranges.iter().filter_map(|range| {
+                range
+                    .partner_of_source(region)
+                    .or_else(|| range.partner_of_derived(region))
+            }))
             .collect()
     }
 
     /// The overlap group of `region`: every region connected to it through
-    /// overlaps, including itself, in region order.
+    /// overlaps and overlap ranges, including itself, in region order.
     pub fn overlap_group(&self, region: RegionId) -> BTreeSet<RegionId> {
-        overlap_groups(&self.planes.overlaps)
-            .into_iter()
-            .find(|group| group.contains(&region))
-            .unwrap_or_else(|| BTreeSet::from([region]))
+        let mut group = BTreeSet::from([region]);
+        let mut queue = vec![region];
+        while let Some(next) = queue.pop() {
+            for partner in self.overlap_partners(next) {
+                if group.insert(partner) {
+                    queue.push(partner);
+                }
+            }
+        }
+        group
+    }
+
+    /// Whether any overlap or overlap range is declared.
+    pub fn has_overlaps(&self) -> bool {
+        !self.planes.overlaps.is_empty() || !self.planes.ranges.is_empty()
     }
 }
 
@@ -472,6 +592,53 @@ mod tests {
             Err(WorldError::InvalidEndpoint)
         );
         assert_eq!(world.plane_of(RegionId(1)), PlaneId::MATERIAL);
+    }
+
+    #[test]
+    fn overlap_ranges_pair_whole_runs_of_regions() {
+        let mut world = World::new(vec![], vec![]).unwrap();
+        let run = OverlapRange {
+            from: RegionId(1),
+            to: RegionId(101),
+            count: 50,
+            max: at(9, 9, 1),
+            plane: PlaneId(1),
+        };
+        world.add_overlap_range(run).unwrap();
+        assert_eq!(world.plane_of(RegionId(120)), PlaneId(1));
+        assert_eq!(world.plane_of(RegionId(20)), PlaneId::MATERIAL);
+        assert_eq!(world.plane_of(RegionId(151)), PlaneId::MATERIAL);
+        let cell = Location {
+            region: RegionId(20),
+            position: at(3, 4, 1),
+        };
+        let (shadow, rotation) = world.counterpart(cell, PlaneId(1)).unwrap();
+        assert_eq!(
+            (shadow.region, shadow.position, rotation),
+            (RegionId(120), at(3, 4, 1), 0)
+        );
+        assert_eq!(
+            world.counterpart(shadow, PlaneId::MATERIAL),
+            Some((cell, 0))
+        );
+        // Outside the box there is no counterpart.
+        let outside = Location {
+            region: RegionId(20),
+            position: at(10, 4, 1),
+        };
+        assert_eq!(world.counterpart(outside, PlaneId(1)), None);
+        assert_eq!(
+            world.overlap_group(RegionId(20)),
+            BTreeSet::from([RegionId(20), RegionId(120)])
+        );
+        // Runs may not share regions.
+        let mut clash = run;
+        clash.to = RegionId(140);
+        assert_eq!(
+            world.add_overlap_range(clash),
+            Err(WorldError::InvalidEndpoint)
+        );
+        assert_eq!(world.overlap_ranges().len(), 1);
     }
 
     #[test]

@@ -18,7 +18,7 @@ own implemented behavior. Preserve useful rationale and label future work explic
 | [Progression design](progression-design.md) | Accepted rationale and extended proposed catalog; not every proposed node is implemented |
 | [Progression sequence](progression.md) | Historical phases and retained acceptance, not a command to restart completed foundations |
 | [Scripting](scripting.md) | Accepted Luau runtime; original rationale and open questions beyond the first milestone |
-| [Planes](planes.md) | Proposed coexisting planes, overlaps and generator identity blocks; not yet authorized |
+| [Planes](planes.md) | Implemented coexisting planes, overlaps and generator identity blocks; the planes reference owns behavior |
 | [Presentation](presentation.md) | Implemented vocabulary foundations plus future authoring/traits/player choices |
 | [Appearance composition](appearance-composition-contract.md) | First slice versus proposed general disclosure/composition contract |
 | [3D art continuation](3d-art-continuation.md) | Implemented art foundations, visual-review limits and unfinished model work |

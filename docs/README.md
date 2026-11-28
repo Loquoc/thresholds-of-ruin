@@ -95,7 +95,7 @@ historical acceptance sequences are distinct from future proposals.
 - [Consumables and devices design record](plans/rogue-missing-consumables.md):
   implemented-owner map, retained rationale and remaining boundaries
 - [Script extension design](plans/scripting.md): accepted Luau runtime and open questions
-- [Coexisting planes](plans/planes.md): proposed planes, overlaps and generator identity blocks
+- [Coexisting planes](plans/planes.md): implemented planes, overlaps and generator identity blocks
 - [Progression and creature construction design](plans/progression-design.md):
   edge-first talents, regeneration and constructed Rogue monsters, with its
   [implementation plan](plans/progression.md)

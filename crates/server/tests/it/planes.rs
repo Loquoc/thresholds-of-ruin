@@ -297,3 +297,29 @@ fn chapel_ghosts_strike_across_the_planes_and_glimpses_allow_a_strike_back() {
     // Replay reproduces the haunting exactly.
     Engine::open(&path, support::load("haunted-chapel", 7)).unwrap();
 }
+
+#[test]
+fn generated_family_regions_have_shadows_in_the_family_block() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("generated.json");
+    let mut engine = Engine::open(&path, support::load("planes-generated", 7)).unwrap();
+    // No authored regions: the family's block starts at 1. One slot per depth
+    // over two depths is regions 1-2; the Ethereal shadow span is 3-4.
+    let shadow = region(&engine).unwrap();
+    assert!(
+        (3..=4).contains(&shadow),
+        "the run started on the plane: {shadow}"
+    );
+    let view = engine.observation(CHARACTER).unwrap().plane.unwrap();
+    assert!(!view.echoes.is_empty() && !view.echoes[0].cells.is_empty());
+    play(&mut engine, Action::ReturnPlane).unwrap();
+    assert_eq!(
+        region(&engine),
+        Some(shadow - 2),
+        "home to the generated room"
+    );
+    engine.flush().unwrap();
+    drop(engine);
+    let reopened = Engine::open(&path, support::load("planes-generated", 7)).unwrap();
+    assert_eq!(region(&reopened), Some(shadow - 2));
+}
