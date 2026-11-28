@@ -58,6 +58,15 @@ impl<'a> ScriptView<'a> {
     pub fn goal(&self, actor: ActorId) -> Option<&'a super::Goal> {
         self.state.goal(actor)
     }
+    /// The name of the plane an actor is on; the material plane is
+    /// `"material"`.
+    pub fn actor_plane(&self, actor: ActorId) -> Option<&'a str> {
+        self.game.plane_name(self.game.actor_plane(actor)?)
+    }
+    /// Whether a plane name is one the game declares (or `"material"`).
+    pub fn plane_known(&self, name: &str) -> bool {
+        self.game.plane_by_name(name).is_some()
+    }
     pub fn actor_location(&self, actor: ActorId) -> Option<Location> {
         self.game.actors.get(&actor).map(|actor| actor.location)
     }

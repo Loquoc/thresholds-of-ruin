@@ -1130,6 +1130,7 @@ fn action_with_name(event: &Event, name: Option<&OutcomeName>) -> String {
             named().unwrap_or_else(|| "door".into())
         ),
         Event::Waited => "Time passes.".into(),
+        Event::PlaneReturned => "You return to your own plane.".into(),
         Event::PreparationPaused => "Your preparation is paused until you act again.".into(),
         Event::AbilityStarted { ability, .. } => {
             format!("You prepare to use {}.", label(&ability.name, "ability"))
@@ -1208,6 +1209,7 @@ fn action_legacy(event: &Event, view: &Observation) -> String {
             format!("You {} the {name}.", if *open { "open" } else { "close" })
         }
         Event::Waited => "Time passes.".into(),
+        Event::PlaneReturned => "You return to your own plane.".into(),
         Event::PreparationPaused => "Your preparation is paused until you act again.".into(),
         Event::AbilityStarted { ability, .. } => {
             format!("You prepare to use {}.", label(&ability.name, "ability"))

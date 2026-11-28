@@ -326,6 +326,48 @@ impl Game {
         }
     }
 
+    pub(crate) fn note_plane_shifted(
+        &mut self,
+        actor: ActorId,
+        from: Location,
+        to: Location,
+        from_plane: tor_world::PlaneId,
+        to_plane: tor_world::PlaneId,
+    ) {
+        self.note_hook(
+            HookKind::PlaneShifted,
+            Some(actor),
+            |_| Some(FactKeys::at(to)),
+            |game, _| {
+                Some(FactSubject::PlaneShifted {
+                    from,
+                    to,
+                    from_plane: game.plane_name(from_plane)?.to_owned(),
+                    to_plane: game.plane_name(to_plane)?.to_owned(),
+                })
+            },
+        );
+    }
+
+    pub(crate) fn note_plane_shift_blocked(
+        &mut self,
+        actor: ActorId,
+        at: Location,
+        plane: tor_world::PlaneId,
+    ) {
+        self.note_hook(
+            HookKind::PlaneShiftBlocked,
+            Some(actor),
+            |_| Some(FactKeys::at(at)),
+            |game, _| {
+                Some(FactSubject::PlaneShiftBlocked {
+                    at,
+                    plane: game.plane_name(plane)?.to_owned(),
+                })
+            },
+        );
+    }
+
     pub(crate) fn note_moved(&mut self, actor: ActorId, from: Location, to: Location) {
         self.note_hook(
             HookKind::Moved,
@@ -724,6 +766,24 @@ impl Game {
                 if first {
                     self.note_first_visit(actor, to.region);
                 }
+            }
+            ScriptEffect::ShiftPlane {
+                actor,
+                plane,
+                returns,
+                duration,
+            } => {
+                if !self.actors.contains_key(actor) {
+                    return Err("unknown actor");
+                }
+                let plane = self.plane_by_name(plane).ok_or("unknown plane")?;
+                let request = crate::planes::ShiftRequest {
+                    plane,
+                    returns: *returns,
+                    duration: *duration,
+                };
+                self.shift_actor(*actor, request)
+                    .map_err(|_| "plane shift unavailable")?;
             }
             ScriptEffect::EndRun {
                 end,

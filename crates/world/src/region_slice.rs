@@ -493,6 +493,8 @@ impl World {
             chambers,
             place_hints,
             absent,
+            // Structural, like named anchors: overlaps outlive residency.
+            planes: _,
             sight,
         } = self;
         let links = take_region(passages, id);

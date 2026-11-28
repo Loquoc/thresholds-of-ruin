@@ -158,6 +158,7 @@ pub(crate) enum Action {
         quantity: Option<u64>,
     },
     Wait,
+    ReturnPlane,
 }
 
 fn required_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
@@ -470,6 +471,7 @@ impl From<&crate::actions::Action> for Action {
             },
             Backend::Eat { item } => Self::Eat { item: *item },
             Backend::Wait => Self::Wait,
+            Backend::ReturnPlane => Self::ReturnPlane,
         }
     }
 }
@@ -526,6 +528,7 @@ impl From<Action> for crate::actions::Action {
             Action::Identify { choice, item } => Self::Identify { choice, item },
             Action::Eat { item } => Self::Eat { item },
             Action::Wait => Self::Wait,
+            Action::ReturnPlane => Self::ReturnPlane,
         }
     }
 }

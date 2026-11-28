@@ -956,7 +956,7 @@ impl Game {
                         IntentionWork::Action(
                             Action::Take { item, quantity } | Action::Drop { item, quantity },
                         ) => item.0 != 0 && quantity.is_none_or(|quantity| quantity != 0),
-                        IntentionWork::Action(Action::Move(_) | Action::Wait) => true,
+                        IntentionWork::Action(Action::Move(_) | Action::Wait | Action::ReturnPlane) => true,
                         IntentionWork::AiDecision => entry.origin == IntentionOrigin::Autonomous,
                         IntentionWork::ResumePreparation { work } => {
                             work.structural_valid(*actor)

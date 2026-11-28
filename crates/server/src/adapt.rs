@@ -333,6 +333,7 @@ pub fn action(action: &a::Action) -> s::Action {
             item: item.map(s::ItemId),
         },
         a::Action::Wait => s::Action::Wait,
+        a::Action::ReturnPlane => s::Action::ReturnPlane,
     }
 }
 
@@ -399,7 +400,8 @@ pub fn work(action: &a::Action) -> Option<s::Work> {
         | a::Action::Take { .. }
         | a::Action::TouchApparentObject { .. }
         | a::Action::Drop { .. }
-        | a::Action::Wait => return None,
+        | a::Action::Wait
+        | a::Action::ReturnPlane => return None,
     })
 }
 
@@ -567,6 +569,7 @@ pub fn recorded_action(action: s::Action) -> Option<a::Action> {
             item: item.map(|item| item.0),
         },
         s::Action::Wait => a::Action::Wait,
+        s::Action::ReturnPlane => a::Action::ReturnPlane,
     })
 }
 
@@ -591,6 +594,7 @@ pub(crate) fn message_segments(
 pub fn event(kind: s::OutcomeKind) -> crate::journal::Event {
     match kind {
         s::OutcomeKind::TrapExamined { trap } => crate::journal::Event::TrapExamined { trap },
+        s::OutcomeKind::PlaneReturned { .. } => crate::journal::Event::PlaneReturned,
         s::OutcomeKind::IdentificationResolved { choice, item } => {
             crate::journal::Event::IdentificationResolved {
                 choice,

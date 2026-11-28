@@ -609,7 +609,7 @@ impl Game {
                 return GameError::StairsWhileLevitating;
             }
         } else if self.body_has_field(actor.location, actor.orientation, &actor.body)
-            && !actor.locomotion().hovers()
+            && !self.movement_locomotion(id).hovers()
             && !self.supported(id)
         {
             return GameError::StepNeedsSupport;
@@ -731,7 +731,7 @@ impl Game {
         direction: Direction,
     ) -> Option<((Location, u8), Vec<ActorId>)> {
         let actor = self.actors.get(&id)?;
-        let locomotion = actor.locomotion();
+        let locomotion = self.movement_locomotion(id);
         let local = direction.rotated(actor.orientation);
         if locomotion.stationary
             || self.world.is_stair(actor.location, local)
@@ -780,7 +780,7 @@ impl Game {
         allow_stairs: bool,
     ) -> Option<(Location, u8)> {
         let a = &self.actors[&id];
-        let locomotion = a.locomotion();
+        let locomotion = self.movement_locomotion(id);
         if locomotion.stationary {
             return None;
         }

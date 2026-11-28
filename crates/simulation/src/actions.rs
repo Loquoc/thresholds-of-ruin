@@ -332,6 +332,7 @@ impl Game {
         let id = prepared.actor;
         candidate.begin_action_boundary(id)?;
         candidate.redirect_confused_movement(&mut prepared);
+        candidate.check_plane_glide(&mut prepared)?;
         candidate.select_stair_landing(&mut prepared);
         candidate.on_action_committed()?;
         if let Some(binding) = &prepared.human_operands {
@@ -368,6 +369,35 @@ impl Game {
             prepared.kind = OutcomeKind::Moved { from, to };
             prepared.new_orientation = orientation;
         }
+    }
+
+    /// Roll a plane movement mode's check for an admitted ordinary move, on
+    /// the transaction candidate. A failure spends the move's time and leaves
+    /// the actor in place, like a confused stay.
+    fn check_plane_glide(&mut self, prepared: &mut PreparedAction) -> Result<(), GameError> {
+        if prepared.ordinary_movement.is_none()
+            || !matches!(prepared.kind, OutcomeKind::Moved { .. })
+        {
+            return Ok(());
+        }
+        let Some(rule) = self.glide_rule(prepared.actor) else {
+            return Ok(());
+        };
+        crate::diagnostics::plane_glide_check();
+        if self.creature(prepared.actor).is_none()
+            || self.resolve_hazard_skill_check_in_transaction(
+                prepared.actor,
+                rule.skill,
+                rule.dc,
+            )?
+        {
+            return Ok(());
+        }
+        prepared.kind = OutcomeKind::Waited;
+        prepared.new_orientation = self.actors[&prepared.actor].orientation;
+        prepared.requested_destination = None;
+        prepared.touches.clear();
+        Ok(())
     }
 
     /// The original action and its admitted movement context have already been
@@ -845,6 +875,16 @@ impl Game {
                 OutcomeKind::Waited,
                 actor.action_duration_ticks(actor.turn_ticks.get())?,
             ),
+            Action::ReturnPlane => {
+                let destination = self.plane_return_destination(id)?;
+                (
+                    OutcomeKind::PlaneReturned {
+                        from: actor.location,
+                        to: destination.location,
+                    },
+                    actor.action_duration_ticks(actor.turn_ticks.get())?,
+                )
+            }
         };
         let at_tick = self.tick;
         let new_orientation = match action {
@@ -895,6 +935,9 @@ impl Game {
         }
         if let OutcomeKind::TrapExamined { trap } = kind {
             return self.reveal_feature_family(id, tor_world::ConcealedFeatureId::Trap(trap));
+        }
+        if let OutcomeKind::PlaneReturned { .. } = kind {
+            return self.apply_plane_return(id);
         }
         if let OutcomeKind::IdentificationResolved { choice, item } = kind {
             return self.resolve_identification(id, choice, item);
@@ -965,6 +1008,9 @@ impl Game {
             OutcomeKind::TrapExamined { .. } => {
                 unreachable!("trap examination uses one actor publication")
             }
+            OutcomeKind::PlaneReturned { .. } => {
+                unreachable!("a plane return uses one relocation")
+            }
             OutcomeKind::IdentificationResolved { .. } => {
                 unreachable!("identification uses one actor publication")
             }
@@ -1019,6 +1065,7 @@ impl Game {
             .ok_or(GameError::UnknownActor)?
             .ready_at = ready_at;
         self.note_action_hooks(id, &kind);
+        self.settle_plane_expiry(id)?;
         if !self.region_transition_pending() {
             self.resolve_preparations()?;
             self.settle_script_hooks()?;

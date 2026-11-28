@@ -50,6 +50,7 @@ mod ray_trajectory;
 pub use ray::{RayStep, RayVectorStep};
 pub use ray_trajectory::RayTrajectory;
 mod lighting;
+mod planes;
 mod scene;
 mod shadowcasting;
 mod topology;
@@ -189,6 +190,7 @@ mod shared;
 pub use shared::{Shared, SharedIdentity};
 
 mod rotation;
+pub use planes::{overlap_groups, Overlap, PlaneId, MAX_OVERLAP_SCALE};
 pub use rotation::{compose_rotation, inverse_rotation, rotate_vector};
 
 mod reach;

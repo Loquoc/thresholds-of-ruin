@@ -263,6 +263,7 @@ pub fn decode_action(
             }
         }
         p::Action::Wait => a::Action::Wait,
+        p::Action::ReturnPlane => a::Action::ReturnPlane,
     })
 }
 
@@ -541,6 +542,7 @@ pub fn encode_action(action: &a::Action, scope: &TargetScope) -> p::Action {
             item: item.map(|item| scope.item(s::ItemId(item))),
         },
         a::Action::Wait => p::Action::Wait,
+        a::Action::ReturnPlane => p::Action::ReturnPlane,
     }
 }
 
@@ -1248,6 +1250,7 @@ pub fn disclose_entry(
                 },
                 Event::Escaped => VisibleEvent::Escaped {},
                 Event::Waited => VisibleEvent::Waited,
+                Event::PlaneReturned => VisibleEvent::PlaneReturned,
             }),
         },
         JournalContent::Annotation {
