@@ -3,7 +3,7 @@
 A package can declare planes besides the material one, such as an Ethereal
 Plane that is the same place as the material world but a different world to
 move through. The [planes plan](../plans/planes.md) records the design and the
-milestones still to come; this page describes what is implemented.
+deferred work; this page describes what is implemented.
 
 ## Model
 
