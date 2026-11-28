@@ -1469,6 +1469,23 @@ target reference at different observer-relative positions; undisclosed body cell
 Both clients narrate involuntary motion and impact, and the ASCII client draws
 every disclosed height in one map. See [physics](../architecture/geometry.md) for numerical and persistence rules.
 
+## Coexisting planes
+
+In a game that declares [planes](planes.md), observations and deltas carry an
+optional `plane` object; games without planes omit it. `plane.plane` names the
+observer's current plane and each entry of `plane.echoes` is another plane seen
+through a perception channel. A plane is a `{ key, description, known }` record:
+`key` is opaque and stable for one observer, `description` is the mysterious or
+revealed text the observer knows, and `known` says which. Echo `cells` hold
+`{ key, position, wall, material }` rows, positioned like visible cells relative
+to the observer's reference cell and keyed like visible cells. Echo `actors` hold
+`{ position, name }` rows with public names only. Echo rows never belong to the
+observer's own plane and never replace its visible cells. A delta replaces the
+whole `plane` object.
+
+The `return_plane` action returns an actor to its home plane when its stay
+offers it; its history event is `plane_returned`.
+
 ### Ordinary Hit Dice summary
 
 Personal `own_stats.hit_dice` is a required named object with `total` and `sources`.

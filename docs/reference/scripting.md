@@ -100,6 +100,9 @@ heard something or its timer is due, never merely because a tick passed.
 `ctx:tick()`, `ctx:anchor(name)`, `ctx:location(actor)`, `ctx:alive(actor)`,
 `ctx:is_character(actor)`, `ctx:characters()`, `ctx:selected()`,
 `ctx:plane(actor)` (the plane's name; the material plane is `"material"`),
+`ctx:knows_plane(actor, plane)`, `ctx:check(actor, skill, dc)` (a skill check
+with the rules of environmental checks, drawn from the scenario's stream; it
+spends no next-check sources),
 `ctx:faction(actor)`, `ctx:actors_at(cell)`,
 `ctx:health(actor)`, `ctx:carried(actor)`, `ctx:items_at(cell)`,
 `ctx:item_identity(item)`, `ctx:door_open(cell)`, `ctx:var(name, scope?)`,
@@ -120,7 +123,8 @@ handler returns.
 | `ctx:set_door(cell, open)` | Open or close a door, with no actor needed |
 | `ctx:place_item(identity, name, cell)`, `ctx:remove_item(item)` | Items on the ground |
 | `ctx:teleport(actor, cell)` | Move an actor |
-| `ctx:shift(actor, plane, { returns?, duration? })` | Move an actor to its counterpart on another [plane](planes.md); `returns` is `action` (default), `expiry_only` or `none`. A blocked shift moves nothing and notes `plane_shift_blocked` |
+| `ctx:shift(actor, plane, { returns?, duration?, reveals? })` | Move an actor to its counterpart on another [plane](planes.md); `returns` is `action` (default), `expiry_only` or `none`; `reveals = true` teaches the plane on arrival. A blocked shift moves nothing and notes `plane_shift_blocked` |
+| `ctx:reveal_plane(actor, plane)` | Teach an actor what a plane is |
 | `ctx:win(actor?, { continue? })`, `ctx:lose(actor?)` | Win or lose an adventure run; `continue = true` records the victory and keeps playing |
 | `ctx:end_arena(faction?)` | End an arena with a participant faction as winner, or nobody |
 | `ctx:set_goal(text, { cell?, to? })`, `ctx:clear_goal({ to? })` | The goal clients show; `to` is an actor, otherwise every character |

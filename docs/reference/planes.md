@@ -33,6 +33,7 @@ lore_dc = 14
 gravity = [0, 0, 0]
 lit = true
 movement_modes = [{ mode = "ether_glide", check = { skill = "discipline", dc = 15 } }]
+channels = [{ to = "material", range = 12 }]
 regions = [40]
 overlaps = [{ from = 2, min = [0, 0, 0], max = [5, 4, 1], to = 40, origin = [0, 0, 0], rotation = 0 }]
 derive = [{ from = 1, id = 1001 }, { from = 3, id = 1003, volume = { min = [0, 0, 0], max = [3, 2, 1] } }]
@@ -40,8 +41,9 @@ derive = [{ from = 1, id = 1001 }, { from = 3, id = 1003, volume = { min = [0, 0
 
 | Field | Meaning |
 | --- | --- |
-| `mysterious`, `revealed` | Descriptions for observers that do and do not know the plane, 1–240 bytes. Not yet disclosed to clients. |
-| `lore_dc` | Lore difficulty to recognize the plane, 0–100. Not yet used. |
+| `mysterious`, `revealed` | Descriptions for observers that do not and do know the plane, 1–240 bytes. |
+| `lore_dc` | A Lore difficulty for scripts to check on arrival, 0–100. The engine does not roll it. |
+| `channels` | Perception channels to other planes (below). |
 | `gravity`, `lit` | Gravity and lighting of derived regions on this plane. Authored regions keep their own. |
 | `movement_modes` | At most one; the only mode is `ether_glide` (below). |
 | `regions` | Authored regions on this plane. |
@@ -115,6 +117,55 @@ the actor in place, like a confused stay. An actor that flies by itself uses its
 flight, which needs no check, and keeps the plane's mode if it loses flight.
 Bodies without creature statistics pass the check.
 
+## Perception channels
+
+A channel is one-way. An observer on the declaring plane also runs an ordinary
+eye pass on plane `to`, from the counterpart of its eye cell and in its own
+frame composed with the overlap's rotation, within `range` Manhattan cells
+(1–16). The other plane's lighting is ignored within that range. Walls there
+block the pass as they would block a viewer standing there, and an eye whose
+counterpart is solid sees nothing on that side. An observer with no counterpart
+for its eye sees nothing through the channel. `perception = "mirror"` and
+`light = "fixed"` are the only values and the defaults.
+
+Echoes are separate from the observer's own sight. They are not part of its
+visible cells, memory, awareness or AI decisions, and a creature disguised as an
+object is not shown in them.
+
+## Plane knowledge
+
+An observer either knows a plane or does not; the material plane is always
+known. Knowledge is saved with the game and only grows. It is learned when a
+shift with `reveals = true` arrives, or through `ctx:reveal_plane`. A typical
+arrival check is a script on `plane_shifted`:
+
+```lua
+function veil.shifted(ctx, facts)
+    local fact = facts[1]
+    if fact.plane ~= "material" and not ctx:knows_plane(fact.actor, fact.plane)
+        and ctx:check(fact.actor, "lore", 14) then
+        ctx:reveal_plane(fact.actor, fact.plane)
+    end
+end
+```
+
+Knowledge only changes which description the observer is told.
+
+## Disclosure
+
+In a game with planes, every observation carries a `plane` view (see
+[protocol](protocol.md#coexisting-planes)): the observer's current plane and an
+echo for each channel. Each plane is named by an opaque per-observer key and the
+description the observer knows; the material plane is described as "the
+material world". Echo cells carry ordinary cell keys, so memory of a plane seen
+through a channel lines up with the same cells when the observer stands there.
+Games without planes send no plane view.
+
+- The text client names a plane other than the material one, and lists the
+  figures glimpsed through each channel with their bearing.
+- The ASCII map draws echo walls (`#`) and figures (the first letter of their
+  name) in muted colors, only in columns its own map leaves empty.
+
 ## Performance
 
 A game without planes keeps no plane state and saves exactly as before. Three
@@ -123,6 +174,9 @@ them: `plane_shifts` (attempted shifts, including blocked ones),
 `plane_glide_checks` and `plane_coactivated_regions` (regions added to a
 residency set by an overlap group).
 
+Channel passes run only for observers on a plane with channels, once per
+channel per observation.
+
 ## Verification
 
 - World: [`crates/world/src/planes.rs`](../../crates/world/src/planes.rs) tests
@@ -130,8 +184,12 @@ residency set by an overlap group).
   one-counterpart rule.
 - Simulation: [`crates/simulation/src/planes_tests.rs`](../../crates/simulation/src/planes_tests.rs)
   covers shifting, rejection, returns, expiry, retried forced returns, the
-  movement mode's checks, co-activation and checkpoint round trips.
+  movement mode's checks, co-activation, channel views, solid-eye blindness,
+  plane knowledge and checkpoint round trips.
 - Engine: [`crates/server/tests/it/planes.rs`](../../crates/server/tests/it/planes.rs)
   plays [`scenarios/tests/planes`](../../scenarios/tests/planes) through a
-  scripted shift, ether-gliding, the return action, a consumable
-  `plane_shift` and replay, and checks derived-region validation.
+  scripted shift, the plane view and its echo, ether-gliding, the return
+  action, a consumable `plane_shift` and replay, and checks derived-region
+  validation.
+- Clients: `crates/client-ascii/tests/it/planes.rs` and the text client's
+  `adventure` tests cover the echo layer and plane sentences.
