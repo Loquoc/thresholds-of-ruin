@@ -1086,13 +1086,20 @@ pub(super) fn react(
                 {
                     if let Ok((_, mut anim)) = bodies.get_mut(target_entity) {
                         match outcome {
-                            tor_protocol::AbilityOutcome::Miss => anim.miss(delay),
+                            // A failed spiritual attack isn't a physical evade.
+                            // Its caster animation and visual cue still play.
+                            tor_protocol::AbilityOutcome::Miss
+                                if !matches!(action, Move::Gaze | Move::Fear) =>
+                            {
+                                anim.miss(delay);
+                            }
                             tor_protocol::AbilityOutcome::Applied => {
                                 if let Some(id) = target {
                                     arrivals.insert(id, delay);
                                 }
                             }
-                            tor_protocol::AbilityOutcome::Unaffected => {}
+                            tor_protocol::AbilityOutcome::Miss
+                            | tor_protocol::AbilityOutcome::Unaffected => {}
                         }
                     }
                 }

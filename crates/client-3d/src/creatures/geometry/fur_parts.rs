@@ -18,6 +18,10 @@ struct Lock {
 }
 impl Lock {
     fn emit(&self, b: &mut Builder) {
+        self.emit_shaped(b, |point| point);
+    }
+
+    fn emit_shaped(&self, b: &mut Builder, shape: impl Fn(Vec3) -> Vec3) {
         let direction = (self.path[2] - self.path[0]).normalize();
         let across = direction.cross(self.normal).normalize();
         let normal = across.cross(direction);
@@ -35,10 +39,16 @@ impl Lock {
         let middle = ring(middle, self.widths.y);
         for i in 0..self.sides {
             let next = (i + 1) % self.sides;
-            b.tri([root, low[i], low[next]], self.colors[0]);
-            b.tri([low[i], middle[next], low[next]], self.colors[0]);
-            b.tri([low[i], middle[i], middle[next]], self.colors[0]);
-            b.tri([middle[i], tip, middle[next]], self.colors[1]);
+            b.tri([root, low[i], low[next]].map(&shape), self.colors[0]);
+            b.tri(
+                [low[i], middle[next], low[next]].map(&shape),
+                self.colors[0],
+            );
+            b.tri(
+                [low[i], middle[i], middle[next]].map(&shape),
+                self.colors[0],
+            );
+            b.tri([middle[i], tip, middle[next]].map(&shape), self.colors[1]);
         }
     }
 }
@@ -147,6 +157,27 @@ impl Coat {
     }
 
     pub(super) fn emit(self, p: &mut Parts) {
+        self.emit_shaped(p, |point| point);
+    }
+
+    // Reshape the backing and every lock together. The upper back broadens
+    // into the neck rather than adding a separate collar across the chest.
+    pub(super) fn emit_shoulder_sweep(self, p: &mut Parts) {
+        self.emit_shaped(p, |point| {
+            let local = point - self.center;
+            let t = ((local.y / self.radii.y - 0.04) / 0.65).clamp(0.0, 1.0);
+            let sweep = t * t * (3.0 - 2.0 * t);
+            let depth = if local.z < 0.0 { 0.28 } else { -0.12 };
+            self.center
+                + Vec3::new(
+                    local.x * (1.0 + sweep * 0.34),
+                    local.y,
+                    local.z * (1.0 + sweep * depth) - sweep * self.radii.z * 0.20,
+                )
+        });
+    }
+
+    fn emit_shaped(self, p: &mut Parts, shape: impl Fn(Vec3) -> Vec3) {
         assert!(
             self.radii.is_finite()
                 && self.radii.min_element() > 0.0
@@ -162,10 +193,12 @@ impl Coat {
         let resolution = p.matte.res;
         p.matte.res = (12, 24);
         p.matte
-            .blob(self.center, self.radii, self.seed, 0.0, self.color * 0.88);
+            .blob_shaped(self.center, self.radii, self.seed, 0.0, &shape, &|_, _| {
+                self.color * 0.88
+            });
         p.matte.res = resolution;
         for lock in self.locks() {
-            lock.emit(&mut p.matte);
+            lock.emit_shaped(&mut p.matte, &shape);
         }
     }
 }
@@ -385,6 +418,40 @@ mod tests {
                 assert!(after.widths.distance(before.widths * scale) < 1e-5);
             }
         }
+    }
+
+    #[test]
+    fn swept_coat_broadens_the_upper_back_without_an_extra_shell() {
+        let coat = Coat {
+            center: Vec3::Y * 0.28,
+            radii: Vec3::new(0.3, 0.34, 0.24),
+            length: 0.20,
+            flow: Vec3::NEG_Y,
+            color: Vec3::ONE,
+            seed: 31,
+        };
+        let mut plain = Parts::default();
+        let mut swept = Parts::default();
+        coat.emit(&mut plain);
+        coat.emit_shoulder_sweep(&mut swept);
+        assert_eq!(swept.matte.res, plain.matte.res);
+        let before: Vec<_> = plain.matte.surface_triangles().collect();
+        let after: Vec<_> = swept.matte.surface_triangles().collect();
+        assert_eq!(before.len(), after.len());
+        let mut broader_back = false;
+        let mut retained_base = false;
+        for (a, b) in before.iter().flatten().zip(after.iter().flatten()) {
+            assert!(b.is_finite());
+            if a.y < 0.20 {
+                assert!(a.distance(*b) < 1e-6);
+                retained_base = true;
+            }
+            if a.y > 0.48 && a.z < -0.1 {
+                broader_back |= b.z < a.z - 0.06 && b.x.abs() > a.x.abs() + 0.025;
+            }
+        }
+        assert!(broader_back && retained_base);
+        assert_closed(swept);
     }
 
     #[test]

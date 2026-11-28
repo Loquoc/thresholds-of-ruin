@@ -5,6 +5,93 @@ use tor_client_3d_model::Actor;
 struct Fixture(View);
 
 #[test]
+fn resisted_gaze_and_fear_keep_cues_without_scheduling_a_dodge() {
+    use tor_protocol::AbilityOutcome::{Applied, Miss};
+
+    for (model, ability, outcome, motion, dodge, bolts, halos) in [
+        (
+            CreatureModel::Medusa,
+            "rogue.confusing_gaze",
+            Miss,
+            Move::Gaze,
+            false,
+            1,
+            1,
+        ),
+        (
+            CreatureModel::Medusa,
+            "rogue.confusing_gaze",
+            Applied,
+            Move::Gaze,
+            false,
+            1,
+            1,
+        ),
+        (
+            CreatureModel::Griffin,
+            "rogue.fear",
+            Miss,
+            Move::Fear,
+            false,
+            0,
+            3,
+        ),
+        (
+            CreatureModel::Human,
+            "basic_melee",
+            Miss,
+            Move::Strike,
+            true,
+            0,
+            0,
+        ),
+    ] {
+        let mut app = app(model);
+        app.add_systems(Update, react.after(refresh_held));
+        let target = ActorTarget::from_digest([7; 32]);
+        let caster = {
+            let mut fixture = app.world_mut().resource_mut::<Fixture>();
+            let actor = &fixture.0.actors[0];
+            let mut defender = actor.clone();
+            let caster = actor.id;
+            defender.id = target;
+            defender.model = CreatureModel::Human;
+            defender.position.x += 1;
+            fixture.0.actors.push(defender);
+            caster
+        };
+        update(&mut app);
+        app.world_mut()
+            .resource_mut::<Fixture>()
+            .0
+            .events
+            .push(Happening::Ability {
+                caster: Some(caster),
+                target: Some(target),
+                id: ability.into(),
+                name: String::new(),
+                outcome,
+                strike: None,
+            });
+        app.update();
+
+        let world = app.world_mut();
+        let actors = &world.resource::<Game>().actors;
+        let caster = actors[&caster];
+        let defender = actors[&target];
+        let anim = world.get::<Anim>(caster).unwrap();
+        assert_eq!(anim.action.map(|(action, _)| action), Some(motion));
+        assert_eq!(
+            world.get::<Anim>(defender).unwrap().dodge_pending(),
+            dodge,
+            "{ability} {outcome:?}: incorrect physical dodge"
+        );
+        assert_eq!(world.query::<&creatures::Bolt>().iter(world).count(), bolts);
+        assert_eq!(world.query::<&creatures::Fade>().iter(world).count(), halos);
+    }
+}
+
+#[test]
 fn pending_figures_accept_disclosed_movement_changes_and_disappearance() {
     let mut app = app(CreatureModel::Human);
     app.world_mut()

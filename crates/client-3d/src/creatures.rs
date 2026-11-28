@@ -1674,6 +1674,11 @@ impl Anim {
     pub fn miss(&mut self, delay: f32) {
         self.dodge = Some(-delay);
     }
+
+    #[cfg(test)]
+    pub(crate) fn dodge_pending(&self) -> bool {
+        self.dodge.is_some()
+    }
 }
 
 mod anatomy;

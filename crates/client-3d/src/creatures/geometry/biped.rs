@@ -695,7 +695,7 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
                 color: l.cloth,
                 seed: 31,
             }
-            .emit(p);
+            .emit_shoulder_sweep(p);
             return;
         }
         _ => {}

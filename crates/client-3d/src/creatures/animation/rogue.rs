@@ -30,6 +30,18 @@ fn mantle(p: &mut Pose, k: f32) {
     p.r(J::WingTipR, roll(-0.96 * k) * turn(0.66 * k));
 }
 
+/// Fan the Griffin's short feathered wings beside its shoulders during a roar.
+fn griffin_roar_wings(p: &mut Pose, weight: f32) {
+    for (side, wing, tip) in [(1.0, J::WingL, J::WingTipL), (-1.0, J::WingR, J::WingTipR)] {
+        let sweep = side * weight;
+        p.r(
+            wing,
+            turn(-0.62 * sweep) * roll(0.38 * sweep) * fwd(0.10 * weight),
+        );
+        p.r(tip, turn(-0.35 * sweep) * roll(-0.14 * sweep));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Fliers.
 
@@ -172,6 +184,42 @@ fn impact_fall_entry(a: &Anim, seconds: f32) -> Option<(DeathEntry, Move, f32, f
 pub(super) fn touch_fall_entry(a: &Anim, accent: Accent) -> Option<(DeathEntry, f32, f32)> {
     let (entry, motion, phase, fall) = impact_fall_entry(a, 0.22)?;
     (motion == Move::Touch(accent)).then_some((entry, phase, fall))
+}
+
+/// Release the last rendered upper-body gaze into the ordinary fall.
+/// This never restores the action or changes feet, root, or death timing.
+pub(super) fn release_medusa_gaze(p: &mut Pose, rig: &Rig, a: &Anim) {
+    if rig.style != Style::Medusa {
+        return;
+    }
+    let Some((entry, fall)) = fall_entry(a, 0.20) else {
+        return;
+    };
+    let Some((Move::Gaze, phase)) = entry.action else {
+        return;
+    };
+    let mut live = Pose::new();
+    biped_pose(
+        &mut live,
+        rig,
+        entry.speed,
+        a.walk,
+        (entry.started_at * 1.8 + a.seed).sin(),
+        Some((Move::Gaze, phase)),
+        a.carriage,
+    );
+    for joint in [
+        J::Torso,
+        J::Head,
+        J::ArmL,
+        J::ArmR,
+        J::ForeL,
+        J::ForeR,
+        J::HandR,
+    ] {
+        let i = joint as usize;
+        p.rot[i] = live.rot[i].slerp(p.rot[i], fall);
+    }
 }
 
 /// Carry the last wing stroke and air position into the authored fall.
@@ -350,7 +398,9 @@ pub(super) fn beast_pose(
             };
             p.r(J::Jaw, bow(gape));
             p.o(J::Lift, Vec3::new(0.0, 0.05 * act, -0.06 * act));
-            if winged {
+            if style == Style::Griffin {
+                griffin_roar_wings(p, act);
+            } else if winged {
                 mantle(p, 1.2 * act);
             }
         }

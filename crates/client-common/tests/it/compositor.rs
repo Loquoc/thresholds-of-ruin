@@ -253,9 +253,9 @@ fn strikes_mark_their_wind_up_and_reactions_link_same_tick_flights() {
             posture: ActivityPosture::Ranged,
         },
     );
-    let flight = OutcomeFact::Combat {
+    let flight = |caster| OutcomeFact::Combat {
         event: CombatEventView::Effect {
-            caster: Some(target(ORC)),
+            caster: Some(target(caster)),
             ability: None,
             tick: 300,
             timing: EffectTiming::Instant,
@@ -279,7 +279,11 @@ fn strikes_mark_their_wind_up_and_reactions_link_same_tick_flights() {
         stream.outcome(100, vec![wind_up], None),
         stream.outcome(
             300,
-            vec![flight, blow(ORC, SELF, AbilityOutcome::Applied, Some(0))],
+            vec![
+                flight(ORC),
+                flight(RAT),
+                blow(ORC, SELF, AbilityOutcome::Applied, Some(0)),
+            ],
             None,
         ),
         stream.outcome(
@@ -321,7 +325,9 @@ fn strikes_mark_their_wind_up_and_reactions_link_same_tick_flights() {
         "death bounds the open span"
     );
     // Segments stay separate: a gap is never joined.
+    assert_eq!(timeline.flights().len(), 2);
     assert_eq!(timeline.flights()[0].segments.len(), 2);
+    assert_eq!(timeline.flights()[1].caster, Some(target(RAT)));
     assert_eq!(
         timeline
             .reactions()
@@ -498,6 +504,68 @@ fn a_replacement_snapshot_flushes_the_beat() {
         Pushed::Ended(BeatEnd::DecisionRequired)
     );
     assert!(beat.timeline().is_empty());
+}
+
+#[test]
+fn replacement_after_outcome_without_permissions_ends_the_pending_settle_and_beat() {
+    let mut stream = Stream::new();
+    let mut replacement = stream.client.reset_snapshot().unwrap();
+    replacement.context = replacement.context.next_reset().unwrap();
+    let not_ready = stream.update(
+        0,
+        UpdateBody::Readiness {
+            readiness: Readiness {
+                revision: 1,
+                admission: false,
+                resume: vec![],
+                cancel: vec![],
+            },
+        },
+    );
+    stream.client.apply(not_ready).unwrap();
+    let mut beat = Compositor::new(BeatNever);
+    let mut settle = SettleBoundary::new("move", Until::Acted, false);
+    let receipt = ServerMessage::Ack {
+        request_id: "move".into(),
+        context: stream.client.reply_context(),
+        receipt: RequestReceipt::Admitted {
+            actor: stream.client.actor(),
+            branch: stream.client.branch().clone(),
+            intention: IntentionId("walk".into()),
+            entry_id: EntryId("walk-entry".into()),
+            phase: IntentionPhase::Resolved,
+        },
+    };
+    assert_eq!(settle.observe(&stream.client, false, false, &receipt), None);
+    let outcome = stream.outcome(0, vec![step(Direction::East)], Some(status(20, 100, None)));
+    let ServerMessage::Update { update } = &outcome else {
+        unreachable!("outcome is an applied stream update");
+    };
+    stream.client.apply((**update).clone()).unwrap();
+    assert_eq!(beat.push(&stream.client, &outcome), Pushed::Pending);
+    assert!(!beat.timeline().is_empty());
+    assert_eq!(settle.observe(&stream.client, false, false, &outcome), None);
+
+    stream.client.replace_snapshot(replacement.clone()).unwrap();
+    assert!(stream.client.can_admit_intention(), "the new view is ready");
+    let snapshot = ServerMessage::Snapshot {
+        request_id: "recover".into(),
+        snapshot: Box::new(replacement),
+    };
+    let lost = settle.observe(&stream.client, false, false, &snapshot);
+    assert_eq!(
+        lost,
+        Some(Settled::Lost),
+        "the new grant cannot settle the old action"
+    );
+    let ended = Pushed::Ended(BeatEnd::DecisionRequired);
+    assert_eq!(beat.push(&stream.client, &snapshot), ended);
+    assert!(beat.timeline().is_empty(), "discard unplayed old work");
+    assert_eq!(
+        beat.settled(&Settled::Done, true),
+        ended,
+        "the old plan cannot reopen"
+    );
 }
 
 #[test]
