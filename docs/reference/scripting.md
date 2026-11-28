@@ -84,10 +84,14 @@ return lessons
 ```
 
 A handler receives a context and an array of every fact its bindings heard
-at that boundary, in order. Handlers run when the simulation settles a tick
-boundary, never in the middle of an action, and never once per tick: a
-handler runs only when one of its bindings heard something or its timer is
-due.
+since the last settlement, in order. Facts are noted as they happen, including
+during an action. Handlers run when the simulation settles them: after each
+action finishes (so possibly several times within one tick), whenever
+simulation time advances (including physics quanta while bodies move), and when
+a timer falls due. A handler never runs in the middle of an action and cannot
+decide how one resolves: it reacts after the fact, and its effects apply after
+the action that produced its facts. It runs only when one of its bindings
+heard something or its timer is due, never merely because a tick passed.
 
 ### Queries
 

@@ -173,9 +173,10 @@ for the shared demonstration driver.
 
 Use [current capabilities and next work](docs/status.md) for scope and
 [architecture](docs/architecture/overview.md) for implemented boundaries.
-Performance follow-up remains open. Runtime scripting and its language remain
-undecided. Planning approval does not authorize starting a new implementation
-milestone.
+Performance follow-up remains open. Runtime scripting uses Luau (see the
+[scripting reference](docs/reference/scripting.md)); prefer exposing scenario-
+or content-specific behavior to scripts over special-case engine code. Planning
+approval does not authorize starting a new implementation milestone.
 
 The accepted [Rogue plan](docs/plans/rogue.md) records the adaptation decisions
 behind the now-playable scenario. Survival mechanics, the live roster and the
