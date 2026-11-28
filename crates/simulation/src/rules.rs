@@ -1145,6 +1145,15 @@ pub enum Effect {
     RestoreHitDie,
     TeleportRandom,
     TeleportToRayOrigin,
+    /// Move the recipient to its counterpart on another plane, recording a
+    /// stay. Applied after the batch resolves; a blocked shift moves nothing.
+    PlaneShift {
+        plane: String,
+        returns: crate::planes::ReturnPolicy,
+        duration: Option<std::num::NonZeroU64>,
+        #[serde(default)]
+        reveals: bool,
+    },
     RoomLight,
     DetectMonsters {
         condition: ConditionId,
@@ -1276,6 +1285,15 @@ impl<'de> Deserialize<'de> for Effect {
             RestoreHitDie {},
             TeleportRandom {},
             TeleportToRayOrigin {},
+            PlaneShift {
+                plane: String,
+                #[serde(default)]
+                returns: crate::planes::ReturnPolicy,
+                #[serde(default)]
+                duration: Option<std::num::NonZeroU64>,
+                #[serde(default)]
+                reveals: bool,
+            },
             RoomLight {},
             DetectMonsters {
                 condition: ConditionId,
@@ -1384,6 +1402,17 @@ impl<'de> Deserialize<'de> for Effect {
             Fields::RestoreHitDie {} => Self::RestoreHitDie,
             Fields::TeleportRandom {} => Self::TeleportRandom,
             Fields::TeleportToRayOrigin {} => Self::TeleportToRayOrigin,
+            Fields::PlaneShift {
+                plane,
+                returns,
+                duration,
+                reveals,
+            } => Self::PlaneShift {
+                plane,
+                returns,
+                duration,
+                reveals,
+            },
             Fields::RoomLight {} => Self::RoomLight,
             Fields::DetectMonsters { condition } => Self::DetectMonsters { condition },
             Fields::DetectFood {} => Self::DetectFood,
@@ -3352,6 +3381,9 @@ impl References<'_> {
                 Effect::BalefulPolymorph { forms } => {
                     bound(valid_body_forms(forms), "polymorph_roster")?
                 }
+                Effect::PlaneShift { plane, .. } => {
+                    bound(crate::planes::valid_plane_name(plane), "plane")?
+                }
                 Effect::SearchAdjacentGuises
                 | Effect::ObservePublicPlan
                 | Effect::DrainLatestHitDie
@@ -3901,6 +3933,7 @@ impl Effect {
             Self::HasteDose { condition, rest } => condition != rest,
             Self::ApplyLinkedHold { policy } => policy.valid(),
             Self::HoldDamage { .. } => true,
+            Self::PlaneShift { plane, .. } => crate::planes::valid_plane_name(plane),
             Self::StepSelfOneCell
             | Self::PushTargetOneCell { .. }
             | Self::DrainLatestHitDie

@@ -158,6 +158,10 @@ pub struct Snapshot {
     /// unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     script: Option<crate::scripting::ScriptState>,
+    /// Plane rules and stays, omitted for games without planes so their saves
+    /// are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    planes: Option<crate::planes::PlaneState>,
 }
 
 fn read_events<'de, D: serde::Deserializer<'de>>(
@@ -1164,6 +1168,7 @@ impl Game {
                 }
             }),
             script: self.script.clone(),
+            planes: self.planes.clone(),
             lifecycle: (!self.lifecycle.is_empty()).then(|| {
                 let lifecycles = &mut shared.lifecycles;
                 lifecycles
@@ -1306,6 +1311,10 @@ impl Game {
             host_region_continuation: false,
             hook_mask: snapshot.script.as_ref().map_or(0, |state| state.mask()),
             script: snapshot.script,
+            planes: match snapshot.planes {
+                Some(state) if !state.valid() => return Err(PersistError::World),
+                planes => planes,
+            },
             hook_port: Default::default(),
             script_report: Default::default(),
             lifecycle: match snapshot.lifecycle {

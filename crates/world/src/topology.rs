@@ -344,6 +344,10 @@ pub struct World {
     /// [`RegionSlice`]. Omitted from saves while empty.
     #[serde(default, skip_serializing_if = "no_absent_regions")]
     absent: Shared<BTreeMap<RegionId, Region>>,
+    /// Plane membership and overlaps. Structural: kept whatever the
+    /// residency of the regions they name. Omitted from saves while empty.
+    #[serde(default, skip_serializing_if = "no_planes")]
+    pub(crate) planes: Shared<crate::planes::PlaneTopology>,
     /// Derived: never saved, and ignored by equality.
     #[serde(skip)]
     pub(crate) sight: crate::sight_cache::SightCache,
@@ -362,6 +366,9 @@ pub struct Door {
 /// Doors are at most this many cells tall.
 pub const MAX_DOOR_HEIGHT: u8 = 8;
 
+fn no_planes(planes: &Shared<crate::planes::PlaneTopology>) -> bool {
+    planes.is_empty()
+}
 fn no_absent_regions(absent: &Shared<BTreeMap<RegionId, Region>>) -> bool {
     absent.is_empty()
 }
@@ -528,6 +535,9 @@ impl World {
     /// Structural validation for backend checkpoint restoration.
     pub fn checkpoint_valid(&self, next_door_id: u64) -> bool {
         let mut ids = BTreeSet::new();
+        if !self.planes.valid() {
+            return false;
+        }
         if !self
             .region_gravity
             .iter()
@@ -788,6 +798,7 @@ impl World {
             chambers: Shared::new(BTreeMap::new()),
             place_hints: Shared::new(BTreeMap::new()),
             absent: Shared::default(),
+            planes: Shared::default(),
             sight: Default::default(),
         };
         for region in regions {

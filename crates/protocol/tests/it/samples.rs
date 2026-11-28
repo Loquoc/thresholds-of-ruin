@@ -74,6 +74,7 @@ fn request_kind(request: &Request) -> &'static str {
                 Action::Take { .. } => "act.take",
                 Action::Drop { .. } => "act.drop",
                 Action::Wait => "act.wait",
+                Action::ReturnPlane => "act.return_plane",
             },
         },
         Request::History { .. } => "history",
@@ -130,6 +131,7 @@ const CLIENT_KINDS: &[&str] = &[
     "act.take",
     "act.drop",
     "act.wait",
+    "act.return_plane",
     "history",
 ];
 

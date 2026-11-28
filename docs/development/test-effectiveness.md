@@ -404,6 +404,24 @@ neither a successful build nor a behavioral test failure. Keep such execution
 details with the corresponding verification record rather than accumulating them
 as new findings here.
 
+### Engine-assigned family blocks, 28 November
+
+Removing the authored `base_region` from procedural families (the engine now
+assigns each family's identity block) left Python package generators, an
+offline-authoring oracle, a stair-pair fixture and the frozen earned-route
+comparator still writing or reading the field. **Stale/unupdated tests:** one
+root cause, 26 distinct failing methods across 11 process-test owners, and 52
+failed method executions in the PR's Linux debug and release Python
+partitions. The Windows partitions failed the same methods; their executions are
+not counted here.
+The engine rejected each package with ``unknown field `base_region` ``, so no
+gameplay assertion was reached. The generators now omit the field. The oracle
+and stair fixture use the block the engine assigns. Comparator baseline v48
+records the one-line source adaptation with a transition receipt, leaving v47
+untouched. Rust tests had been migrated with the change, but its focused local
+checkpoint left out the Python process tests that build packages. That
+omission, not the contract, caused the failures.
+
 ### Tooling guards and native capture budgets
 
 CI-owner probes exposed nested no-build guard assumptions in fixture shims. Child

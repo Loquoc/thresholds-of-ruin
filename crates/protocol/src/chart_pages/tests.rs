@@ -743,6 +743,7 @@ fn state() -> crate::StateView {
         wizard_game: false,
         revision: 10,
         observation: crate::Observation {
+            plane: None,
             charts: vec![
                 inactive(ChartKind::Monsters),
                 inactive(ChartKind::Food),

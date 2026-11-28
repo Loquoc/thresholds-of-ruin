@@ -4,6 +4,7 @@ use crate::values::{self, id};
 use crate::{Meter, Program, RuntimeConfig, EFFECT_COST, QUERY_COST};
 use mlua::{Function, Lua, MultiValue, Table, Value as LuaValue};
 use std::cell::RefCell;
+use tor_simulation::planes::ReturnPolicy;
 use tor_simulation::scripting::{
     script_random, ActorClass, Audience, Binding, BindingId, FilterKey, HookFact, HookKind,
     HookOutput, MessageSegment, MessageStyle, Owner, RunEnd, ScriptEffect, ScriptView, TimerId,
@@ -214,6 +215,33 @@ fn register_queries<'scope>(
             Some(at) => Ok(LuaValue::Table(values::cell(lua, at)?)),
             None => Ok(LuaValue::Nil),
         }
+    });
+    method!(ctx, scope, "plane", |_lua, a| {
+        b.query()?;
+        Ok(b.view
+            .actor_plane(values::actor(&arg(&a, 0))?)
+            .map(str::to_owned))
+    });
+    method!(ctx, scope, "knows_plane", |_lua, a| {
+        b.query()?;
+        let actor = values::actor(&arg(&a, 0))?;
+        let plane = values::text(&arg(&a, 1), "plane")?;
+        Ok(b.view.knows_plane(actor, &plane))
+    });
+    method!(ctx, scope, "check", |_lua, a| {
+        b.query()?;
+        let actor = values::actor(&arg(&a, 0))?;
+        let name = values::text(&arg(&a, 1), "skill")?;
+        let skill = tor_simulation::attributes::Skill::ALL
+            .into_iter()
+            .find(|skill| skill.as_str() == name)
+            .ok_or_else(|| mlua::Error::runtime("unknown skill"))?;
+        let dc = i32::try_from(values::integer(&arg(&a, 2), "difficulty")?)
+            .map_err(|_| mlua::Error::runtime("difficulty out of range"))?;
+        let mut calls = b.calls.borrow_mut();
+        b.view
+            .check(actor, skill, dc, &mut calls.rng)
+            .ok_or_else(|| mlua::Error::runtime("that actor cannot make checks"))
     });
     method!(ctx, scope, "alive", |_lua, a| {
         b.query()?;
@@ -460,6 +488,64 @@ fn register_effects<'scope>(
         b.effect(ScriptEffect::RemoveItem {
             item: values::item(&arg(&a, 0))?,
         })
+    });
+    method!(ctx, scope, "shift", |_lua, a| {
+        let actor = values::actor(&arg(&a, 0))?;
+        let plane = values::text(&arg(&a, 1), "plane")?;
+        if !b.view.plane_known(&plane) {
+            return Err(mlua::Error::runtime("unknown plane"));
+        }
+        let (returns, duration, reveals) = match arg(&a, 2) {
+            LuaValue::Nil => (ReturnPolicy::Action, None, false),
+            LuaValue::Table(options) => {
+                let returns = match options.get::<LuaValue>("returns")? {
+                    LuaValue::Nil => ReturnPolicy::Action,
+                    value => match values::text(&value, "returns")?.as_str() {
+                        "action" => ReturnPolicy::Action,
+                        "expiry_only" => ReturnPolicy::ExpiryOnly,
+                        "none" => ReturnPolicy::None,
+                        _ => return Err(mlua::Error::runtime("unknown return policy")),
+                    },
+                };
+                let duration = match options.get::<LuaValue>("duration")? {
+                    LuaValue::Nil => None,
+                    value => Some(
+                        u64::try_from(values::integer(&value, "duration")?)
+                            .ok()
+                            .and_then(std::num::NonZeroU64::new)
+                            .ok_or_else(|| mlua::Error::runtime("duration must be positive"))?,
+                    ),
+                };
+                let reveals = match options.get::<LuaValue>("reveals")? {
+                    LuaValue::Nil => false,
+                    LuaValue::Boolean(reveals) => reveals,
+                    _ => return Err(mlua::Error::runtime("reveals must be a boolean")),
+                };
+                (returns, duration, reveals)
+            }
+            _ => return Err(mlua::Error::runtime("shift options must be a table")),
+        };
+        b.effect(ScriptEffect::ShiftPlane {
+            actor,
+            plane,
+            returns,
+            duration,
+            reveals,
+        })
+    });
+    method!(ctx, scope, "open_channel", |_lua, a| {
+        b.effect(ScriptEffect::OpenGlimpse {
+            observer: values::actor(&arg(&a, 0))?,
+            target: values::actor(&arg(&a, 1))?,
+        })
+    });
+    method!(ctx, scope, "reveal_plane", |_lua, a| {
+        let actor = values::actor(&arg(&a, 0))?;
+        let plane = values::text(&arg(&a, 1), "plane")?;
+        if !b.view.plane_known(&plane) {
+            return Err(mlua::Error::runtime("unknown plane"));
+        }
+        b.effect(ScriptEffect::RevealPlane { actor, plane })
     });
     method!(ctx, scope, "teleport", |_lua, a| {
         b.effect(ScriptEffect::Teleport {

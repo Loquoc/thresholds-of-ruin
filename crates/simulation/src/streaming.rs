@@ -1381,11 +1381,33 @@ impl Game {
                     }
                 }
             }
+            self.overlap_closure(&mut t);
             t = self.settle_pins(&t, cache, can_prepare, false);
             if before == (t.active.len(), t.loaded.len()) {
                 return t;
             }
         }
+    }
+
+    /// The same place on several planes shares one residency: an overlap
+    /// group is active if any member is, and loaded if any member is.
+    fn overlap_closure(&self, t: &mut RegionTransition) {
+        if !self.world.has_overlaps() {
+            return;
+        }
+        let mut added = 0;
+        for region in t.active.clone() {
+            for member in self.world.overlap_group(region) {
+                added += usize::from(t.active.insert(member));
+                t.loaded.insert(member);
+            }
+        }
+        for region in t.loaded.clone() {
+            for member in self.world.overlap_group(region) {
+                added += usize::from(t.loaded.insert(member));
+            }
+        }
+        crate::diagnostics::plane_coactivated(added);
     }
 
     fn settle_pins(

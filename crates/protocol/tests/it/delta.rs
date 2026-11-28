@@ -258,6 +258,7 @@ fn room(ox: i32, oy: i32, revision: u64) -> StateView {
         wizard_game: false,
         revision,
         observation: Observation {
+            plane: None,
             level_name: None,
             known_item_uses: Vec::new(),
             self_appearance: None,

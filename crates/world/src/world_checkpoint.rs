@@ -38,6 +38,7 @@ fn same_geometry(a: &World, b: &World) -> bool {
         chambers,
         place_hints,
         absent,
+        planes,
         sight: _,
     } = a;
     secret_doors == &b.secret_doors
@@ -56,6 +57,7 @@ fn same_geometry(a: &World, b: &World) -> bool {
         && chambers == &b.chambers
         && place_hints == &b.place_hints
         && absent == &b.absent
+        && planes == &b.planes
 }
 
 pub fn serialize<S: Serializer>(worlds: &[World], serializer: S) -> Result<S::Ok, S::Error> {

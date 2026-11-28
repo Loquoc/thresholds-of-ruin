@@ -595,3 +595,64 @@ pub fn clamp(o: &Observation, mut position: Position) -> Position {
         .clamp(o.position.y - ROWS / 2, o.position.y + ROWS / 2);
     position
 }
+
+/// Muted colors for another plane's echo, distinct from remembered tiles.
+pub const ECHO_WALL: u32 = 0x4a5868;
+pub const ECHO_FIGURE: u32 = 0x9c8ad8;
+
+/// One glyph of another plane, seen through a perception channel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EchoTile {
+    pub position: Position,
+    pub glyph: char,
+    pub color: u32,
+    pub center: (usize, usize),
+}
+
+/// Echo walls and figures in the height band, one per map column that the
+/// observer's own map leaves empty. Figures take precedence over walls, the
+/// nearer plane over later ones; open echo floor is not drawn. An echo never
+/// replaces or reshapes the observer's own map.
+pub fn echo_tiles(o: &Observation, occupied: &BTreeSet<(i32, i32)>) -> Vec<EchoTile> {
+    let Some(view) = &o.plane else {
+        return Vec::new();
+    };
+    let mut columns: BTreeMap<(i32, i32), (u8, Position, char, u32)> = BTreeMap::new();
+    let mut offer = |position: Position, rank: u8, glyph: char, color: u32| {
+        let column = (position.x, position.y);
+        if occupied.contains(&column) || !BAND.contains(&(position.z - o.position.z)) {
+            return;
+        }
+        let entry = columns
+            .entry(column)
+            .or_insert((u8::MAX, position, glyph, color));
+        if rank < entry.0 {
+            *entry = (rank, position, glyph, color);
+        }
+    };
+    for (index, echo) in view.echoes.iter().enumerate() {
+        let base = (index as u8).saturating_mul(2);
+        for actor in &echo.actors {
+            let glyph = actor
+                .name
+                .chars()
+                .next()
+                .map_or('?', |c| c.to_ascii_lowercase());
+            offer(actor.position, base, glyph, ECHO_FIGURE);
+        }
+        for cell in echo.cells.iter().filter(|cell| cell.wall) {
+            offer(cell.position, base + 1, '#', ECHO_WALL);
+        }
+    }
+    columns
+        .into_values()
+        .filter_map(|(_, position, glyph, color)| {
+            Some(EchoTile {
+                position,
+                glyph,
+                color,
+                center: center(position.x - o.position.x, position.y - o.position.y)?,
+            })
+        })
+        .collect()
+}

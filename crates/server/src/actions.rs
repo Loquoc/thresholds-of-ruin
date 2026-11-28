@@ -83,6 +83,8 @@ pub enum Action {
         quantity: Option<u64>,
     },
     Wait,
+    /// Return to the home plane.
+    ReturnPlane,
 }
 
 /// Resolved physical identities only; opaque target tokens never enter a journal.
@@ -123,6 +125,7 @@ impl Action {
             Self::Take { .. } | Self::TouchApparentObject { .. } => RollbackAction::Take,
             Self::Drop { .. } => RollbackAction::Drop,
             Self::Wait => RollbackAction::Wait,
+            Self::ReturnPlane => RollbackAction::ReturnPlane,
         }
     }
 
@@ -718,6 +721,7 @@ mod tests {
                 },
             ),
             (Action::Wait, sim::Action::Wait),
+            (Action::ReturnPlane, sim::Action::ReturnPlane),
         ];
         for quantity in [None, Some(0), Some(1), Some(u64::MAX)] {
             cases.push((

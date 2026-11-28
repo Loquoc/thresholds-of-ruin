@@ -21,6 +21,7 @@ pub fn text(entry: &HistoryEntry) -> String {
         HistoryContent::Action { event, .. } => match event.as_ref() {
             Event::Moved { direction } => format!("Moved {}.", direction_name(*direction)),
             Event::Escaped {} => "Took the way out.".into(),
+            Event::PlaneReturned => "Returned to the home plane.".into(),
             Event::Crumbled { quantity, .. } => {
                 if *quantity == 1 {
                     "An item crumbled during pickup.".into()

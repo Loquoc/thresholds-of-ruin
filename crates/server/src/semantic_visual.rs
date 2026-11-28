@@ -44,6 +44,7 @@ pub(crate) fn same_picture_inputs(before: PictureInputs<'_>, after: PictureInput
         visible_actors,
         exits,
         known_places,
+        plane,
     } = before;
     actor == &after.actor
         && location == &after.location
@@ -57,6 +58,7 @@ pub(crate) fn same_picture_inputs(before: PictureInputs<'_>, after: PictureInput
         && visible_actors == &after.visible_actors
         && exits == &after.exits
         && known_places == &after.known_places
+        && plane == &after.plane
         && linked_holds == &after.linked_holds
         && same_interactions(interactions.as_ref(), after.interactions.as_ref())
         && same_combat(combat.as_ref(), after.combat.as_ref())

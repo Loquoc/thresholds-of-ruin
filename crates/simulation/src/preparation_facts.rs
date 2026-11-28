@@ -79,6 +79,7 @@ impl Game {
 fn effect_needs_regions(effect: &PlannedEffect) -> bool {
     match effect {
         PlannedEffect::Theft { .. }
+        | PlannedEffect::PlaneShift { .. }
         | PlannedEffect::TeleportRandom
         | PlannedEffect::TeleportToRayOrigin
         | PlannedEffect::RoomLight

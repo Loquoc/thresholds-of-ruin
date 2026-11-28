@@ -17,7 +17,7 @@ fixture, never a replacement or an independent rate sample.
 The route arm named `production` is the explicit, frozen preactivation E/S source
 snapshot at `8d09063840c51aa4189b146c287829102856b279`, with an explicitly recorded
 adaptation for the current scenario format. Its ordinary population remains two
-emus and two snakes. The current comparator is [baseline v47](../../scripts/fixtures/rogue-earned-baseline-v47/source.json). Its [transition receipt](../../scripts/fixtures/rogue-earned-baseline-v47/format-transition.json) records the v73 movement identity on the v46 scripted-outcome package. Historical baseline v45 preceded both changes, retaining
+emus and two snakes. The current comparator is [baseline v48](../../scripts/fixtures/rogue-earned-baseline-v48/source.json). Its [transition receipt](../../scripts/fixtures/rogue-earned-baseline-v48/format-transition.json) removes the procedural family's authored `base_region`, which the engine now assigns; the package has no authored regions, so the family keeps block 1. Historical v47 retains the v73 movement identity on the v46 scripted-outcome package. Historical baseline v45 preceded both changes, retaining
 exact package inputs and its current bundled-rule source hash. Its
 transition changed only the bundled import from historical rules identity 71 to historical rules identity 72. The identity covers hostile first-body device admission for identified items with known
 positive charges, without changing granted-ray behavior or implying natural NPC

@@ -146,6 +146,9 @@ impl Game {
             &mut activity,
             origin,
         )?;
+        if let Some(shift) = result.deferred_plane_shift.take() {
+            self.apply_planned_plane_shift(target, &shift)?;
+        }
         self.seal_participant_events()?;
         self.provoke_from_strike(&result.outcome, receipt, awareness)?;
         Ok(result.outcome)

@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 77;
+pub const PROTOCOL_VERSION: u32 = 78;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -190,6 +190,7 @@ pub enum RollbackAction {
     Take,
     Drop,
     Wait,
+    ReturnPlane,
 }
 
 impl RollbackAction {
@@ -211,6 +212,7 @@ impl RollbackAction {
             Self::Take => "Picking up the item",
             Self::Drop => "Dropping the item",
             Self::Wait => "Waiting",
+            Self::ReturnPlane => "Returning",
         }
     }
 }
@@ -439,6 +441,8 @@ pub enum Action {
         quantity: Option<u64>,
     },
     Wait,
+    /// Return to the home plane, when the actor's stay away offers it.
+    ReturnPlane,
 }
 impl<'de> Deserialize<'de> for Action {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -522,6 +526,7 @@ impl<'de> Deserialize<'de> for Action {
                 quantity: Option<u64>,
             },
             Wait,
+            ReturnPlane,
         }
         Ok(match crate::bounded::named_map(d)? {
             Fields::Escape { hold } => Self::Escape { hold },
@@ -572,6 +577,7 @@ impl<'de> Deserialize<'de> for Action {
             Fields::Take { item, quantity } => Self::Take { item, quantity },
             Fields::Drop { item, quantity } => Self::Drop { item, quantity },
             Fields::Wait => Self::Wait,
+            Fields::ReturnPlane => Self::ReturnPlane,
         })
     }
 }
@@ -931,6 +937,10 @@ pub struct Observation {
     pub inventory: Vec<ItemView>,
     pub visible_actors: Vec<ActorView>,
     pub ready: bool,
+    /// The observer's plane and its echoes of other planes; absent in games
+    /// without planes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane: Option<crate::PlaneView>,
 }
 
 /// The display and authoring limits are shared so a valid package cannot put an
@@ -2105,6 +2115,8 @@ pub enum Event {
         quantity: u64,
     },
     Waited,
+    /// The actor returned to its home plane.
+    PlaneReturned,
 }
 
 /// Validated development inputs, never arbitrary world-state edits.

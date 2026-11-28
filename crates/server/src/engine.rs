@@ -4474,7 +4474,8 @@ impl Engine {
             | Action::SetDoor { .. }
             | Action::Take { .. }
             | Action::TouchApparentObject { .. }
-            | Action::Drop { .. } => true,
+            | Action::Drop { .. }
+            | Action::ReturnPlane => true,
         };
         // A live whole-scope chart can change outside ordinary sight, even on
         // a same-tick wait or condition expiry. The predicate reads only the

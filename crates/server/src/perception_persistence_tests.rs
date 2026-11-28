@@ -101,7 +101,7 @@ fn scenario() -> Scenario {
     .unwrap();
     source["generation_recipes"] = json!({"room":room});
     source["procedural_worlds"] = json!({"dungeon":{
-        "kind":"grid_chain","version":1,"base_region":1,"grid":[5,1],
+        "kind":"grid_chain","version":1,"grid":[5,1],
         "size":[9,7,2],"recipe":"room","domain":{"kind":"open","max_depth":100}}});
     // No unrelated population, survival or retrieval work participates here.
     source["floor_activation"] = Value::Null;

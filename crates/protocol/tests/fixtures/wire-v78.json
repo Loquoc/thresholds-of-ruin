@@ -1,0 +1,34 @@
+{
+ "client_count": 74,
+ "client_parts": [
+  "wire-v78/client-000-4d2ccbe232e868da586fb92933d95eb165fe82155a4db73ce1376de2ff08b334.json"
+ ],
+ "fixture_format": "wire-parts-v1",
+ "protocol": 78,
+ "server_count": 92,
+ "server_parts": [
+  "wire-v78/server-000-9001f3817978872b9bf27c97fe1b67f50ff34c963fc3e855e350f4baadb48b95.json",
+  "wire-v78/server-001-c04949754c2d58d59e4fee47c2f4b3c71aeb7c37782297841d26d78e364ee72c.json",
+  "wire-v78/server-002-8e08e977666bad76dcc91a2a7df7072e2ad3c54a23e6048f223c11096b49e48b.json",
+  "wire-v78/server-003-271bdc1b5546fa91dc22e368e0883d7b07b99d0aea9b018a8746a7f7e692cc33.json",
+  "wire-v78/server-004-283b3dabcde20eddfa03bfebbd828636ad1270637a5557192f42f0b0b7cb75f3.json",
+  "wire-v78/server-005-699aeb7667dec84564f2496905c307da84cfdc30a4b61e886e6f4a934824c8f1.json",
+  "wire-v78/server-006-0b6e0c8fb017fc71a3fee25f7335a9647839cb1e63e52ce80f009fff1ada741f.json",
+  "wire-v78/server-007-65257c7e2e8b0581fd1d97c535d8a2b5892849eaaad6577a32c5c6c5ea1cff89.json",
+  "wire-v78/server-008-8ca1fbbc677c19d11973efdda7e6ad890cee526f084b31465cd5af5ab70cb02a.json",
+  "wire-v78/server-009-e4d09e6397b5611f663b0634d8ec001a56b86ff3a6a356e2b764326f9e752713.json",
+  "wire-v78/server-010-471f6819c025a508691bb6ff27e4368ef4044d7e524ca7a7605feca7b7e6b2a2.json",
+  "wire-v78/server-011-79de98d60a546b7774d3c33de1f6f1d32376baf31a66a312851a495ea36204d6.json",
+  "wire-v78/server-012-2cbd0c2d681481546fdb96eb3927dc3c47e456b6142bb188a758f2337a7693a8.json",
+  "wire-v78/server-013-636e3b61bb5c15fd5b9a3993c579d21a4113f1627f9c904983158a0076c0dc1c.json",
+  "wire-v78/server-014-33932a6269db11931f3088c04197584bf9222ce9889275841966dd398a1e9a1b.json",
+  "wire-v78/server-015-e13ba6af035c0128d740996138ee2345e5ea5e4e437ae244423d9d470c4f5b13.json",
+  "wire-v78/server-016-cda691f0e4a34425f928bdbfedd1f2e8dfa9fc0e7f7595adf3d7261388498ee8.json",
+  "wire-v78/server-017-8beef54270b496fad7ecb5a128db2e67908e1940b842a214f645a72554d55d18.json",
+  "wire-v78/server-018-21e5e5fe4c15cb9fcb4f7e6be548bc14a06115601d36c2b8156325799793b965.json",
+  "wire-v78/server-019-3bf5f264321b29086b78c7d4110189cd841f8096a2d418d7145cf99e8c1368c5.json",
+  "wire-v78/server-020-741fe11e41186e2b54b753d3f7a9d4e5757a63e675f60e6c5de444833fa6db03.json",
+  "wire-v78/server-021-cd8c4a4dc911211750d22b9dc209cee76143da671d9b45694ae32facb9a51e7d.json",
+  "wire-v78/server-022-c8697bc66cf2dedefe180ae3150b4e42df3a4a20b2e9ed9a8b41a55e0ef8181b.json"
+ ]
+}

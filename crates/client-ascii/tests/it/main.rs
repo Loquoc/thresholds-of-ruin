@@ -5,6 +5,7 @@ mod linked_holds;
 mod magic_items;
 mod map_memory;
 mod nethack_controls;
+mod planes;
 mod presentation;
 mod public_plan_observation;
 mod turns_and_map;

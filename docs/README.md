@@ -44,6 +44,7 @@ rather than treating a historical plan as current behavior.
 | Body/personal HD, purchases, expertise, drain/restoration and earned growth | [Progression](reference/progression.md) |
 | Baleful transformations and pending return | [Polymorph](reference/polymorph.md) |
 | Steps, doors, stairs, travel and durable places | [Movement and interaction](reference/movement.md) |
+| Coexisting planes, overlaps, shifting and plane movement modes | [Planes](reference/planes.md) |
 | Package structure, validation, pinning and overrides | [Scenario packages](reference/scenario-packages.md) |
 | Declarative recipes and generation groups | [Generation](reference/generation.md) |
 | Complete message-family index, authority gates, paging and worked recovery | [Protocol lifecycle](reference/protocol-lifecycle.md) |
@@ -94,7 +95,7 @@ historical acceptance sequences are distinct from future proposals.
 - [Consumables and devices design record](plans/rogue-missing-consumables.md):
   implemented-owner map, retained rationale and remaining boundaries
 - [Script extension design](plans/scripting.md): accepted Luau runtime and open questions
-- [Coexisting planes](plans/planes.md): proposed planes, overlaps and generator identity blocks
+- [Coexisting planes](plans/planes.md): implemented planes, overlaps and generator identity blocks
 - [Progression and creature construction design](plans/progression-design.md):
   edge-first talents, regeneration and constructed Rogue monsters, with its
   [implementation plan](plans/progression.md)

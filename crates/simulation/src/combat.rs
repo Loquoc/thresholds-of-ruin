@@ -923,6 +923,11 @@ impl Game {
         {
             return false;
         }
+        if self.across_planes(actor, target) {
+            // Contact across planes runs from the counterpart placement, which
+            // depends on the target; local awareness there discloses touch.
+            return self.melee_reachable_in_scene(actor, target, &[]);
+        }
         let Ok(snapshot) = self.scene_snapshot_shared(actor) else {
             return false;
         };

@@ -136,6 +136,8 @@ pub enum Event {
     TrapExamined {
         trap: u64,
     },
+    /// The actor returned to its home plane.
+    PlaneReturned,
     /// Private paid-choice outcome; no item identity or charge data is public history.
     IdentificationResolved {
         choice: tor_simulation::IntentionId,

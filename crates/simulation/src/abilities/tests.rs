@@ -1592,6 +1592,7 @@ fn observation_effects() -> Vec<PlannedEffect> {
 }
 fn observation_context(source: &Snapshot) -> ResolutionContext {
     ResolutionContext {
+        intangible: false,
         hold_damage: None,
         spatial: None,
         relocation: None,

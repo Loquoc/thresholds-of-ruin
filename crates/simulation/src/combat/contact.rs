@@ -176,6 +176,9 @@ struct ContactQuery<'a> {
     source: ContactBody,
     target: ContactBody,
     disclosed_targets: BTreeMap<Location, BodyCell>,
+    /// Across planes the same place is also contact: a body may share cells
+    /// with the counterpart of the one it strikes.
+    coexisting: bool,
 }
 impl<'a> ContactQuery<'a> {
     fn capture(
@@ -196,6 +199,15 @@ impl<'a> ContactQuery<'a> {
         if source == target {
             return None;
         }
+        // Across planes, the source reaches from its counterpart placement on
+        // the target's plane, when it may strike across at all.
+        let (placement, coexisting) = match placement {
+            Some(placement) => (Some(placement), false),
+            None => {
+                let mapped = game.cross_plane_placement(source, target).ok()?;
+                (mapped, mapped.is_some())
+            }
+        };
         let source_body = ContactBody::capture_at(game, source, placement)?;
         let target_body = ContactBody::capture(game, target)?;
         // Preserve physical-location membership, including local awareness.
@@ -225,7 +237,16 @@ impl<'a> ContactQuery<'a> {
             source: source_body,
             target: target_body,
             disclosed_targets,
+            coexisting,
         })
+    }
+    /// The contact shells this query examines, nearest first.
+    fn shells(&self) -> std::ops::RangeInclusive<i64> {
+        if self.coexisting {
+            0..=3
+        } else {
+            1..=3
+        }
     }
     /// No body-pair x direction product: each route ends in one indexed target
     /// cell or no target. At most 64 * 26 routes, each bounded by 6 * 3 hops.
@@ -236,11 +257,15 @@ impl<'a> ContactQuery<'a> {
             .copied()
             .flat_map(move |source| deltas(shell).map(move |delta| (source, delta)))
             .filter_map(|(source, delta)| {
-                let (location, route) = self.game.melee_attack_neighbor_frame(
-                    self.source.actor,
-                    source.location,
-                    delta,
-                )?;
+                let (location, route) = if delta == [0; 3] {
+                    (source.location, 0)
+                } else {
+                    self.game.melee_attack_neighbor_frame(
+                        self.source.actor,
+                        source.location,
+                        delta,
+                    )?
+                };
                 let target = *self.disclosed_targets.get(&location)?;
                 Some(ContactCandidate {
                     source,
@@ -251,12 +276,13 @@ impl<'a> ContactQuery<'a> {
             })
     }
     fn reachable(&self) -> bool {
-        (1..=3).any(|shell| self.candidates(shell).next().is_some())
+        self.shells()
+            .any(|shell| self.candidates(shell).next().is_some())
     }
     fn select(self) -> MeleeContact {
         // Complete the first nonempty shell. A longer diagonal contact cannot
         // immunize an ordinary tall body whose cardinal contacts agree.
-        for shell in 1..=3 {
+        for shell in self.shells() {
             let mut best: Option<ContactCandidate> = None;
             let mut embedding = None;
             let mut ambiguous = false;

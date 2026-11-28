@@ -620,6 +620,7 @@ fn ordered_strikes_legitimate_large_snapshot_keeps_its_independent_32_mib_assemb
         wizard_game: false,
         revision: 1,
         observation: Observation {
+            plane: None,
             level_name: None,
             known_item_uses: Vec::new(),
             self_appearance: None,

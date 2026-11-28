@@ -427,6 +427,8 @@ struct Manifest {
     terrain: Option<source::TerrainAssets>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scripting: Option<source::ScriptingManifest>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    planes: BTreeMap<String, source::planes::PlaneDecl>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1518,6 +1520,14 @@ enum Effect {
     StepSelfOneCell,
     TeleportRandom,
     TeleportToRayOrigin,
+    PlaneShift {
+        plane: String,
+        returns: tor_simulation::planes::ReturnPolicy,
+        #[serde(deserialize_with = "required_option")]
+        duration: Option<std::num::NonZeroU64>,
+        #[serde(default)]
+        reveals: bool,
+    },
     ArrestDescent,
     PushTargetOneCell {
         #[serde(with = "PushDirection")]
@@ -5132,6 +5142,14 @@ impl Effect {
             StepSelfOneCell {},
             TeleportRandom {},
             TeleportToRayOrigin {},
+            PlaneShift {
+                plane: String,
+                returns: tor_simulation::planes::ReturnPolicy,
+                #[serde(deserialize_with = "required_option")]
+                duration: Option<std::num::NonZeroU64>,
+                #[serde(default)]
+                reveals: bool,
+            },
             ArrestDescent {},
             PushTargetOneCell {
                 #[serde(with = "PushDirection")]
@@ -5246,6 +5264,17 @@ impl Effect {
             Fields::StepSelfOneCell {} => source::Effect::StepSelfOneCell,
             Fields::TeleportRandom {} => source::Effect::TeleportRandom,
             Fields::TeleportToRayOrigin {} => source::Effect::TeleportToRayOrigin,
+            Fields::PlaneShift {
+                plane,
+                returns,
+                duration,
+                reveals,
+            } => source::Effect::PlaneShift {
+                plane,
+                returns,
+                duration,
+                reveals,
+            },
             Fields::ArrestDescent {} => source::Effect::ArrestDescent,
             Fields::PushTargetOneCell { direction } => {
                 source::Effect::PushTargetOneCell { direction }

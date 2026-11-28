@@ -191,7 +191,8 @@ portals = [{ at = [0, 1, 0], direction = "west", to = "2/east", height = 2 }]
         plans = {}
         for depth in [27, 1_000_000, 101, 27]:
             with self.subTest(depth=depth):
-                region = family["base_region"] + (depth - 1) * slots + 4
+                # No authored regions: the engine assigns the block from region 1.
+                region = 1 + (depth - 1) * slots + 4
                 plan = self.compiler("horizon", package, region, 1)
                 self.assertIn(region, plan["required"])
                 self.assertEqual(plan["activate"], plan["required"])

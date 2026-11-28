@@ -97,6 +97,7 @@ pub fn stats() -> OwnStats {
 }
 pub fn observation() -> Observation {
     Observation {
+        plane: None,
         public_effects: vec![],
         level_name: None,
         known_item_uses: Vec::new(),

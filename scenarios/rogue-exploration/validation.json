@@ -5,7 +5,7 @@
   "ruleset_dependencies": {
     "interactions-v73": "88f4420962d955ad49de5812e186badf7c8e31c2d1f5e12a7feed32314698b62"
   },
-  "content_hash": "16799601a04d8bf2fc9b36b0f3a06247971d1ceec9ae27749ec934a25fb6eab4",
+  "content_hash": "2320cc8376689b25071f066ab1d01ae3acb6939927253356798a44684ef07220",
   "files": {
     "catalog/actors.toml": "260a6343ecff2246d80142d01c8edda6628a33958e47a6c004b693be3e0fffb5",
     "catalog/bodies.toml": "bbe18281cf810fcc7bf158de7ca07f153114c980c166cada9a4c83e108f8a16f",
@@ -13,10 +13,10 @@
     "catalog/items.toml": "ec9d88d078ba15c36fae97a03932b856ebe2f3612e1b7a27ce0ba530130dd427",
     "index.json": "9bcdcd8e7340350480abf05c4edbe9b8a8ef04e77258d462167b598589354902",
     "rules.toml": "52580534345fe815936f77a66edafb1ade9f99802d06270b5505e0cdf5ddbabf",
-    "scenario.toml": "7d92fe68c12c8026da10c2a4e2e51026ebf8a857b0872c45dd2a440f21478256",
+    "scenario.toml": "bc3a24269462fd9f0697ad970b8dfc21adef7e17acc20d60cc0b3c21d19cbb28",
     "scripts/outcome.luau": "5225e0891b07a3f30f6c5b7c043de901a73e37d62a2a87c7c173ef3b71f2b664"
   },
   "regions": 0,
-  "model_hash": "c61352a15f37801026c3233b562a3598e30bfe6f3512f1f41543aefe6509a092",
+  "model_hash": "3ab0222db71f84601d30fd10d21de7901abc1780e27c0bc7c19580d0fef370f5",
   "coverage": "all authored regions and character starts; descriptor structural bounds; deterministic sampled groups at seeds 0, 1, 42 under explicit work budget; no all-seed or winnability proof"
 }

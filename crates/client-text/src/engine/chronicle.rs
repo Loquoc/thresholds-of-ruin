@@ -34,6 +34,8 @@ pub enum Beat {
     Stepped(Direction),
     /// The character deliberately traversed its terminal objective endpoint.
     Escaped(String),
+    /// The character returned to its home plane.
+    PlaneReturned(String),
     Crumbled {
         quantity: u64,
     },
@@ -285,6 +287,7 @@ impl Chronicler {
                             beats.push(Beat::SetDoor { name, open: *open })
                         }
                         Event::Escaped { .. } => beats.push(Beat::Escaped(line.text)),
+                        Event::PlaneReturned => beats.push(Beat::PlaneReturned(line.text)),
                         Event::EscapeStarted { .. } => beats.push(Beat::EscapeHold(line.text)),
                         Event::ItemStarted { .. } => beats.push(Beat::ItemBegan(line.text)),
                         Event::AbilityStarted { .. } if *basic_attack => {
@@ -429,6 +432,9 @@ impl Chronicler {
                 )),
                 Event::Moved { direction } => beats.push(Beat::Stepped(*direction)),
                 Event::Escaped { .. } => beats.push(Beat::Escaped(
+                    tor_client_common::narration::action(event, a),
+                )),
+                Event::PlaneReturned => beats.push(Beat::PlaneReturned(
                     tor_client_common::narration::action(event, a),
                 )),
                 Event::Crumbled { quantity, .. } => beats.push(Beat::Crumbled {
