@@ -28,6 +28,7 @@ fn spec(glide: Option<i32>) -> PlaneSpec {
             to: PlaneId::MATERIAL,
             range: 12,
         }],
+        cross_plane_reach: vec![crate::content_ids::SpeciesId::new("unit_subject").unwrap()],
         glide: glide.map(|dc| GlideRule {
             skill: crate::attributes::Skill::Discipline,
             dc,
@@ -290,6 +291,7 @@ fn plane_rules_reject_malformed_declarations() {
                 revealed: String::new(),
                 glide: None,
                 channels: Vec::new(),
+                cross_plane_reach: Vec::new(),
             },
         )]),
         BTreeMap::from([(ETHEREAL, spec(Some(MAX_PLANE_DC + 1)))]),
@@ -391,4 +393,114 @@ fn plane_knowledge_changes_the_description_and_survives_saves() {
         )
         .unwrap();
     assert!(taught.knows_plane(other, ETHEREAL));
+}
+
+#[test]
+fn a_cross_plane_striker_reaches_what_it_sees_and_glimpses_let_victims_strike_back() {
+    let (mut game, ghost) = game(Some(0));
+    creature(&mut game, ghost);
+    game.shift_actor(ghost, ShiftRequest::to(ETHEREAL)).unwrap();
+    // A material creature standing beside the ghost's counterpart.
+    let victim = game
+        .spawn_actor(cell(1, 2, 1), NonZeroU64::new(100).unwrap())
+        .unwrap();
+    crate::test_creatures::configure(
+        &mut game,
+        victim,
+        "villagers",
+        crate::test_creatures::species(),
+    );
+    assert!(game.reaches_across(ghost));
+    assert!(
+        !game.reaches_across(victim),
+        "the material plane grants no reach"
+    );
+    // The ghost perceives the victim as if it stood at its counterpart.
+    let seen = game.observe(ghost).unwrap();
+    assert!(seen
+        .visible_actors
+        .iter()
+        .any(|row| row.id == victim && row.location == cell(2, 2, 1)));
+    assert!(game.attack_available(ghost, victim));
+    // The victim can neither see nor strike the ghost yet.
+    assert!(!game
+        .observe(victim)
+        .unwrap()
+        .visible_actors
+        .iter()
+        .any(|row| row.id == ghost));
+    assert!(!game.attack_available(victim, ghost));
+    // A glimpse lets it, until the ghost next acts.
+    assert!(game.open_glimpse(victim, ghost));
+    assert!(game
+        .observe(victim)
+        .unwrap()
+        .visible_actors
+        .iter()
+        .any(|row| row.id == ghost && row.location == cell(1, 1, 1)));
+    assert!(game.attack_available(victim, ghost));
+    let mut shared = SharedState::default();
+    let snapshot = game.checkpoint(&mut shared);
+    let restored = Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();
+    assert!(restored.glimpses(victim, ghost), "glimpses are saved");
+    game.close_glimpses_of(ghost);
+    assert!(!game.glimpses(victim, ghost));
+    assert!(!game.attack_available(victim, ghost));
+    // Across planes the same place is contact: nothing stops a ghost from
+    // standing where its victim's counterpart stands.
+    game.teleport(victim, cell(1, 1, 1)).unwrap();
+    assert!(game.attack_available(ghost, victim));
+    assert!(game.attack_available_in_scene(ghost, victim, &[]));
+}
+
+#[test]
+fn only_magical_weapons_harm_across_the_planes() {
+    use crate::abilities::FrozenWeaponSelection;
+    let (mut game, ghost) = game(Some(0));
+    creature(&mut game, ghost);
+    game.shift_actor(ghost, ShiftRequest::to(ETHEREAL)).unwrap();
+    let victim = game
+        .spawn_actor(cell(1, 2, 1), NonZeroU64::new(100).unwrap())
+        .unwrap();
+    creature(&mut game, victim);
+    // The ghost reaches across by its nature; any weapon of its harms.
+    assert!(!game.strike_intangible(ghost, victim, &FrozenWeaponSelection::Natural));
+    // A glimpsing victim's bare hands pass through the ghost.
+    assert!(game.strike_intangible(victim, ghost, &FrozenWeaponSelection::Natural));
+    // On one plane nothing is intangible.
+    assert!(!game.strike_intangible(victim, victim, &FrozenWeaponSelection::Natural));
+    let plain = game
+        .place_item(
+            cell(1, 4, 1),
+            "item.weapon.dagger".parse().unwrap(),
+            "dagger".into(),
+        )
+        .unwrap();
+    let cold_iron = game
+        .place_item(
+            cell(1, 4, 2),
+            "item.weapon.cold-iron".parse().unwrap(),
+            "cold iron".into(),
+        )
+        .unwrap();
+    let enchanted = game
+        .place_item(
+            cell(1, 5, 2),
+            "item.weapon.blade".parse().unwrap(),
+            "blade".into(),
+        )
+        .unwrap();
+    game.items.edit(cold_iron, |item| {
+        let mut spec = (*item.spec).clone();
+        spec.magical = true;
+        item.spec = tor_world::Shared::new(spec);
+    });
+    game.items
+        .edit(enchanted, |item| item.condition.hit_enchantment = 1);
+    assert!(!game.is_magical(plain));
+    assert!(game.is_magical(cold_iron), "authored magical");
+    assert!(
+        game.is_magical(enchanted),
+        "an enchantment counts, known or not"
+    );
 }

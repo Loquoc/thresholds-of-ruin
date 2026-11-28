@@ -1065,6 +1065,7 @@ impl Game {
             .ok_or(GameError::UnknownActor)?
             .ready_at = ready_at;
         self.note_action_hooks(id, &kind);
+        self.close_glimpses_of(id);
         self.settle_plane_expiry(id)?;
         if !self.region_transition_pending() {
             self.resolve_preparations()?;

@@ -44,6 +44,7 @@ derive = [{ from = 1, id = 1001 }, { from = 3, id = 1003, volume = { min = [0, 0
 | `mysterious`, `revealed` | Descriptions for observers that do not and do know the plane, 1–240 bytes. |
 | `lore_dc` | A Lore difficulty for scripts to check on arrival, 0–100. The engine does not roll it. |
 | `channels` | Perception channels to other planes (below). |
+| `cross_plane_reach` | Species whose members on this plane strike across its overlaps (below). |
 | `gravity`, `lit` | Gravity and lighting of derived regions on this plane. Authored regions keep their own. |
 | `movement_modes` | At most one; the only mode is `ether_glide` (below). |
 | `regions` | Authored regions on this plane. |
@@ -132,6 +133,49 @@ Echoes are separate from the observer's own sight. They are not part of its
 visible cells, memory, awareness or AI decisions, and a creature disguised as an
 object is not shown in them.
 
+## Striking across planes
+
+Members of a species listed in a plane's `cross_plane_reach` perceive what that
+plane's channels show them as creatures standing at their counterpart cells:
+they become ordinary visible actors, awareness subjects and targets for that
+observer, so its AI hunts and strikes them. Melee contact runs from the
+striker's counterpart placement on the target's plane; across planes the same
+place also counts as contact, since nothing stops a body from standing where
+its victim's counterpart stands. Cross-plane contact grants strikes only:
+displacement such as a push never crosses planes.
+
+A **glimpse** is a channel scoped to one target. While `observer` glimpses
+`target`, it perceives and may strike `target` as above. A glimpse is opened
+by scripts (`ctx:open_channel`) and closes when `target` next acts. Glimpses
+are saved with the game.
+
+A strike across planes by a creature that does not reach across by its nature
+is **intangible** unless its weapon is magical: it lands and spends its time,
+but its damage is skipped. A weapon is magical when its item is authored with
+`magical = true` or has a nonzero hit or damage enchantment, judged on the
+item's actual state whether or not the wielder knows it. Natural attacks are
+never magical.
+
+Whenever a strike from one plane hits a creature on another, scripts hear
+`cross_plane_struck`, with the striker as `actor` and the victim as `target`.
+A typical reveal opens a glimpse on a Perception check:
+
+```lua
+function haunting.struck(ctx, facts)
+    for _, fact in ipairs(facts) do
+        if ctx:check(fact.target, "perception", 15) then
+            ctx:open_channel(fact.target, fact.actor)
+        end
+    end
+end
+```
+
+Derived regions hold no authored actors; a plane's natives live in authored
+regions on it. The [haunted chapel](../../scenarios/haunted-chapel) is the
+example: an authored Ethereal nave overlapping the material nave holds a ghost
+that hunts and strikes the pilgrim across the planes, and a vestry outside the
+overlap is safe.
+
 ## Plane knowledge
 
 An observer either knows a plane or does not; the material plane is always
@@ -191,5 +235,9 @@ channel per observation.
   scripted shift, the plane view and its echo, ether-gliding, the return
   action, a consumable `plane_shift` and replay, and checks derived-region
   validation.
+- The engine test also plays the haunted chapel: the ghost strikes across the
+  planes, the arrival and glimpse scripts run, and a glimpsed ghost becomes a
+  target. Simulation tests cover cross-plane awareness rows, co-located
+  contact, glimpse lifetime and saves, intangible strikes and magical items.
 - Clients: `crates/client-ascii/tests/it/planes.rs` and the text client's
   `adventure` tests cover the echo layer and plane sentences.

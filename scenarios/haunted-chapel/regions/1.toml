@@ -1,0 +1,7 @@
+id = 1
+name = "Lychgate"
+size = [4, 3, 2]
+chamber = true
+gravity = [0,0,-1]
+anchors = { "start" = [1, 1, 0], "east" = [3, 1, 0] }
+portals = [{ "at" = [3, 1, 0], "direction" = "east", "to" = "2/west", "height" = 2 }]

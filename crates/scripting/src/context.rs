@@ -533,6 +533,12 @@ fn register_effects<'scope>(
             reveals,
         })
     });
+    method!(ctx, scope, "open_channel", |_lua, a| {
+        b.effect(ScriptEffect::OpenGlimpse {
+            observer: values::actor(&arg(&a, 0))?,
+            target: values::actor(&arg(&a, 1))?,
+        })
+    });
     method!(ctx, scope, "reveal_plane", |_lua, a| {
         let actor = values::actor(&arg(&a, 0))?;
         let plane = values::text(&arg(&a, 1), "plane")?;

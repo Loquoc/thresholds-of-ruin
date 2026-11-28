@@ -64,6 +64,10 @@ pub struct PlaneDecl {
     /// What observers on this plane perceive of other planes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<ChannelDecl>,
+    /// Species whose members on this plane strike across its overlaps at
+    /// what its channels show them. Strikes only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cross_plane_reach: Vec<String>,
     /// Authored regions on this plane.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub regions: Vec<u64>,
@@ -318,6 +322,12 @@ impl Package {
                     context("movement check dc is out of range"),
                 )?;
             }
+            for species in &decl.cross_plane_reach {
+                require(
+                    tor_simulation::content_ids::SpeciesId::new(species).is_ok(),
+                    context(&format!("invalid species {species}")),
+                )?;
+            }
             for channel in &decl.channels {
                 require(
                     channel.to != *name
@@ -446,6 +456,13 @@ impl Package {
                                     ids[channel.to.as_str()]
                                 },
                                 range: channel.range,
+                            })
+                            .collect(),
+                        cross_plane_reach: decl
+                            .cross_plane_reach
+                            .iter()
+                            .filter_map(|species| {
+                                tor_simulation::content_ids::SpeciesId::new(species).ok()
                             })
                             .collect(),
                     },

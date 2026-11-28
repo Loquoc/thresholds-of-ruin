@@ -173,3 +173,127 @@ fn drinking_veil_incense_shifts_through_the_plane_shift_effect() {
     act(&mut engine, Action::ReturnPlane).unwrap();
     assert_eq!(region(&engine), Some(2));
 }
+
+/// Every journaled script message, in order.
+fn messages(archive: &serde_json::Value) -> Vec<String> {
+    let mut reports: Vec<&serde_json::Value> = archive.get("initial_hooks").into_iter().collect();
+    for record in archive["records"].as_array().unwrap() {
+        reports.extend(record.get("hooks"));
+    }
+    reports
+        .into_iter()
+        .flat_map(|report| report["messages"].as_array().unwrap())
+        .map(|message| {
+            message["segments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|segment| segment.get("text").and_then(|t| t.as_str()))
+                .collect::<String>()
+        })
+        .collect()
+}
+
+/// Let AI actors take their turns, then act for the character.
+fn play(
+    engine: &mut Engine,
+    action: Action,
+) -> Result<tor_server::CommandResult, tor_server::Failure> {
+    for _ in 0..64 {
+        match engine.next_actor() {
+            Some(next) if next != CHARACTER && engine.is_ai(next) => {
+                engine.advance_ai(next).unwrap();
+            }
+            _ => break,
+        }
+    }
+    act(engine, action)
+}
+
+#[test]
+fn chapel_ghosts_strike_across_the_planes_and_glimpses_allow_a_strike_back() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("chapel.json");
+    let mut engine = Engine::open(&path, support::load("haunted-chapel", 7)).unwrap();
+    for _ in 0..3 {
+        play(
+            &mut engine,
+            Action::Move {
+                direction: Direction::East,
+            },
+        )
+        .unwrap();
+    }
+    assert_eq!(region(&engine), Some(2), "the pilgrim is in the nave");
+    let full = engine
+        .state(CHARACTER)
+        .unwrap()
+        .observation
+        .combat
+        .unwrap()
+        .max_hp;
+    let mut struck_back = false;
+    for _ in 0..80 {
+        if !engine.alive(CHARACTER) {
+            break;
+        }
+        let state = engine.state(CHARACTER).unwrap();
+        let ghost = state
+            .observation
+            .visible_actors
+            .iter()
+            .find(|seen| seen.id != state.observation.self_target)
+            .map(|seen| seen.id.clone());
+        if let Some(ghost) = ghost.filter(|_| !struck_back) {
+            // A glimpse shows the ghost as an ordinary target; a plain strike
+            // at it is admitted, though it cannot harm the ghost.
+            let action = engine
+                .decode_action(
+                    CHARACTER,
+                    &tor_protocol::Action::UseAbility {
+                        id: "basic_melee".into(),
+                        invocation: tor_protocol::AbilityInvocation {
+                            aim: tor_protocol::AbilityAim::ActorTarget { target: ghost },
+                            weapon: tor_protocol::WeaponSelection::Default,
+                        },
+                        supplies: Default::default(),
+                    },
+                )
+                .unwrap();
+            match play(&mut engine, action) {
+                Ok(_) => {
+                    struck_back = true;
+                    continue;
+                }
+                Err(_) => {} // Out of reach this turn: wait for it.
+            }
+        }
+        if play(&mut engine, Action::Wait).is_err() {
+            break;
+        }
+    }
+    let hurt = engine
+        .state(CHARACTER)
+        .unwrap()
+        .observation
+        .combat
+        .map_or(0, |combat| combat.hp)
+        < full;
+    engine.flush().unwrap();
+    drop(engine);
+    let said = messages(&support::read(&path));
+    let touches = said
+        .iter()
+        .filter(|text| {
+            text.starts_with("For a heartbeat you see it") || text.starts_with("Something unseen")
+        })
+        .count();
+    assert!(touches > 0, "the ghost struck across the planes: {said:?}");
+    assert!(hurt || touches > 0);
+    assert!(said.contains(&"The chapel is colder than the night outside.".to_owned()));
+    if said.iter().any(|text| text.starts_with("For a heartbeat")) {
+        assert!(struck_back, "a glimpse made the ghost a target");
+    }
+    // Replay reproduces the haunting exactly.
+    Engine::open(&path, support::load("haunted-chapel", 7)).unwrap();
+}

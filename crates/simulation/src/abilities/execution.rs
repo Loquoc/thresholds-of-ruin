@@ -721,7 +721,16 @@ impl Game {
         target: crate::ActorId,
         reading: bool,
     ) -> Result<ResolutionContext, GameError> {
+        let intangible = match plan {
+            ResolutionPlan::Ability(ability)
+            | ResolutionPlan::Strike { ability, .. }
+            | ResolutionPlan::Rider { ability, .. } => {
+                self.strike_intangible(actor, target, &ability.weapon)
+            }
+            _ => false,
+        };
         Ok(ResolutionContext {
+            intangible,
             hold_damage: None,
             spatial: None,
             relocation: self.relocation_resolution_input(plan, target, reading)?,

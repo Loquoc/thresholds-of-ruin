@@ -5,9 +5,13 @@ decisions for coexisting planes (the Ethereal Plane first; later the Plane of
 Shadow, Shadesmar and others) and the generator identity change they depend on.
 The maintainer authorized implementing the plan, including the format and
 protocol version changes it needs and the compatibility break in
-[milestone 4](#generator-identity-blocks) (removing `base_region`). Milestone 1
-is implemented; the [planes reference](../reference/planes.md) owns its
-behavior.
+[milestone 4](#generator-identity-blocks) (removing `base_region`). Milestones 1
+to 3 are implemented; the [planes reference](../reference/planes.md) owns their
+behavior. Implementation choices that differ from the text below: cross-plane
+reach is declared on the plane per species (`cross_plane_reach`) rather than as
+a creature ability; the same place counts as contact across planes; natives
+live in authored plane regions, because derived regions hold no actors; and
+the ghost's glimpse uses `cross_plane_struck`.
 
 ## Model
 

@@ -26,6 +26,9 @@ pub struct ResolutionContext {
     pub relocation: Option<RelocationInput>,
     pub target_recovery_context: Option<crate::health_recovery::RecoveryContext>,
     pub source_recovery_context: Option<crate::health_recovery::RecoveryContext>,
+    /// The target is on another plane and the strike cannot harm it there:
+    /// its damage is skipped. The strike still lands and spends its time.
+    pub intangible: bool,
 }
 /// Current whole-body-valid endpoints, never a frozen hidden target or path.
 /// The resolver samples only after delivery selects the relocation payload.
@@ -1424,6 +1427,9 @@ pub(super) fn resolve_batch<'a>(
         }
         if let PlannedEffect::PlaneShift { .. } = effect {
             deferred_plane_shift = Some(effect.clone());
+            continue;
+        }
+        if snapshot.context.intangible && matches!(effect, PlannedEffect::Damage { .. }) {
             continue;
         }
         let inputs = EffectRollInputs {

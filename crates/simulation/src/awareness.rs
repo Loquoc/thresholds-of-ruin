@@ -338,6 +338,21 @@ impl Game {
                 })
             })
             .collect::<Vec<_>>();
+        let mut subjects = subjects;
+        if self.planes.is_some() {
+            // Actors perceived across the planes, as a cross-plane striker or
+            // through a glimpse, are subjects like any seen creature.
+            for (subject, _) in self.cross_plane_rows(observer) {
+                if !subjects.iter().any(|known| known.subject == subject) {
+                    subjects.push(AwarenessSubject {
+                        subject,
+                        disclosure: crate::perception::ActorDisclosure::Creature,
+                        previous: previous(subject),
+                    });
+                }
+            }
+            subjects.sort_by_key(|known| known.subject);
+        }
         crate::diagnostics::awareness_subject_candidates(subjects.len());
         Ok((owner.location, subjects))
     }

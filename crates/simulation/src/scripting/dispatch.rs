@@ -421,6 +421,16 @@ impl Game {
                     |_| Some(FactKeys::default()),
                     |_, _| Some(FactSubject::Attack { target }),
                 );
+                if outcome.check.is_some_and(|check| check.success)
+                    && self.across_planes(actor, target)
+                {
+                    self.note_hook(
+                        HookKind::CrossPlaneStruck,
+                        Some(actor),
+                        |_| Some(FactKeys::default()),
+                        |_, _| Some(FactSubject::Attack { target }),
+                    );
+                }
             }
             crate::combat::CombatEvent::Died { actor, .. } => {
                 let actor = *actor;
@@ -766,6 +776,12 @@ impl Game {
                 if first {
                     self.note_first_visit(actor, to.region);
                 }
+            }
+            ScriptEffect::OpenGlimpse { observer, target } => {
+                if !self.actors.contains_key(observer) || !self.actors.contains_key(target) {
+                    return Err("unknown actor");
+                }
+                self.open_glimpse(*observer, *target);
             }
             ScriptEffect::RevealPlane { actor, plane } => {
                 if !self.actors.contains_key(actor) {

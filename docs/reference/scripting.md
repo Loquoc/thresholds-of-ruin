@@ -67,6 +67,7 @@ so an edited script makes the certificate stale.
 | `escaped` | `actor`, `at` | `anchor`, `region`, `actor` |
 | `plane_shifted` | `actor`, `from`, `to`, `from_plane`, `plane` | `anchor`, `region`, `actor` |
 | `plane_shift_blocked` | `actor`, `at`, `plane` | `anchor`, `region`, `actor` |
+| `cross_plane_struck` | `actor`, `target` | `actor` |
 | `timer` | `timer`, `arg` | not bindable; a timer calls its own handler |
 
 Every fact also carries `kind` and `tick`. Cells are read-only tables
@@ -125,6 +126,7 @@ handler returns.
 | `ctx:teleport(actor, cell)` | Move an actor |
 | `ctx:shift(actor, plane, { returns?, duration?, reveals? })` | Move an actor to its counterpart on another [plane](planes.md); `returns` is `action` (default), `expiry_only` or `none`; `reveals = true` teaches the plane on arrival. A blocked shift moves nothing and notes `plane_shift_blocked` |
 | `ctx:reveal_plane(actor, plane)` | Teach an actor what a plane is |
+| `ctx:open_channel(observer, target)` | Let `observer` perceive and strike `target` across the planes until `target` next acts |
 | `ctx:win(actor?, { continue? })`, `ctx:lose(actor?)` | Win or lose an adventure run; `continue = true` records the victory and keeps playing |
 | `ctx:end_arena(faction?)` | End an arena with a participant faction as winner, or nobody |
 | `ctx:set_goal(text, { cell?, to? })`, `ctx:clear_goal({ to? })` | The goal clients show; `to` is an actor, otherwise every character |

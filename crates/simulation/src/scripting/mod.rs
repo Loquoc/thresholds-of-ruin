@@ -71,10 +71,12 @@ pub enum HookKind {
     PlaneShifted,
     /// A shift to another plane was rejected; nothing moved.
     PlaneShiftBlocked,
+    /// A strike from one plane hit a creature on another.
+    CrossPlaneStruck,
 }
 
 impl HookKind {
-    pub const ALL: [HookKind; 13] = [
+    pub const ALL: [HookKind; 14] = [
         Self::RunStarted,
         Self::Timer,
         Self::Moved,
@@ -88,6 +90,7 @@ impl HookKind {
         Self::Escaped,
         Self::PlaneShifted,
         Self::PlaneShiftBlocked,
+        Self::CrossPlaneStruck,
     ];
     pub const fn bit(self) -> u64 {
         1 << self as u8
@@ -107,6 +110,7 @@ impl HookKind {
             Self::Escaped => "escaped",
             Self::PlaneShifted => "plane_shifted",
             Self::PlaneShiftBlocked => "plane_shift_blocked",
+            Self::CrossPlaneStruck => "cross_plane_struck",
         }
     }
     pub fn from_id(id: &str) -> Option<Self> {
@@ -433,6 +437,12 @@ pub enum ScriptEffect {
         duration: Option<std::num::NonZeroU64>,
         reveals: bool,
     },
+    /// Let `observer` perceive and strike `target` across the planes until
+    /// `target` next acts.
+    OpenGlimpse {
+        observer: ActorId,
+        target: ActorId,
+    },
     /// Teach an actor what a plane is.
     RevealPlane {
         actor: ActorId,
@@ -488,6 +498,7 @@ impl ScriptEffect {
             | Self::Teleport { .. }
             | Self::ShiftPlane { .. }
             | Self::RevealPlane { .. }
+            | Self::OpenGlimpse { .. }
             | Self::EndRun { .. }
             | Self::StopArena { .. } => true,
         }

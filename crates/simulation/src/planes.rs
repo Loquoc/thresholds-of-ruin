@@ -52,6 +52,10 @@ pub struct PlaneSpec {
     /// What observers on this plane perceive of other planes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<ChannelSpec>,
+    /// Species whose members on this plane strike across its overlaps at
+    /// what they see through its channels. Strikes only: never pushes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cross_plane_reach: Vec<crate::content_ids::SpeciesId>,
 }
 
 /// A one-way perception channel: observers on the declaring plane also see
@@ -173,6 +177,10 @@ pub struct PlaneState {
     /// Planes each observer knows. The material plane is always known.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     known: BTreeMap<ActorId, std::collections::BTreeSet<PlaneId>>,
+    /// Target-scoped channels: each observer perceives these actors on other
+    /// planes, and may strike them, until each target's next action.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    glimpses: BTreeMap<ActorId, std::collections::BTreeSet<ActorId>>,
 }
 
 /// Whether a name can name a plane in content: the material plane or a
@@ -243,6 +251,7 @@ impl Game {
             specs,
             stays: previous.stays,
             known: previous.known,
+            glimpses: previous.glimpses,
         };
         if !state.valid() {
             return Err(GameError::InvalidLocation);
@@ -623,6 +632,152 @@ impl Game {
             known: self.knows_plane(id, plane),
             description: self.plane_description(id, plane),
             echoes,
+        })
+    }
+
+    /// Whether an actor strikes across its plane's overlaps.
+    pub fn reaches_across(&self, id: ActorId) -> bool {
+        let Some(state) = self.planes.as_ref() else {
+            return false;
+        };
+        let (Some(actor), Some(creature)) = (self.actors.get(&id), self.creature(id)) else {
+            return false;
+        };
+        state
+            .specs
+            .get(&self.world.plane_of(actor.location.region))
+            .is_some_and(|spec| {
+                spec.cross_plane_reach
+                    .contains(creature.build().species_id())
+            })
+    }
+
+    /// Whether `observer` currently glimpses `target` on another plane.
+    pub fn glimpses(&self, observer: ActorId, target: ActorId) -> bool {
+        self.planes
+            .as_ref()
+            .and_then(|state| state.glimpses.get(&observer))
+            .is_some_and(|targets| targets.contains(&target))
+    }
+
+    /// Open a target-scoped channel: `observer` perceives `target` across the
+    /// planes until `target` next acts.
+    pub fn open_glimpse(&mut self, observer: ActorId, target: ActorId) -> bool {
+        if observer == target
+            || !self.actors.contains_key(&observer)
+            || !self.actors.contains_key(&target)
+        {
+            return false;
+        }
+        self.planes
+            .as_mut()
+            .is_some_and(|state| state.glimpses.entry(observer).or_default().insert(target))
+    }
+
+    /// An acting actor stops being glimpsed by anyone.
+    pub(crate) fn close_glimpses_of(&mut self, target: ActorId) {
+        if let Some(state) = self.planes.as_mut() {
+            state.glimpses.retain(|_, targets| {
+                targets.remove(&target);
+                !targets.is_empty()
+            });
+        }
+    }
+
+    /// Whether two actors are on different planes.
+    pub(crate) fn across_planes(&self, a: ActorId, b: ActorId) -> bool {
+        match (self.actors.get(&a), self.actors.get(&b)) {
+            (Some(a), Some(b)) => {
+                self.world.plane_of(a.location.region) != self.world.plane_of(b.location.region)
+            }
+            _ => false,
+        }
+    }
+
+    /// Where `source` stands for contact with `target`: `Ok(None)` on one
+    /// plane; the counterpart of its placement on the target's plane when it
+    /// may strike across; `Err` when it may not.
+    pub(crate) fn cross_plane_placement(
+        &self,
+        source: ActorId,
+        target: ActorId,
+    ) -> Result<Option<Placement>, ()> {
+        if self.planes.is_none() || !self.across_planes(source, target) {
+            return Ok(None);
+        }
+        if !self.reaches_across(source) && !self.glimpses(source, target) {
+            return Err(());
+        }
+        let actor = &self.actors[&source];
+        let plane = self.world.plane_of(self.actors[&target].location.region);
+        let (location, rotation) = self.world.counterpart(actor.location, plane).ok_or(())?;
+        Ok(Some(Placement {
+            location,
+            orientation: compose_rotation(actor.orientation, rotation),
+        }))
+    }
+
+    /// Actors an observer perceives on other planes as if they stood on its
+    /// own: what a cross-plane striker sees through its channels, and what it
+    /// glimpses. Each row is one target body cell at its counterpart location
+    /// on the observer's plane.
+    pub(crate) fn cross_plane_rows(&self, id: ActorId) -> Vec<(ActorId, Location)> {
+        let Some(state) = self.planes.as_ref() else {
+            return Vec::new();
+        };
+        let Some(actor) = self.actors.get(&id) else {
+            return Vec::new();
+        };
+        let own = self.world.plane_of(actor.location.region);
+        let mut targets: std::collections::BTreeSet<ActorId> =
+            state.glimpses.get(&id).cloned().unwrap_or_default();
+        if self.reaches_across(id) {
+            for view in self.plane_channel_views(id) {
+                targets.extend(view.actors.iter().map(|seen| seen.actor));
+            }
+        }
+        let mut rows = Vec::new();
+        for target in targets {
+            let Some(subject) = self.actors.get(&target).filter(|subject| subject.alive()) else {
+                continue;
+            };
+            if self.world.plane_of(subject.location.region) == own {
+                continue;
+            }
+            let Some(cells) = self.body_cells(subject.location, subject.orientation, &subject.body)
+            else {
+                continue;
+            };
+            for (location, _) in cells {
+                if let Some((mapped, _)) = self.world.counterpart(location, own) {
+                    rows.push((target, mapped));
+                }
+            }
+        }
+        rows
+    }
+
+    /// Whether a strike from `actor` passes harmlessly through `target`: the
+    /// target is on another plane, the striker does not reach across by its
+    /// own nature, and its weapon is not magical.
+    pub(crate) fn strike_intangible(
+        &self,
+        actor: ActorId,
+        target: ActorId,
+        weapon: &crate::abilities::FrozenWeaponSelection,
+    ) -> bool {
+        self.across_planes(actor, target)
+            && !self.reaches_across(actor)
+            && !matches!(weapon, crate::abilities::FrozenWeaponSelection::Equipped { item, .. } if self.is_magical(*item))
+    }
+
+    /// Whether an item harms creatures on another plane: authored as magical,
+    /// or carrying a hit or damage enchantment, judged on its actual state.
+    pub fn is_magical(&self, item: crate::ItemId) -> bool {
+        self.items.get(&item).is_some_and(|item| {
+            item.spec.magical
+                || item.condition.hit_enchantment != 0
+                || item.condition.damage_enchantment != 0
         })
     }
 

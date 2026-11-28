@@ -1431,6 +1431,25 @@ impl Game {
                 .collect(),
             plane: self.plane_observation(id),
         };
+        if self.planes.is_some() {
+            // Actors on other planes perceived as if here: a cross-plane
+            // striker's channel sight and glimpses.
+            for (other_id, location) in self.cross_plane_rows(id) {
+                if !cells.contains(&location) {
+                    continue;
+                }
+                let other = &self.actors[&other_id];
+                view.visible_actors.push(ActorView {
+                    presentation: None,
+                    disclosure: crate::perception::ActorDisclosure::Creature,
+                    name: projected_actor_name(actor, other).to_owned(),
+                    id: other_id,
+                    location,
+                    asset: other.current_body_asset(),
+                    worn: self.worn_view(other),
+                });
+            }
+        }
         self.apply_hallucinated_presentation(&mut view, sight)?;
         Ok(view)
     }

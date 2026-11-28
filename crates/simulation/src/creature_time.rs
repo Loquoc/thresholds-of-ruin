@@ -145,6 +145,7 @@ impl Game {
                 .creature();
             let snapshot = crate::abilities::Snapshot::capture(creature).with_context(
                 crate::abilities::ResolutionContext {
+                    intangible: false,
                     target_recovery_context: context,
                     ..Default::default()
                 },
