@@ -101,14 +101,14 @@ recipe = "caves.rooms"
 domain = {kind = "seeded_finite", min = 2, max = 6}
 [stair_pairs."caves.entry"]
 upper = "1/descent"
-lower = "2/up"
+lower = "3/up"
 ''', encoding="utf-8")
         checked = self.compiler("check", str(package))
         self.assertEqual(checked.returncode, 0, checked.stderr)
         validated = self.compiler("validate", str(package))
         self.assertEqual(validated.returncode, 0, validated.stderr)
-        # The engine assigns the family the block after authored region 1.
-        self.assertFalse((package / "regions/2.toml").exists())
+        # The engine assigns the family the block after authored regions 1 and 2.
+        self.assertFalse((package / "regions/3.toml").exists())
         self.server(scenario=package)
         _, ready = self.client()
         self.assertIsNone(ready.get("error"))
