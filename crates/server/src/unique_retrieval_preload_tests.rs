@@ -11,7 +11,6 @@ fn preload_fixture() -> (Scenario, u64, u64) {
     });
     let original = scenario.package.as_ref().unwrap();
     let mut source = serde_json::to_value(&original.manifest).unwrap();
-    source["procedural_worlds"]["dungeon"]["base_region"] = json!(100);
     source["procedural_worlds"]["dungeon"]["grid"] = json!([1, 1]);
     source["characters"][0]["anchor"] = json!("1/start");
     let empty = |offset| {

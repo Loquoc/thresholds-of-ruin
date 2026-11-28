@@ -17,6 +17,6 @@
     "scripts/outcome.luau": "5225e0891b07a3f30f6c5b7c043de901a73e37d62a2a87c7c173ef3b71f2b664"
   },
   "regions": 0,
-  "model_hash": "b3a3c6124a6fdef0874babc0e96ec98dd442fb1936ffba4e7a1db0ad6b9c0395",
+  "model_hash": "add90de813fda696e2e54511331227605f6496b4849b5c7c7839bb43059492df",
   "coverage": "all authored regions and character starts; descriptor structural bounds; deterministic sampled groups at seeds 0, 1, 42 under explicit work budget; no all-seed or winnability proof"
 }
