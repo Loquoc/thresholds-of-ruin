@@ -1787,7 +1787,7 @@ fn paid_generated_room_light(maze: bool) {
     .to_recipe()
     .unwrap();
     manifest["generation_recipes"] = json!({"room":recipe});
-    manifest["procedural_worlds"] = json!({"dungeon":{"kind":"grid_chain","version":1,"base_region":1,"grid":[2,1],"size":[32,32,2],"recipe":"room","domain":{"kind":"open","max_depth":2}}});
+    manifest["procedural_worlds"] = json!({"dungeon":{"kind":"grid_chain","version":1,"grid":[2,1],"size":[32,32,2],"recipe":"room","domain":{"kind":"open","max_depth":2}}});
     let rules = toml::to_string(source.rules().unwrap().document()).unwrap();
     let package = Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),

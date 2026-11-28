@@ -253,7 +253,19 @@ impl Canvas {
             .attack_targets
             .get(app.selected)
             .map(|actor| (actor.position.x, actor.position.y));
-        for tile in map_tiles(state, &app.palette) {
+        let tiles = map_tiles(state, &app.palette);
+        // Another plane's echo fills only columns this plane leaves empty.
+        let occupied: std::collections::BTreeSet<_> = tiles
+            .iter()
+            .map(|tile| (tile.position.x, tile.position.y))
+            .collect();
+        for echo in map::echo_tiles(o, &occupied) {
+            let x = echo.center.0 - map::STEP / 2;
+            let y = echo.center.1 - map::STEP / 2;
+            self.rect(x, y, map::STEP - 1, map::STEP - 1, 0x10141a);
+            self.text(x + 1, y + 1, &echo.glyph.to_string(), echo.color, 2, 1);
+        }
+        for tile in tiles {
             let column = (tile.position.x, tile.position.y);
             let selected = cursor
                 .filter(|(c, _)| (c.x, c.y) == column)

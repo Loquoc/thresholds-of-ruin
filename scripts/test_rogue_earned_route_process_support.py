@@ -2422,8 +2422,42 @@ class RouteResumeHardeningTests(unittest.TestCase):
             old = (prior / 'package' / name).read_bytes()
             expected = old.replace(b'interactions-v72', b'interactions-v73', 1) if name == 'rules.toml' else old
             self.assertEqual((current / 'package' / name).read_bytes(), expected)
+
+    def test_current_baseline_v48_drops_only_the_authored_family_block(self):
+        import hashlib
+        from arena_evaluation import files
+        from process_harness import ROOT
+        prior = ROOT / 'scripts/fixtures/rogue-earned-baseline-v47'
+        current = prior.with_name('rogue-earned-baseline-v48')
+        before = json.loads((prior / 'source.json').read_bytes())
+        source = json.loads((current / 'source.json').read_bytes())
+        raw = (current / 'format-transition.json').read_bytes()
+        transition = json.loads(raw)
+        self.assertEqual(files(prior / 'package'), before['package_inputs'])
+        self.assertEqual(files(current / 'package'), source['package_inputs'])
+        self.assertEqual(transition['previous_source_sha256'],
+                         hashlib.sha256((prior / 'source.json').read_bytes()).hexdigest())
+        for key in ('package_inputs', 'rules_dependencies', 'reference'):
+            self.assertEqual(transition['previous_' + key], before[key])
+        self.assertEqual((transition['previous_snapshot'], transition['current_snapshot']),
+                         (prior.name, current.name))
+        self.assertEqual(source['rules_dependencies'], before['rules_dependencies'])
+        self.assertTrue(source['reference'].startswith(before['reference'] + '; '))
+        self.assertTrue(source['reference'].endswith('transition-sha256:' + hashlib.sha256(raw).hexdigest()))
+        self.assertIn('compiler and route qualification pending', source['reference'])
+        self.assertIn('source bytes only', transition['only_transformation'])
+        # The engine assigns family identity blocks; the package has no authored
+        # regions, so the family keeps block 1 and only the manifest line goes.
+        self.assertEqual(set(source['package_inputs']), set(before['package_inputs']))
+        for name in source['package_inputs']:
+            old = (prior / 'package' / name).read_bytes()
+            if name == 'scenario.toml':
+                self.assertEqual(old.count(b'\nbase_region = 1\n'), 1)
+                old = old.replace(b'\nbase_region = 1\n', b'\n', 1)
+            self.assertEqual((current / 'package' / name).read_bytes(), old, name)
+        self.assertFalse((prior / 'package/regions').exists())
         loader = (ROOT / 'scripts/test_rogue_earned_route_process.py').read_text()
-        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v47'", loader)
+        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v48'", loader)
 
     def test_artifact_capacity_is_infrastructure_not_controller_failure(self):
         self.assertEqual(classify_failure(ValueError('JSON artifact exceeds bounded size')),

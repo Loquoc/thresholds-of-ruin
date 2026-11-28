@@ -106,6 +106,14 @@ pub enum PlannedEffect {
     RestoreHitDie,
     TeleportRandom,
     TeleportToRayOrigin,
+    /// Deferred like theft: applied after the batch resolves.
+    PlaneShift {
+        plane: String,
+        returns: crate::planes::ReturnPolicy,
+        duration: Option<std::num::NonZeroU64>,
+        #[serde(default)]
+        reveals: bool,
+    },
     RoomLight,
     DetectMonsters {
         id: ConditionId,
@@ -984,7 +992,9 @@ pub(crate) fn effects_valid(effects: &[PlannedEffect], rules: &crate::rules::Rul
             || !effects.iter().any(|effect| {
                 matches!(
                     effect,
-                    PlannedEffect::TeleportRandom | PlannedEffect::TeleportToRayOrigin
+                    PlannedEffect::TeleportRandom
+                        | PlannedEffect::TeleportToRayOrigin
+                        | PlannedEffect::PlaneShift { .. }
                 )
             }))
         && (effects.len() == 1
@@ -1000,6 +1010,7 @@ pub(crate) fn effects_valid(effects: &[PlannedEffect], rules: &crate::rules::Rul
         && effects.iter().all(|effect| match effect {
             PlannedEffect::BalefulPolymorph { forms } => crate::rules::valid_body_forms(forms),
             PlannedEffect::Theft { theft } => theft.valid(),
+            PlannedEffect::PlaneShift { plane, .. } => crate::planes::valid_plane_name(plane),
             PlannedEffect::AlterEquipment { alteration } => alteration.valid(rules),
             PlannedEffect::CorrodeArmor { slot, amount } => {
                 rules.equipment_slot(slot).is_some()
@@ -1186,6 +1197,25 @@ pub(super) fn effects_match_definition_scoped(
                     Effect::BalefulPolymorph { forms },
                     PlannedEffect::BalefulPolymorph { forms: captured },
                 ) => forms == captured,
+                (
+                    Effect::PlaneShift {
+                        plane,
+                        returns,
+                        duration,
+                        reveals,
+                    },
+                    PlannedEffect::PlaneShift {
+                        plane: captured,
+                        returns: captured_returns,
+                        duration: captured_duration,
+                        reveals: captured_reveals,
+                    },
+                ) => {
+                    plane == captured
+                        && returns == captured_returns
+                        && duration == captured_duration
+                        && reveals == captured_reveals
+                }
                 (Effect::TeleportRandom, PlannedEffect::TeleportRandom)
                 | (Effect::TeleportToRayOrigin, PlannedEffect::TeleportToRayOrigin)
                 | (Effect::RoomLight, PlannedEffect::RoomLight)
@@ -1652,6 +1682,17 @@ impl Game {
                 Effect::RestoreHitDie => Ok(PlannedEffect::RestoreHitDie),
                 Effect::TeleportRandom => Ok(PlannedEffect::TeleportRandom),
                 Effect::TeleportToRayOrigin => Ok(PlannedEffect::TeleportToRayOrigin),
+                Effect::PlaneShift {
+                    plane,
+                    returns,
+                    duration,
+                    reveals,
+                } => Ok(PlannedEffect::PlaneShift {
+                    plane: plane.clone(),
+                    returns: *returns,
+                    duration: *duration,
+                    reveals: *reveals,
+                }),
                 Effect::RoomLight => Ok(PlannedEffect::RoomLight),
                 Effect::DetectMonsters { condition } => {
                     let turn_ticks = self
@@ -1919,6 +1960,14 @@ impl<'de> Deserialize<'de> for PlannedEffect {
             RestoreHitDie {},
             TeleportRandom {},
             TeleportToRayOrigin {},
+            PlaneShift {
+                plane: String,
+                returns: crate::planes::ReturnPolicy,
+                #[serde(deserialize_with = "crate::bounded::required_option")]
+                duration: Option<std::num::NonZeroU64>,
+                #[serde(default)]
+                reveals: bool,
+            },
             RoomLight {},
             DetectMonsters {
                 id: ConditionId,
@@ -2021,6 +2070,17 @@ impl<'de> Deserialize<'de> for PlannedEffect {
             Fields::RestoreHitDie {} => Self::RestoreHitDie,
             Fields::TeleportRandom {} => Self::TeleportRandom,
             Fields::TeleportToRayOrigin {} => Self::TeleportToRayOrigin,
+            Fields::PlaneShift {
+                plane,
+                returns,
+                duration,
+                reveals,
+            } => Self::PlaneShift {
+                plane,
+                returns,
+                duration,
+                reveals,
+            },
             Fields::RoomLight {} => Self::RoomLight,
             Fields::DetectMonsters { id, turn_ticks } => Self::DetectMonsters { id, turn_ticks },
             Fields::DetectFood {} => Self::DetectFood,

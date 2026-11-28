@@ -1,0 +1,18 @@
+{
+  "validator": "tor-scenario-52",
+  "ruleset": "interactions-v73",
+  "ruleset_hash": "6a817a67e6196d5bce977123acc1f1643916cb5d6050afb954910b0dea20b765",
+  "ruleset_dependencies": {
+    "interactions-v73": "88f4420962d955ad49de5812e186badf7c8e31c2d1f5e12a7feed32314698b62"
+  },
+  "content_hash": "099041f279a640a9165766cd97f983ffd3ce0add93e0e6935fa6291588e54df5",
+  "files": {
+    "index.json": "d7df41c6aa73f3112fb49d1d78e0f50720ce7626ae9b5646312f78c23491af92",
+    "rules.toml": "674004494f9d06675f7c845b0427f1cf0796ee280a9d165fe7536bfc3158909b",
+    "scenario.toml": "fa4c094e3b1f1d9f9a2f1aa4b6e31fe6b585a67e98d2dcc265b64e95194ac83d",
+    "scripts/veil.luau": "e4d448b196b5cda649709d85b681e884bbc1c48298eb616405b7119d940cc662"
+  },
+  "regions": 2,
+  "model_hash": "da6e1ee08046873741ccd9d22a42d93b5d9a8e167a874aa8281cd5135fc07548",
+  "coverage": "all authored regions and character starts; descriptor structural bounds; deterministic sampled groups at seeds 0, 1, 42 under explicit work budget; no all-seed or winnability proof"
+}

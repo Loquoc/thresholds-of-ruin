@@ -453,6 +453,17 @@ fn effects(values: &[Effect], rules: &s::rules::Ruleset) -> Result<Vec<s::rules:
                 Effect::StepSelfOneCell => s::rules::Effect::StepSelfOneCell,
                 Effect::TeleportRandom => s::rules::Effect::TeleportRandom,
                 Effect::TeleportToRayOrigin => s::rules::Effect::TeleportToRayOrigin,
+                Effect::PlaneShift {
+                    plane,
+                    returns,
+                    duration,
+                    reveals,
+                } => s::rules::Effect::PlaneShift {
+                    plane: plane.clone(),
+                    returns: *returns,
+                    duration: *duration,
+                    reveals: *reveals,
+                },
                 Effect::ArrestDescent => s::rules::Effect::ArrestDescent,
                 Effect::PushTargetOneCell { direction } => s::rules::Effect::PushTargetOneCell {
                     direction: match direction {

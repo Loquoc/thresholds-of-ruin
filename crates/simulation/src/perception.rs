@@ -796,6 +796,19 @@ impl Game {
         let Some(target) = self.actors.get(&subject) else {
             return Ok(ActorDisclosure::Hidden);
         };
+        if self.planes.is_some() && self.across_planes(observer, subject) {
+            // Across planes only a cross-plane striker's channel sight or a
+            // glimpse discloses a creature.
+            let perceived = self
+                .cross_plane_rows(observer)
+                .iter()
+                .any(|(seen, _)| *seen == subject);
+            return Ok(if perceived {
+                ActorDisclosure::Creature
+            } else {
+                ActorDisclosure::Hidden
+            });
+        }
         let Some(body) = self.body_cells(target.location, target.orientation, &target.body) else {
             return Ok(ActorDisclosure::Hidden);
         };

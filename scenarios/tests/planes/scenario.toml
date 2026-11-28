@@ -1,0 +1,45 @@
+# Coexisting planes: two material chambers with derived Ethereal
+# counterparts. Waiting at the altar shifts the character. Validate after
+# every edit.
+format = 38
+id = "planes"
+version = "1.0"
+ruleset = "rules.toml"
+default_character = 1
+themes = ["stone"]
+archetypes = { "incense" = { class = "potion", name = "veil incense", identity = "item.potion.veil-incense", consumable = { effects = [{ kind = "plane_shift", plane = "ethereal", returns = "action", duration = 2000 }] } } }
+factions = { pilgrims = [] }
+characters = [{ id = 1, anchor = "1/start", turn_ticks = 100, creature = { corpse_identity = "item.corpse.persona.pilgrim", species = "pilgrim", name = "pilgrim", faction = "pilgrims", binding = "willpower", hit_dice = [{ source = "racial", purchases = [] }], starting_skills = ["discipline", "lore"], restoration = "choose_again", nutrition = { kind = "exempt" } } }]
+
+# A plain humanoid who can drink and needs no food.
+[creatures.species.pilgrim]
+behavior = { disposition = "mean", idle = "explore", memory_ticks = 1000 }
+kind = "humanoid"
+attributes = { strength = 0, speed = 0, intellect = 0, willpower = 0, awareness = 0, presence = 0 }
+melee = { skill = "heavy_weaponry", bonus = 0, wind_up = 20, recovery = 80, strikes = [{ offset = 0, check = { actor = "user", skill = { kind = "selected_weapon" }, against = { kind = "defense", defense = "physical" } }, on_success = [{ kind = "damage", damage = { kind = "components", components = [{ category = "impact", amount = { kind = "fixed", amount = 4 } }] } }], on_failure = [], descriptors = [], riders = [] }] }
+modifiers = [{ scope = "always", op = { kind = "add", stat = { kind = "health" }, value = 12 } }]
+
+[planes.ethereal]
+mysterious = "a grey, sourceless mist in which walls are only suggestions"
+revealed = "the Border Ethereal"
+lore_dc = 14
+gravity = [0, 0, 0]
+movement_modes = [{ mode = "ether_glide", check = { skill = "discipline", dc = 15 } }]
+channels = [{ to = "material", range = 12 }]
+derive = [{ from = 1, id = 1001 }, { from = 2, id = 1002, volume = { min = [0, 0, 0], max = [3, 2, 1] } }]
+
+[scripting]
+scripts = ["scripts/veil.luau"]
+
+[[scripting.hooks]]
+on = "waited"
+anchor = "1/altar"
+handler = "veil.altar"
+
+[[scripting.hooks]]
+on = "plane_shifted"
+handler = "veil.shifted"
+
+[[scripting.hooks]]
+on = "plane_shift_blocked"
+handler = "veil.blocked"

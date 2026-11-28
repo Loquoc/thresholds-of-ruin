@@ -1,11 +1,22 @@
 # Coexisting planes
 
-**Status: proposed design, not an authorized milestone.** This plan records the
-design decisions for coexisting planes (the Ethereal Plane first; later the Plane
-of Shadow, Shadesmar and others) and the generator identity change they depend
-on. Each milestone below still needs the maintainer's explicit authorization.
-The maintainer has authorized the compatibility break in
-[milestone 4](#generator-identity-blocks) (removing `base_region`).
+**Status: accepted and implemented.** This plan records the design
+decisions for coexisting planes (the Ethereal Plane first; later the Plane of
+Shadow, Shadesmar and others) and the generator identity change they depend on.
+The maintainer authorized implementing the plan, including the format and
+protocol version changes it needs and the compatibility break in
+[milestone 4](#generator-identity-blocks) (removing `base_region`). All four
+milestones are implemented; the [planes reference](../reference/planes.md) and
+[generation reference](../reference/generation.md#identity-blocks) own their
+behavior. Implementation choices that differ from the text below: cross-plane
+reach is declared on the plane per species (`cross_plane_reach`) rather than as
+a creature ability; the same place counts as contact across planes; natives
+live in authored plane regions, because derived regions hold no actors; the
+ghost's glimpse uses `cross_plane_struck`; a family's entity identities follow
+from its region block (each region's 256-wide range) rather than a separately
+requested entity block; family shadows are stored as overlap ranges and copy
+no group joins; and the assigned blocks are recorded in each save's package
+copy rather than a separate table.
 
 ## Model
 

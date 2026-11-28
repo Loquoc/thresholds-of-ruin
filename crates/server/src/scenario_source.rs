@@ -331,6 +331,34 @@ pub fn resolve_source(root: &Path) -> Result<ResolvedSource, Failure> {
     // Even an explicitly empty modules list must be removed from the pinned DTO.
     let mut manifest: Manifest = parse(&root_text, "scenario.toml")?;
     check_manifest_header(&manifest)?;
+    // Place generator blocks as package assembly does: above every region
+    // file and plane region. Assembly keeps blocks already placed here.
+    let highest = std::fs::read_dir(root.join("regions"))
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .ok()?
+                .path()
+                .file_stem()?
+                .to_str()?
+                .parse::<u64>()
+                .ok()
+        })
+        .chain(manifest.planes.values().flat_map(|plane| {
+            plane
+                .regions
+                .iter()
+                .copied()
+                .chain(plane.derive.iter().map(|derive| derive.id))
+        }))
+        .max()
+        .unwrap_or(0);
+    crate::procedural_world::assign_family_blocks(
+        &mut manifest.procedural_worlds,
+        highest.saturating_add(1),
+        &super::planes::family_shadow_counts(&manifest.planes),
+    )?;
     let mut provenance: BTreeMap<String, String> = root_catalogs
         .into_iter()
         .map(|(id, field)| (format!("{field}.{id}"), "scenario.toml".into()))
@@ -809,7 +837,6 @@ extra_connections = [0, 1]
 [procedural_worlds."demo.caves"]
 kind = "grid_chain"
 version = 1
-base_region = 100
 size = [12, 10, 2]
 grid = [1, 1]
 recipe = "demo.rooms"
@@ -854,7 +881,6 @@ lower = "100/up"
 [procedural_worlds."demo.caves"]
 kind = "grid_chain"
 version = 1
-base_region = 100
 size = [12, 10, 2]
 grid = [1, 1]
 recipe = "demo.missing"

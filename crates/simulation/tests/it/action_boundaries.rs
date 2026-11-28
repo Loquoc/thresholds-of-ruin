@@ -83,7 +83,8 @@ fn every_actor_applies_effects_before_recovery_and_uses_the_same_scheduler() {
                 | Action::ChooseIntellectExpertise { .. }
                 | Action::Purchase { .. }
                 | Action::ChooseGrowthSource { .. }
-                | Action::Respec { .. } => {
+                | Action::Respec { .. }
+                | Action::ReturnPlane => {
                     unreachable!("tested separately")
                 }
                 Action::Wait => assert_eq!(outcome.kind, OutcomeKind::Waited),

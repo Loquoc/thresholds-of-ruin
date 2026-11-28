@@ -586,6 +586,9 @@ impl Game {
         // or Drain). Downstream receipt checks and rider accounting must use
         // the committed outcome, while preserving branch/check budget metadata.
         result.outcome = self.published_resolution(receipt)?.clone();
+        if let Some(shift) = result.deferred_plane_shift.take() {
+            self.apply_planned_plane_shift(target, &shift)?;
+        }
         Ok((result, receipt))
     }
     #[allow(clippy::too_many_arguments)]
@@ -695,6 +698,9 @@ impl Game {
         // Publication finalizes staged effects (including Polymorph) before
         // receipt consumers compare the authoritative outcome.
         let outcome = self.published_resolution(receipt)?.clone();
+        if let Some(shift) = result.deferred_plane_shift.take() {
+            self.apply_planned_plane_shift(target, &shift)?;
+        }
         self.seal_participant_events()?;
         self.provoke_from_strike(&outcome, receipt, awareness)?;
         Ok(outcome)
@@ -715,7 +721,16 @@ impl Game {
         target: crate::ActorId,
         reading: bool,
     ) -> Result<ResolutionContext, GameError> {
+        let intangible = match plan {
+            ResolutionPlan::Ability(ability)
+            | ResolutionPlan::Strike { ability, .. }
+            | ResolutionPlan::Rider { ability, .. } => {
+                self.strike_intangible(actor, target, &ability.weapon)
+            }
+            _ => false,
+        };
         Ok(ResolutionContext {
+            intangible,
             hold_damage: None,
             spatial: None,
             relocation: self.relocation_resolution_input(plan, target, reading)?,
@@ -889,6 +904,9 @@ impl Game {
         }
         self.consume_resistance_tokens(&resolved.resistance_tokens)?;
         self.apply_outcome(outcome)?;
+        if let Some(shift) = &resolved.deferred_plane_shift {
+            self.apply_planned_plane_shift(target, shift)?;
+        }
         Ok(hit)
     }
     /// No fabricated delivery attack: the payload has already reached this actor.
@@ -930,7 +948,11 @@ impl Game {
             crate::lifecycle::ResolutionPublication::Standalone,
             &mut crate::lifecycle::DamageActivityGuard::default(),
         )?;
-        Ok(self.published_resolution(receipt)?.result == OutcomeStatus::Applied)
+        let applied = self.published_resolution(receipt)?.result == OutcomeStatus::Applied;
+        if let Some(shift) = &resolved.deferred_plane_shift {
+            self.apply_planned_plane_shift(actor, shift)?;
+        }
+        Ok(applied)
     }
     /// The caller has validated and spent the exact finite source in this same
     /// transaction. The frozen effects do not depend on that deleted item.
@@ -999,7 +1021,7 @@ impl Game {
                 .iter()
                 .any(|effect| matches!(effect, PlannedEffect::ArrestDescent)),
         )?;
-        let mut outcome = resolved.outcome;
+        let mut outcome = resolved.outcome.clone();
         let flow = crate::survival_diagnostics::SurvivalFlows {
             incomplete: observer.incomplete,
             nourishment_offered: observer.offered,
@@ -1016,6 +1038,9 @@ impl Game {
         )?;
         let outcome = self.published_resolution(receipt)?.clone();
         self.record_survival(plan.target(), &flow);
+        if let Some(shift) = &resolved.deferred_plane_shift {
+            self.apply_planned_plane_shift(plan.target(), shift)?;
+        }
         crate::detection_lifecycle::ItemCompletion::new(outcome, receipt.chart_completion())
     }
 }

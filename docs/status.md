@@ -22,13 +22,15 @@ running fresh integration and requiring both platform gates. See the
 for measured run time, not projected savings. Narrower domain-specific test
 selection remains future work.
 
-**Current formats:** protocol **77**, save format **75**, scenario format **38**,
+**Current formats:** protocol **78**, save format **75**, scenario format **38**,
 ruleset **`interactions-v73`**, scenario validator **`tor-scenario-52`**.
 Unsupported identities are rejected rather than migrated. Save format 75 pins
 random teleport scroll replay on authored levels and retains the verified host
 rollback records from the prior archive.
-Identification results remain available in the turn and History. Protocol 77
-delivers the rollback reason in the owner's failed-action update. Rules-identity
+Identification results remain available in the turn and History. Protocol 78
+adds the `return_plane` action and `plane_returned` event for
+[coexisting planes](reference/planes.md), and still delivers the rollback
+reason in the owner's failed-action update. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
 change with a deterministic rules correction. The current rules change admits hostile first-body devices with identified type and
@@ -54,6 +56,7 @@ grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 | Effect presentation | Authoritative ray/projectile paths and target-local events, instantaneous timing and semantic appearance, frozen observer permissions, keyed ordered-outcome rendering, and private actor-active status snapshots; public sustained-area lifecycle remains future work | [Protocol](reference/protocol.md) |
 | Advancement | Ordinary purchases/respec, fixed choices, expertise and retained Intellect learning, earned XP, body/personal ownership, drain/restoration | [Progression](reference/progression.md), [player controls](play/advancement.md) |
 | World | Region-local 3D geometry, 24 portal rotations, finite volumes, multi-cell bodies, gravity, cardinal/diagonal movement, doors and paired stairs | [Geometry](architecture/geometry.md), [movement](reference/movement.md) |
+| Planes | Coexisting planes: overlaps and overlap ranges, authored, derived and generated-family plane regions, overlap-group residency, shifting with stays and returns, the `plane_shift` effect, plane movement modes, perception channels, plane knowledge, cross-plane strikes and glimpses, and engine-assigned family identity blocks | [Planes](reference/planes.md), [plan](plans/planes.md) |
 | Perception and AI | Illuminated eye-based sight, awareness/contact, checked private discovery/guise recognition, remembered navigation and bounded knowledge-limited tactics | [Perception](architecture/perception.md), [AI](reference/ai.md) |
 | Regions | Lazy authored/generated content, active/frozen/detached state, no frozen-time catch-up, load-only spatial preparation and first-entry activation | [Streaming](architecture/streaming.md), [spatial registry](architecture/spatial-registry.md) |
 | Sessions and storage | Authenticated loopback WebSockets, bounded save-deferred ingress, ordered causal outcomes separate from demand-driven pictures, journaling, durability barriers, checkpoints/replay and bounded wizard rewind | [Wire lifecycle](reference/protocol-lifecycle.md), [protocol](reference/protocol.md), [persistence](architecture/persistence.md) |

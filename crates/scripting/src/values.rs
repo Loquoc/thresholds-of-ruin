@@ -164,6 +164,21 @@ pub fn fact(lua: &Lua, fact: &HookFact) -> mlua::Result<Table> {
         }
         FactSubject::Region { region } => table.set("region", id("region", region.0))?,
         FactSubject::Escaped { at } => table.set("at", cell(lua, *at)?)?,
+        FactSubject::PlaneShifted {
+            from,
+            to,
+            from_plane,
+            to_plane,
+        } => {
+            table.set("from", cell(lua, *from)?)?;
+            table.set("to", cell(lua, *to)?)?;
+            table.set("from_plane", from_plane.as_str())?;
+            table.set("plane", to_plane.as_str())?;
+        }
+        FactSubject::PlaneShiftBlocked { at, plane } => {
+            table.set("at", cell(lua, *at)?)?;
+            table.set("plane", plane.as_str())?;
+        }
         FactSubject::Timer { timer, arg } => {
             table.set("timer", id("timer", timer.0))?;
             table.set("arg", *arg as f64)?;

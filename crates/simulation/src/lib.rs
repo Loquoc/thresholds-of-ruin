@@ -66,6 +66,7 @@ pub mod abilities;
 pub mod action_duration;
 mod actions;
 mod input_basis;
+pub mod planes;
 pub mod scripting;
 pub use input_basis::InputBasis;
 mod human_operands;
@@ -336,6 +337,8 @@ pub enum Action {
         quantity: Option<u64>,
     },
     Wait,
+    /// Return to the home plane, when the actor's stay offers it.
+    ReturnPlane,
 }
 impl<'de> serde::Deserialize<'de> for Action {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -428,6 +431,7 @@ impl<'de> serde::Deserialize<'de> for Action {
                 quantity: Option<u64>,
             },
             Wait,
+            ReturnPlane,
         }
         Ok(match bounded::named_map(deserializer)? {
             Fields::Escape { hold } => Self::Escape { hold },
@@ -474,6 +478,7 @@ impl<'de> serde::Deserialize<'de> for Action {
             Fields::Take { item, quantity } => Self::Take { item, quantity },
             Fields::Drop { item, quantity } => Self::Drop { item, quantity },
             Fields::Wait => Self::Wait,
+            Fields::ReturnPlane => Self::ReturnPlane,
         })
     }
 }
@@ -509,6 +514,10 @@ pub enum GameError {
     Occupied,
     Blocked,
     StepNeedsSupport,
+    /// A plane shift has no counterpart, or the body would not fit there.
+    PlaneShiftBlocked,
+    /// The actor is not away from home, or its stay offers no return action.
+    NoPlaneReturn,
     StairsWhileLevitating,
     /// No distinction between unknown, hidden, carried, and out-of-reach items.
     ItemUnavailable,
@@ -528,6 +537,11 @@ pub enum GameError {
 pub enum OutcomeKind {
     TrapExamined {
         trap: u64,
+    },
+    /// The actor returned to its home plane.
+    PlaneReturned {
+        from: Location,
+        to: Location,
     },
     IdentificationResolved {
         choice: IntentionId,
@@ -758,6 +772,8 @@ pub struct Game {
     trap_resolution: Option<traps::TrapResolution>,
     body_return_finalization: polymorph::BodyReturnFinalization,
     host_region_continuation: bool,
+    /// Plane rules and stays; `None` for games that declare no planes.
+    planes: Option<planes::PlaneState>,
     /// Persisted scenario script values; `None` for unscripted games.
     script: Option<scripting::ScriptState>,
     /// Derived bit per bound hook kind; zero makes every fact site one branch.
@@ -810,6 +826,7 @@ impl Clone for Game {
             trap_resolution: self.trap_resolution.clone(),
             body_return_finalization: self.body_return_finalization.clone(),
             host_region_continuation: self.host_region_continuation,
+            planes: self.planes.clone(),
             script: self.script.clone(),
             hook_mask: self.hook_mask,
             hook_port: self.hook_port.clone(),
@@ -995,6 +1012,7 @@ impl Game {
             trap_resolution: None,
             body_return_finalization: Default::default(),
             host_region_continuation: false,
+            planes: None,
             script: None,
             hook_mask: 0,
             hook_port: Default::default(),

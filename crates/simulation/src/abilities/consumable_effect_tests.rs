@@ -127,6 +127,7 @@ fn relocation_selects_one_live_candidate_and_empty_destination_is_not_a_success(
     let mut expected_rng = 42;
     let index = (crate::dice::random_word(&mut expected_rng) % destinations.len() as u64) as usize;
     let context = super::ResolutionContext {
+        intangible: false,
         relocation: Some(super::resolve::RelocationInput {
             from,
             destinations: destinations.clone(),
@@ -157,6 +158,7 @@ fn relocation_selects_one_live_candidate_and_empty_destination_is_not_a_success(
         }]
     );
     let context = super::ResolutionContext {
+        intangible: false,
         relocation: Some(super::resolve::RelocationInput {
             from,
             destinations: vec![],
@@ -201,6 +203,7 @@ fn exact_relocation_never_draws_or_substitutes_a_nearby_destination() {
     };
     let effects = [PlannedEffect::TeleportToRayOrigin];
     let context = super::ResolutionContext {
+        intangible: false,
         relocation: Some(super::resolve::RelocationInput {
             from,
             destinations: vec![to],

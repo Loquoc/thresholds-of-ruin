@@ -42,6 +42,9 @@ pub struct StateDelta {
     pub level_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_item_uses: Vec<KnownItemUse>,
+    /// Full replacement of the observer's plane view.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane: Option<crate::PlaneView>,
     /// Exact visual allocation this delta was derived from, independent of revisions.
     pub base_snapshot: SnapshotId,
     /// Destination visual identity, retained exactly after reconstruction.
@@ -231,6 +234,7 @@ impl StateDelta {
             snapshot: next.snapshot.clone(),
             level_name: observation.level_name.clone(),
             known_item_uses: observation.known_item_uses.clone(),
+            plane: observation.plane.clone(),
             self_appearance: observation.self_appearance.clone(),
             interactions: observation.interactions.clone(),
             base_revision: base.revision,
@@ -336,6 +340,7 @@ impl StateDelta {
             observation: Observation {
                 level_name: self.level_name,
                 known_item_uses: self.known_item_uses,
+                plane: self.plane,
                 self_appearance: self.self_appearance,
                 interactions: self.interactions,
                 combat: self.combat,

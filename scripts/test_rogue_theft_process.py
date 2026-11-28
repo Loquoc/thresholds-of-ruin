@@ -92,7 +92,7 @@ def theft_package(test, species):
     manifest["generation_recipes"] = {"room": {"kind": "grid_rooms", "version": 1,
         "room_width": [7, 7], "room_height": [5, 5], "extra_connections": [0, 0]}}
     manifest["procedural_worlds"] = {"dungeon": {"kind": "grid_chain", "version": 1,
-        "base_region": 1, "grid": [1, 1], "size": [9, 7, 2], "recipe": "room",
+        "grid": [1, 1], "size": [9, 7, 2], "recipe": "room",
         "domain": {"kind": "open", "max_depth": 2}}}
     choice = {"archetype": "rogue." + species, "weight": 1}
     pools = {}

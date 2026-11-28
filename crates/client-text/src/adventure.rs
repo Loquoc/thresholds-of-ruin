@@ -847,8 +847,48 @@ pub fn describe_place_with(state: &dyn ScenicView, palette: &Palette, places: &P
     about.extend(exit_sentence(state));
     lines.push(prose::paragraph(&about));
     lines.extend(contents(state, palette, &place));
+    lines.extend(plane_lines(&state.current().observation));
     if let Some(warning) = tor_client_common::status::hunger_warning(&state.current().observation) {
         lines.push(warning.description().into());
     }
     lines.join("\n")
+}
+
+/// The observer's plane and what it glimpses of others. Silent on the
+/// material plane when nothing else is seen.
+pub fn plane_lines(o: &Observation) -> Vec<String> {
+    let Some(view) = &o.plane else {
+        return Vec::new();
+    };
+    let mut lines = Vec::new();
+    if !view.echoes.is_empty() || view.plane.description != "the material world" {
+        lines.push(format!("You are in {}.", view.plane.description));
+    }
+    for echo in &view.echoes {
+        let mut sentence = format!("Through it you glimpse {}", echo.plane.description);
+        let mut figures: Vec<(u64, String)> = Vec::new();
+        for actor in &echo.actors {
+            let name = if actor.name.is_empty() {
+                "a figure".to_owned()
+            } else {
+                format!("a {}", actor.name)
+            };
+            let line = format!(
+                "{name} {}",
+                crate::engine::scene::whereabouts(actor.position)
+            );
+            if !figures.iter().any(|(_, seen)| *seen == line) {
+                figures.push((crate::engine::scene::distance(actor.position), line));
+            }
+        }
+        figures.sort();
+        if figures.is_empty() {
+            sentence.push('.');
+        } else {
+            let named: Vec<String> = figures.into_iter().map(|(_, line)| line).collect();
+            sentence.push_str(&format!(": {}.", prose::list(&named, "and")));
+        }
+        lines.push(sentence);
+    }
+    lines
 }

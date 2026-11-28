@@ -39,7 +39,6 @@ extra_connections = [0, 2]
 [procedural_worlds.expedition]
 kind = "grid_chain"
 version = 1
-base_region = 1
 grid = [2, 2]
 size = [12, 7, 2]
 recipe = "caves"
@@ -63,12 +62,23 @@ The three domain variants are:
   continues beyond this budget. An operation requiring generation outside the
   budget fails without committing a partial group or silently creating an endpoint.
 
-Integer depth and region-handle arithmetic is checked. Finite families reserve
-their maximum possible handle interval; open families reserve the representable
-positive `u32` depth interval. Intervals cannot overlap each other or authored
-region IDs. Reserving an interval allocates no region stubs or entity identities.
+### Identity blocks
+
+A family requests an identity block and the engine assigns it; authors never
+write region numbers for generated regions, and a `base_region` field is
+rejected. A finite family requests its maximum possible handle interval; an
+open family requests the representable positive `u32` depth interval, times its
+slots. Blocks are assigned in family-name order, starting just above every
+authored region and plane region, so they never overlap each other or authored
+IDs. The assigned block is recorded in the package copy each save keeps, so a
+save's table stays authoritative when the package is later edited; assignment
+only appends above existing blocks. Reserving a block allocates no region stubs
+or entity identities. A generated region's entities take their identities from
+the region's own 256-wide range, so the region block also fixes the entity
+block. Integer depth and region-handle arithmetic is checked.
+
 For depth `d` and zero-based slot `s`, the stable handle is
-`base_region + (d - 1) * columns * rows + s`. Changing the seed never renumbers a
+`base + (d - 1) * columns * rows + s`, where `base` is the block's first region. Changing the seed never renumbers a
 logical address. `family/1/start` resolves a seed-selected owner and interior
 room cell using independent entry streams. Its room is carved around that
 reserved cell, guaranteeing a safe entry distinct from the stair endpoints.

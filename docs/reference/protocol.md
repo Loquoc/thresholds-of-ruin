@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":77,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":78,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -1468,6 +1468,23 @@ and backend frames are never serialized. Visible actor cells can repeat an actor
 target reference at different observer-relative positions; undisclosed body cells remain hidden.
 Both clients narrate involuntary motion and impact, and the ASCII client draws
 every disclosed height in one map. See [physics](../architecture/geometry.md) for numerical and persistence rules.
+
+## Coexisting planes
+
+In a game that declares [planes](planes.md), observations and deltas carry an
+optional `plane` object; games without planes omit it. `plane.plane` names the
+observer's current plane and each entry of `plane.echoes` is another plane seen
+through a perception channel. A plane is a `{ key, description, known }` record:
+`key` is opaque and stable for one observer, `description` is the mysterious or
+revealed text the observer knows, and `known` says which. Echo `cells` hold
+`{ key, position, wall, material }` rows, positioned like visible cells relative
+to the observer's reference cell and keyed like visible cells. Echo `actors` hold
+`{ position, name }` rows with public names only. Echo rows never belong to the
+observer's own plane and never replace its visible cells. A delta replaces the
+whole `plane` object.
+
+The `return_plane` action returns an actor to its home plane when its stay
+offers it; its history event is `plane_returned`.
 
 ### Ordinary Hit Dice summary
 

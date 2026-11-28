@@ -67,10 +67,16 @@ pub enum HookKind {
     RegionFirstVisit,
     /// An actor took a scenario exit, such as Rogue's level-1 up-stairs.
     Escaped,
+    /// An actor moved to another plane.
+    PlaneShifted,
+    /// A shift to another plane was rejected; nothing moved.
+    PlaneShiftBlocked,
+    /// A strike from one plane hit a creature on another.
+    CrossPlaneStruck,
 }
 
 impl HookKind {
-    pub const ALL: [HookKind; 11] = [
+    pub const ALL: [HookKind; 14] = [
         Self::RunStarted,
         Self::Timer,
         Self::Moved,
@@ -82,6 +88,9 @@ impl HookKind {
         Self::Died,
         Self::RegionFirstVisit,
         Self::Escaped,
+        Self::PlaneShifted,
+        Self::PlaneShiftBlocked,
+        Self::CrossPlaneStruck,
     ];
     pub const fn bit(self) -> u64 {
         1 << self as u8
@@ -99,6 +108,9 @@ impl HookKind {
             Self::Died => "died",
             Self::RegionFirstVisit => "region_first_visit",
             Self::Escaped => "escaped",
+            Self::PlaneShifted => "plane_shifted",
+            Self::PlaneShiftBlocked => "plane_shift_blocked",
+            Self::CrossPlaneStruck => "cross_plane_struck",
         }
     }
     pub fn from_id(id: &str) -> Option<Self> {
@@ -121,6 +133,8 @@ impl HookKind {
                     | Self::Died
                     | Self::RegionFirstVisit
                     | Self::Escaped
+                    | Self::PlaneShifted
+                    | Self::PlaneShiftBlocked
             ),
             FilterKey::Item(_) | FilterKey::ItemIdentity(_) => {
                 matches!(self, Self::ItemTaken | Self::ItemDropped)
@@ -223,6 +237,17 @@ pub enum FactSubject {
     },
     Escaped {
         at: Location,
+    },
+    /// Plane names are the package's; the material plane is `"material"`.
+    PlaneShifted {
+        from: Location,
+        to: Location,
+        from_plane: String,
+        to_plane: String,
+    },
+    PlaneShiftBlocked {
+        at: Location,
+        plane: String,
     },
 }
 
@@ -403,6 +428,26 @@ pub enum ScriptEffect {
         actor: ActorId,
         to: Location,
     },
+    /// Move an actor to the counterpart of its location on another plane.
+    /// A blocked shift is not a failure: it notes `plane_shift_blocked`.
+    ShiftPlane {
+        actor: ActorId,
+        plane: String,
+        returns: crate::planes::ReturnPolicy,
+        duration: Option<std::num::NonZeroU64>,
+        reveals: bool,
+    },
+    /// Let `observer` perceive and strike `target` across the planes until
+    /// `target` next acts.
+    OpenGlimpse {
+        observer: ActorId,
+        target: ActorId,
+    },
+    /// Teach an actor what a plane is.
+    RevealPlane {
+        actor: ActorId,
+        plane: String,
+    },
     /// `terminal: false` records a victory and lets play continue.
     EndRun {
         end: RunEnd,
@@ -451,6 +496,9 @@ impl ScriptEffect {
             | Self::PlaceItem { .. }
             | Self::RemoveItem { .. }
             | Self::Teleport { .. }
+            | Self::ShiftPlane { .. }
+            | Self::RevealPlane { .. }
+            | Self::OpenGlimpse { .. }
             | Self::EndRun { .. }
             | Self::StopArena { .. } => true,
         }

@@ -26,6 +26,9 @@ pub struct ResolutionContext {
     pub relocation: Option<RelocationInput>,
     pub target_recovery_context: Option<crate::health_recovery::RecoveryContext>,
     pub source_recovery_context: Option<crate::health_recovery::RecoveryContext>,
+    /// The target is on another plane and the strike cannot harm it there:
+    /// its damage is skipped. The strike still lands and spends its time.
+    pub intangible: bool,
 }
 /// Current whole-body-valid endpoints, never a frozen hidden target or path.
 /// The resolver samples only after delivery selects the relocation payload.
@@ -1101,6 +1104,8 @@ fn resolve_planned_check(
 pub(crate) struct BatchResolution {
     pub resistance_tokens: Vec<crate::conditions::TokenReservation>,
     pub deferred_theft: Option<crate::theft::PlannedTheft>,
+    /// A plane shift applies after the batch, like theft.
+    pub deferred_plane_shift: Option<PlannedEffect>,
     pub outcome: Outcome,
     /// Ordinary abilities may reject individual condition effects. Authoritative
     /// automatic effects must be able to reject their enclosing transaction.
@@ -1290,6 +1295,7 @@ pub(super) fn resolve_batch<'a>(
         return Ok(BatchResolution {
             resistance_tokens: vec![],
             deferred_theft: None,
+            deferred_plane_shift: None,
             outcome,
             condition_error: None,
             selected_branch: None,
@@ -1325,6 +1331,7 @@ pub(super) fn resolve_batch<'a>(
         return Ok(BatchResolution {
             resistance_tokens: vec![],
             deferred_theft: None,
+            deferred_plane_shift: None,
             outcome,
             condition_error: None,
             selected_branch: None,
@@ -1370,6 +1377,7 @@ pub(super) fn resolve_batch<'a>(
                 return Ok(BatchResolution {
                     resistance_tokens,
                     deferred_theft: None,
+                    deferred_plane_shift: None,
                     outcome,
                     condition_error: None,
                     selected_branch: Some(if success {
@@ -1391,6 +1399,7 @@ pub(super) fn resolve_batch<'a>(
                 return Ok(BatchResolution {
                     resistance_tokens,
                     deferred_theft: None,
+                    deferred_plane_shift: None,
                     outcome,
                     condition_error: None,
                     selected_branch: None,
@@ -1406,6 +1415,7 @@ pub(super) fn resolve_batch<'a>(
         .or_else(|| snapshot.context.relocation.as_ref().map(|input| input.from));
     let mut condition_error = None;
     let mut deferred_theft = None;
+    let mut deferred_plane_shift = None;
     for effect in effects {
         // Once damage kills the target, later effects cannot revive or mutate it.
         if application.creature.health().dead() {
@@ -1413,6 +1423,13 @@ pub(super) fn resolve_batch<'a>(
         }
         if let PlannedEffect::Theft { theft } = effect {
             deferred_theft = Some(theft.clone());
+            continue;
+        }
+        if let PlannedEffect::PlaneShift { .. } = effect {
+            deferred_plane_shift = Some(effect.clone());
+            continue;
+        }
+        if snapshot.context.intangible && matches!(effect, PlannedEffect::Damage { .. }) {
             continue;
         }
         let inputs = EffectRollInputs {
@@ -1477,6 +1494,7 @@ pub(super) fn resolve_batch<'a>(
     Ok(BatchResolution {
         resistance_tokens,
         deferred_theft,
+        deferred_plane_shift,
         outcome,
         condition_error,
         selected_branch: Some(if success {
@@ -1507,7 +1525,7 @@ fn roll_planned_effect(
     observer: &mut impl ResolutionObserver,
 ) -> Result<Option<ResolvedEffect>, EffectApplicationError> {
     let resolved = match effect {
-        PlannedEffect::Theft { .. } => return Ok(None),
+        PlannedEffect::Theft { .. } | PlannedEffect::PlaneShift { .. } => return Ok(None),
         PlannedEffect::TeleportRandom | PlannedEffect::TeleportToRayOrigin => {
             let mode = inputs
                 .snapshot

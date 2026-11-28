@@ -562,6 +562,7 @@ fn attire_names_visible_armour_and_weapons_without_control_text() {
 
 fn observation() -> Observation {
     Observation {
+        plane: None,
         public_effects: vec![],
         level_name: None,
         known_item_uses: Vec::new(),

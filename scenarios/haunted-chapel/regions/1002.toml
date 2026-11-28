@@ -1,0 +1,6 @@
+id = 1002
+name = "Grey nave"
+size = [8, 3, 2]
+gravity = [0,0,0]
+anchors = { "haunt" = [5, 1, 0] }
+actors = [{ "id" = 2, "at" = [5, 1, 0], "archetype" = "ghost", "controller" = "ai", "ai" = "tactical", "turn_ticks" = 100 }]

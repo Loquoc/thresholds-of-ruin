@@ -84,7 +84,7 @@ def build_compact(root: Path, domain: str) -> None:
     write_rules(root)
     source = "\n".join(manifest_lines("compact-grid-world")).replace(
         'anchor = "1/start"', 'anchor = "caves/1/start"') + "\n"
-    source += ('\n[procedural_worlds.caves]\nkind = "grid_chain"\nversion = 1\nbase_region = 1\n'
+    source += ('\n[procedural_worlds.caves]\nkind = "grid_chain"\nversion = 1\n'
                'grid = [2, 2]\nsize = [26, 7, 2]\nrecipe = "exploration"\n'
                '[procedural_worlds.caves.domain]\n' + domain + '\n')
     (root / "scenario.toml").write_text(source, encoding="utf-8", newline="\n")

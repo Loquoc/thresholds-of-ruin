@@ -702,6 +702,14 @@ pub enum Effect {
     StepSelfOneCell,
     TeleportRandom,
     TeleportToRayOrigin,
+    /// Move the recipient to its counterpart on another plane.
+    PlaneShift {
+        plane: String,
+        returns: tor_simulation::planes::ReturnPolicy,
+        duration: Option<std::num::NonZeroU64>,
+        #[serde(default)]
+        reveals: bool,
+    },
     ArrestDescent,
     PushTargetOneCell {
         direction: PushDirection,
@@ -1258,6 +1266,15 @@ impl<'de> Deserialize<'de> for Effect {
             StepSelfOneCell {},
             TeleportRandom {},
             TeleportToRayOrigin {},
+            PlaneShift {
+                plane: String,
+                #[serde(default)]
+                returns: tor_simulation::planes::ReturnPolicy,
+                #[serde(default)]
+                duration: Option<std::num::NonZeroU64>,
+                #[serde(default)]
+                reveals: bool,
+            },
             ArrestDescent {},
             PushTargetOneCell {
                 direction: PushDirection,
@@ -1373,6 +1390,17 @@ impl<'de> Deserialize<'de> for Effect {
             Fields::StepSelfOneCell {} => Self::StepSelfOneCell,
             Fields::TeleportRandom {} => Self::TeleportRandom,
             Fields::TeleportToRayOrigin {} => Self::TeleportToRayOrigin,
+            Fields::PlaneShift {
+                plane,
+                returns,
+                duration,
+                reveals,
+            } => Self::PlaneShift {
+                plane,
+                returns,
+                duration,
+                reveals,
+            },
             Fields::ArrestDescent {} => Self::ArrestDescent,
             Fields::PushTargetOneCell { direction } => Self::PushTargetOneCell { direction },
             Fields::Damage { damage } => Self::Damage { damage },

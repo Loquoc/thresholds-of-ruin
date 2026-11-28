@@ -44,7 +44,6 @@ lighting = { darkness_roll = 10, darkness_start = 1 }
 [procedural_worlds.dungeon]
 kind = "grid_chain"
 version = 1
-base_region = 1
 grid = [3, 3]
 size = [26, 7, 2]
 recipe = "exploration"

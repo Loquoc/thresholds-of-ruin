@@ -326,6 +326,48 @@ impl Game {
         }
     }
 
+    pub(crate) fn note_plane_shifted(
+        &mut self,
+        actor: ActorId,
+        from: Location,
+        to: Location,
+        from_plane: tor_world::PlaneId,
+        to_plane: tor_world::PlaneId,
+    ) {
+        self.note_hook(
+            HookKind::PlaneShifted,
+            Some(actor),
+            |_| Some(FactKeys::at(to)),
+            |game, _| {
+                Some(FactSubject::PlaneShifted {
+                    from,
+                    to,
+                    from_plane: game.plane_name(from_plane)?.to_owned(),
+                    to_plane: game.plane_name(to_plane)?.to_owned(),
+                })
+            },
+        );
+    }
+
+    pub(crate) fn note_plane_shift_blocked(
+        &mut self,
+        actor: ActorId,
+        at: Location,
+        plane: tor_world::PlaneId,
+    ) {
+        self.note_hook(
+            HookKind::PlaneShiftBlocked,
+            Some(actor),
+            |_| Some(FactKeys::at(at)),
+            |game, _| {
+                Some(FactSubject::PlaneShiftBlocked {
+                    at,
+                    plane: game.plane_name(plane)?.to_owned(),
+                })
+            },
+        );
+    }
+
     pub(crate) fn note_moved(&mut self, actor: ActorId, from: Location, to: Location) {
         self.note_hook(
             HookKind::Moved,
@@ -379,6 +421,16 @@ impl Game {
                     |_| Some(FactKeys::default()),
                     |_, _| Some(FactSubject::Attack { target }),
                 );
+                if outcome.check.is_some_and(|check| check.success)
+                    && self.across_planes(actor, target)
+                {
+                    self.note_hook(
+                        HookKind::CrossPlaneStruck,
+                        Some(actor),
+                        |_| Some(FactKeys::default()),
+                        |_, _| Some(FactSubject::Attack { target }),
+                    );
+                }
             }
             crate::combat::CombatEvent::Died { actor, .. } => {
                 let actor = *actor;
@@ -724,6 +776,39 @@ impl Game {
                 if first {
                     self.note_first_visit(actor, to.region);
                 }
+            }
+            ScriptEffect::OpenGlimpse { observer, target } => {
+                if !self.actors.contains_key(observer) || !self.actors.contains_key(target) {
+                    return Err("unknown actor");
+                }
+                self.open_glimpse(*observer, *target);
+            }
+            ScriptEffect::RevealPlane { actor, plane } => {
+                if !self.actors.contains_key(actor) {
+                    return Err("unknown actor");
+                }
+                let plane = self.plane_by_name(plane).ok_or("unknown plane")?;
+                self.reveal_plane(*actor, plane);
+            }
+            ScriptEffect::ShiftPlane {
+                actor,
+                plane,
+                returns,
+                duration,
+                reveals,
+            } => {
+                if !self.actors.contains_key(actor) {
+                    return Err("unknown actor");
+                }
+                let plane = self.plane_by_name(plane).ok_or("unknown plane")?;
+                let request = crate::planes::ShiftRequest {
+                    plane,
+                    returns: *returns,
+                    duration: *duration,
+                    reveals: *reveals,
+                };
+                self.shift_actor(*actor, request)
+                    .map_err(|_| "plane shift unavailable")?;
             }
             ScriptEffect::EndRun {
                 end,

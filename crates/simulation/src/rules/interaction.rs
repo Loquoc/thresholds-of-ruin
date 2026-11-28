@@ -155,7 +155,8 @@ impl Ruleset {
                     | PlannedEffect::ApplyLinkedHold { .. }
                     | PlannedEffect::HoldDamage { .. }
                     | PlannedEffect::TeleportRandom
-                    | PlannedEffect::TeleportToRayOrigin => true,
+                    | PlannedEffect::TeleportToRayOrigin
+                    | PlannedEffect::PlaneShift { .. } => true,
                     PlannedEffect::Damage { damage } => damage.can_harm(),
                     PlannedEffect::PushTargetOneCell { .. } | PlannedEffect::DrainLatestHitDie => {
                         true
@@ -230,7 +231,8 @@ impl Ruleset {
             | Effect::ApplyLinkedHold { .. }
             | Effect::HoldDamage { .. }
             | Effect::TeleportRandom
-            | Effect::TeleportToRayOrigin => true,
+            | Effect::TeleportToRayOrigin
+            | Effect::PlaneShift { .. } => true,
             Effect::Damage {
                 damage: DamageExpr::SelectedWeapon { .. },
             }

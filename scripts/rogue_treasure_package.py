@@ -22,7 +22,7 @@ def fixture():
         "room_width": [7, 7], "room_height": [5, 5], "extra_connections": [0, 0],
         "lighting": {"darkness_roll": 10, "darkness_start": 100}}}
     manifest["procedural_worlds"] = {"dungeon": {"kind": "grid_chain", "version": 1,
-        "base_region": 1, "grid": [1, 1], "size": [9, 7, 2], "recipe": "room",
+        "grid": [1, 1], "size": [9, 7, 2], "recipe": "room",
         "domain": {"kind": "open", "max_depth": 4}}}
     manifest["capabilities"] = {"npc_stair_traversal": False}
     fragment = tomllib.loads((PRODUCTION / "examples/treasure-stage.toml").read_text(encoding="utf-8"))
