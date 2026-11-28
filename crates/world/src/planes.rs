@@ -184,6 +184,10 @@ impl OverlapRange {
     }
 }
 
+/// One side of an overlap: a region, its box there, and the plane the box
+/// corresponds to.
+type Side = (RegionId, (Position, Position), PlaneId);
+
 /// Plane membership and overlaps, stored on [`World`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -213,7 +217,7 @@ impl PlaneTopology {
 
     /// Each side of an overlap: the region, its box there, and the plane the
     /// box corresponds to.
-    fn sides(&self, overlap: &Overlap) -> Option<[(RegionId, (Position, Position), PlaneId); 2]> {
+    fn sides(&self, overlap: &Overlap) -> Option<[Side; 2]> {
         Some([
             (
                 overlap.from,

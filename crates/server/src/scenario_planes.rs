@@ -525,7 +525,6 @@ impl Package {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FamilyShadow<'a> {
     pub plane: &'a str,
-    pub family: &'a str,
     pub base: u64,
     pub span: u64,
     /// The shadow span's first region.
@@ -567,7 +566,6 @@ impl Package {
                 };
                 shadows.push(FamilyShadow {
                     plane,
-                    family: family_id,
                     base: family.base_region,
                     span,
                     first,

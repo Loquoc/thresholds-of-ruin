@@ -55,7 +55,7 @@ fn history_actions_preserve_the_tagged_wire_shape_and_validate_event_payload() {
 
 #[test]
 fn current_wire_protocol_revision_is_explicitly_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 77);
+    assert_eq!(PROTOCOL_VERSION, 78);
 }
 
 #[test]

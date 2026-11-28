@@ -110,9 +110,9 @@ fn derived_regions_are_rejected_when_they_collide_with_authored_regions() {
         toml::to_string(&manifest).unwrap(),
     )
     .unwrap();
-    let error = tor_server::scenario_package::validate(dir.path())
-        .err()
-        .expect("a colliding derived region is rejected");
+    let Err(error) = tor_server::scenario_package::validate(dir.path()) else {
+        panic!("a colliding derived region is rejected");
+    };
     assert!(error.to_string().contains("collides"), "{error}");
 }
 
@@ -141,9 +141,7 @@ fn drinking_veil_incense_shifts_through_the_plane_shift_effect() {
     )
     .unwrap();
     // Item work is admitted as an intention and executes when due.
-    let incense = engine.observation(CHARACTER).unwrap().inventory[0]
-        .id
-        .clone();
+    let incense = engine.observation(CHARACTER).unwrap().inventory[0].id;
     let action = engine
         .decode_action(CHARACTER, &tor_protocol::Action::Drink { item: incense })
         .unwrap();
@@ -243,7 +241,7 @@ fn chapel_ghosts_strike_across_the_planes_and_glimpses_allow_a_strike_back() {
             .visible_actors
             .iter()
             .find(|seen| seen.id != state.observation.self_target)
-            .map(|seen| seen.id.clone());
+            .map(|seen| seen.id);
         if let Some(ghost) = ghost.filter(|_| !struck_back) {
             // A glimpse shows the ghost as an ordinary target; a plain strike
             // at it is admitted, though it cannot harm the ghost.
@@ -260,12 +258,10 @@ fn chapel_ghosts_strike_across_the_planes_and_glimpses_allow_a_strike_back() {
                     },
                 )
                 .unwrap();
-            match play(&mut engine, action) {
-                Ok(_) => {
-                    struck_back = true;
-                    continue;
-                }
-                Err(_) => {} // Out of reach this turn: wait for it.
+            // Out of reach this turn, the strike is refused: wait for it.
+            if play(&mut engine, action).is_ok() {
+                struck_back = true;
+                continue;
             }
         }
         if play(&mut engine, Action::Wait).is_err() {
