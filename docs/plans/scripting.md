@@ -9,11 +9,13 @@ does not authorize a scripting milestone.
 
 ## Goal
 
-Runtime selection and implementation are deferred. Luau remains a candidate,
-not an accepted dependency. The [architecture](../architecture/overview.md) requires
+Luau is the accepted scripting runtime. Scenario- and content-specific behavior
+should be exposed to scripts rather than built into the engine as special cases.
+The [architecture](../architecture/overview.md) still requires
 language-independent contracts for scoped queries, validated effects, scheduling,
-persisted values, and pinned handler identities. The runtime-specific sketches
-below are exploratory and must be re-evaluated before any scripting work starts.
+persisted values, and pinned handler identities. Sections below that predate the
+first milestone keep the original rationale; the
+[scripting reference](../reference/scripting.md) owns implemented behavior.
 
 Scenarios, maps, and objects need small pieces of specific behaviour: a lever
 that opens a far door, a message when the objective item reaches the exit, an
@@ -163,17 +165,22 @@ clearly. Generation and runtime scripting are separate decisions; neither a VM
 nor event hooks are prerequisites for the live Rogue scenario.
 See the [procedural requirements](requirements.md).
 
-## Language selection (deferred)
+## Language selection
 
-Luau is a candidate for later evaluation. Selection needs evidence about
-determinism, isolation, resource accounting, author tooling, and cross-platform
-builds under representative scenario workloads. No runtime dependency or
-comparison spike is currently authorized by this design note.
+Luau is selected and vendored through `mlua` in the `tor-scripting` crate. The
+original selection criteria (determinism, isolation, resource accounting, author
+tooling and cross-platform builds) remain the bar for changes to the runtime.
+
+Handlers are reactive: they run at settlement points after actions and as time
+advances, never mid-action. A synchronous resolver call, in which a script
+decides how an action resolves, does not exist yet; it may be added to
+`HookHost` when a feature needs it, kept off per-step paths.
 
 ## Sandbox and budgets
 
-Every package must be treated as untrusted. For a Luau-like candidate, the
-proposed sandbox would expose only these capabilities:
+Every package must be treated as untrusted. The original sandbox proposal,
+now implemented as described in the
+[reference](../reference/scripting.md#determinism-and-the-sandbox), was:
 
 - Only safe standard libraries are opened: string, table, and a trimmed math
   library. There is no file, OS, clock, network, or debug access.
@@ -235,7 +242,7 @@ return eggs
 
 ## Runtime boundary
 
-The future runtime lives outside `Game` and checkpoints. It receives scoped
+The runtime lives outside `Game` and checkpoints. It receives scoped
 queries and proposes typed effects; simulation owns validation and scheduling.
 Persisted state contains values and stable handler identities, never VM objects,
 closures, or function pointers. Loading, restoring, and replay construct a fresh
@@ -267,15 +274,14 @@ risks for scripts are:
 - Test fixtures under `scenarios/tests/`. The first proof would be an egg-style
   hatch timer and a timed buff.
 
-## Verification needed before adoption
+## Verification behind adoption
 
-A runtime decision needs representative Windows/Linux determinism and isolation
+The runtime decision needed, and changes to the runtime still need, representative Windows/Linux determinism and isolation
 checks, bounded-work and memory failure cases, exact full-width ID/tick handling,
 source-pinning and strict restore tests, freeze/thaw and rewind equivalence, and
 actual-process disclosure/interaction tests. Prove that a failed cascade changes
 neither authoritative state nor successful RNG history. Verify module state cannot
 leak between calls rather than relying on replay mismatch to detect it later.
-Existing content primitives and declarative recipes remain the default until
-these questions are settled; scripts are not a prerequisite for generated Rogue
-exploration. [Project status](../status.md) and [remaining requirements](requirements.md)
+Scripts are not a prerequisite for generated Rogue exploration, and declarative
+recipes remain the home for generation. [Project status](../status.md) and [remaining requirements](requirements.md)
 own sequencing and scope approval.

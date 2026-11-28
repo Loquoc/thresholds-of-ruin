@@ -107,8 +107,8 @@ introduce a reusable mechanism, not a special case for one spell or creature.
 boundary concrete. [Scenario scripts](../reference/scripting.md) are scenario
 authority, not actors: the `tor-scripting` crate hosts a sandboxed Luau VM behind
 the simulation's `HookHost` trait, hooks are noted behind a per-kind mask and
-settled at tick boundaries, and their effects are checked only against world
-invariants. Anything a script asks an actor to do would use the action boundary.
+settled after each action and as simulation time advances (never mid-action),
+and their effects are checked only against world invariants. Anything a script asks an actor to do would use the action boundary.
 
 ## Geometry, perception and knowledge
 
