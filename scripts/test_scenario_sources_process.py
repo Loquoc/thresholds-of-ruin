@@ -95,20 +95,20 @@ extra_connections = [0, 1]
 [procedural_worlds."caves.depths"]
 kind = "grid_chain"
 version = 1
-base_region = 100
 grid = [1, 1]
 size = [12, 10, 2]
 recipe = "caves.rooms"
 domain = {kind = "seeded_finite", min = 2, max = 6}
 [stair_pairs."caves.entry"]
 upper = "1/descent"
-lower = "100/up"
+lower = "2/up"
 ''', encoding="utf-8")
         checked = self.compiler("check", str(package))
         self.assertEqual(checked.returncode, 0, checked.stderr)
         validated = self.compiler("validate", str(package))
         self.assertEqual(validated.returncode, 0, validated.stderr)
-        self.assertFalse((package / "regions/100.toml").exists())
+        # The engine assigns the family the block after authored region 1.
+        self.assertFalse((package / "regions/2.toml").exists())
         self.server(scenario=package)
         _, ready = self.client()
         self.assertIsNone(ready.get("error"))

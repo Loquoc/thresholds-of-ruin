@@ -79,7 +79,7 @@ def generated_package(test):
                          "rust_amount": 1, "sleep_condition": "rogue.sleep",
                          "sleep_duration": 200}}}
     manifest["procedural_worlds"] = {"dungeon": {
-        "kind": "grid_chain", "version": 1, "base_region": 1, "grid": [2, 1],
+        "kind": "grid_chain", "version": 1, "grid": [2, 1],
         "size": [7, 5, 2], "recipe": "discovery",
         "domain": {"kind": "open", "max_depth": 3}}}
     data["regions"] = []

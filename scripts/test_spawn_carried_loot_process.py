@@ -46,7 +46,7 @@ class SpawnCarriedLootProcesses(ProcessTestCase):
         manifest["generation_recipes"] = {"tiny": {"kind": "grid_rooms", "version": 1,
             "room_width": [4, 4], "room_height": [3, 3], "extra_connections": [0, 0]}}
         manifest["procedural_worlds"] = {"dungeon": {"kind": "grid_chain", "version": 1,
-            "base_region": 1, "grid": [1, 1], "size": [8, 5, 2], "recipe": "tiny",
+            "grid": [1, 1], "size": [8, 5, 2], "recipe": "tiny",
             "domain": {"kind": "open", "max_depth": 100}}}
         manifest["floor_activation"] = {"version": 1, "protagonist": 1,
             "families": {"dungeon": "baseline"},

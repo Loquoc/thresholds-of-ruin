@@ -70,7 +70,7 @@ def fixture():
         {"id": "stairs", "version": 1, "operation": {"kind": "stairs"}},
     ]}}
     manifest["procedural_worlds"] = {"dungeon": {"kind": "grid_chain", "version": 1,
-        "base_region": 1, "grid": [1, 1], "size": [9, 7, 2], "recipe": "room",
+        "grid": [1, 1], "size": [9, 7, 2], "recipe": "room",
         "domain": {"kind": "open", "max_depth": 2}}}
     manifest["floor_activation"] = {"version": 1, "protagonist": "selected_character",
         "families": {"dungeon": "empty"}, "profiles": {"empty": {"version": 1, "stages": []}}}
