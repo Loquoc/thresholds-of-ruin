@@ -709,6 +709,48 @@ mod tests {
     }
 
     #[test]
+    fn known_failure_cannot_yield_on_permissions_for_an_earlier_phase() {
+        let ready = state(true, true, None);
+        let mut boundary = SettleBoundary::new(ID, Until::Acted, false);
+        let mut failed = intention(&ready, 4, IntentionPhase::Failed);
+        let ServerMessage::Update { update } = &mut failed else {
+            unreachable!()
+        };
+        let UpdateBody::Intention { failure, .. } = &mut update.body else {
+            unreachable!()
+        };
+        let cause = IntentionFailure::RolledBack(RollbackAction::Read);
+        *failure = Some(cause);
+        assert_eq!(
+            feed(
+                &mut boundary,
+                &ready,
+                &[
+                    ack(
+                        &ready,
+                        RequestReceipt::Admitted {
+                            actor: ready.actor(),
+                            branch: ready.branch().clone(),
+                            intention: IntentionId("work".into()),
+                            entry_id: EntryId("work-entry".into()),
+                            phase: IntentionPhase::Queued,
+                        },
+                    ),
+                    intention(&ready, 2, IntentionPhase::Started),
+                    permissions(&ready, 3),
+                    failed,
+                    waiting(Waiting::Others),
+                ],
+            ),
+            [None, None, None, None, None]
+        );
+        assert_eq!(
+            boundary.observe(&ready, false, false, &permissions(&ready, 5)),
+            Some(Settled::Failed(cause))
+        );
+    }
+
+    #[test]
     fn refusals_observations_and_silence_are_explicit() {
         let ready = state(true, true, None);
         let mut boundary = SettleBoundary::new(ID, Until::Acted, false);

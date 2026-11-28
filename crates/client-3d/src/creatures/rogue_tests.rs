@@ -6138,13 +6138,8 @@ fn winged_beasts_release_breath_and_roar_into_their_falls() {
                     .expect("authored wing geometry");
                 frame.transform_point3(outer)
             });
-            // The Griffin's beak is part of its head mesh: read the curved
-            // neck that carries its roar, not a nonexistent jaw hinge.
-            let expression = match model {
-                CreatureModel::Dragon => J::Jaw,
-                _ => J::Neck,
-            };
-            (tips, local(expression).rotation)
+            let expression = [J::Neck, J::Jaw].map(|joint| local(joint).rotation);
+            (tips, expression)
         };
         for death in [
             DeathMotion::Collapse,
@@ -6181,11 +6176,14 @@ fn winged_beasts_release_breath_and_roar_into_their_falls() {
                 .map(|(a, b)| a.distance(b))
                 .fold(0.0_f32, f32::max);
             assert!(gap < 0.062, "{model:?} {death:?}: wingtip snapped {gap:.3}");
-            let expression = before.1.angle_between(after.1);
-            assert!(
-                expression < 0.075,
-                "{model:?} {death:?}: head expression snapped {expression:.3}"
-            );
+            for ((joint, before), after) in [J::Neck, J::Jaw].into_iter().zip(before.1).zip(after.1)
+            {
+                let angle = before.angle_between(after);
+                assert!(
+                    angle < 0.075,
+                    "{model:?} {death:?}: {joint:?} snapped {angle:.3}"
+                );
+            }
             for _ in 0..48 {
                 app.update();
                 control.update();
@@ -6195,7 +6193,9 @@ fn winged_beasts_release_breath_and_roar_into_their_falls() {
             for (tip, reference) in released.into_iter().zip(plain) {
                 assert!(tip.distance(reference) < 1e-5);
             }
-            assert!(expression.abs_diff_eq(ordinary_expression, 1e-5));
+            for (released, ordinary) in expression.into_iter().zip(ordinary_expression) {
+                assert!(released.abs_diff_eq(ordinary, 1e-5));
+            }
         }
     }
 }
@@ -6273,6 +6273,84 @@ fn medusa_front_serpents_turn_toward_their_gaze_target() {
             recovery[i].1.z < reach.z - 0.06,
             "serpent {i} did not release its gaze"
         );
+    }
+}
+
+#[test]
+fn medusa_arms_ease_out_of_a_gaze_interrupted_by_death() {
+    let look = Look::of(CreatureModel::Medusa, 42);
+    let samples = |app: &App, root| {
+        let world = app.world();
+        let rig = world.get::<Rig>(root).unwrap();
+        [J::ArmL, J::ArmR, J::ForeL, J::ForeR].map(|joint| {
+            world
+                .get::<Transform>(rig.joint(joint).unwrap())
+                .unwrap()
+                .rotation
+        })
+    };
+
+    for death in [
+        DeathMotion::Collapse,
+        DeathMotion::Stagger,
+        DeathMotion::Dramatic,
+    ] {
+        let (mut interrupted, root) = animate_look(look.clone(), 12, |_| Vec3::ZERO);
+        let (mut control, other) = animate_look(look.clone(), 12, |_| Vec3::ZERO);
+        interrupted
+            .world_mut()
+            .get_mut::<Anim>(root)
+            .unwrap()
+            .act(Move::Gaze);
+        for _ in 0..32 {
+            interrupted.update();
+            control.update();
+        }
+        let mut previous = samples(&interrupted, root);
+        let relaxed = samples(&control, other);
+        assert!(
+            previous
+                .iter()
+                .zip(relaxed)
+                .all(|(a, b)| a.angle_between(b) > 0.35),
+            "positive fixture: both shoulders and elbows must have entered the gaze pose"
+        );
+
+        interrupted
+            .world_mut()
+            .get_mut::<Anim>(root)
+            .unwrap()
+            .preview_death(death);
+        control
+            .world_mut()
+            .get_mut::<Anim>(other)
+            .unwrap()
+            .preview_death(death);
+        for step in 0..14 {
+            interrupted.update();
+            control.update();
+            assert!(interrupted
+                .world()
+                .get::<Anim>(root)
+                .unwrap()
+                .action
+                .is_none());
+            let current = samples(&interrupted, root);
+            for (joint, (prior, next)) in previous.into_iter().zip(current).enumerate() {
+                let travel = prior.angle_between(next);
+                assert!(
+                    travel < 0.22,
+                    "{death:?} step {step}, arm joint {joint} snapped {travel:.3} radians"
+                );
+            }
+            previous = current;
+        }
+        for (actual, expected) in previous.into_iter().zip(samples(&control, other)) {
+            assert!(
+                actual.abs_diff_eq(expected, 1e-5),
+                "{death:?}: ordinary fall must take over after the entry blend"
+            );
+        }
     }
 }
 

@@ -773,6 +773,7 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
         if let Some(phase) = a.dead {
             death::perform(&mut p, rig, a, phase);
             match rig.plan {
+                Plan::Biped => rogue::release_medusa_gaze(&mut p, rig, a),
                 Plan::Rooted => rogue::release_rooted_pose(&mut p, a),
                 Plan::Bird if rig.style.flies() => rogue::release_flier_pose(&mut p, rig.style, a),
                 Plan::Quadruped if rig.style == Style::Aquator => {

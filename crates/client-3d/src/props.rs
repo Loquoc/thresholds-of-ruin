@@ -2779,6 +2779,20 @@ impl Builder {
         jitter: f32,
         paint: &dyn Fn(Vec3, Vec3) -> Vec3,
     ) {
+        self.blob_shaped(center, radii, key, jitter, |point| point, paint);
+    }
+
+    /// Deform the solid's points before calculating flat normals. A continuous,
+    /// orientation-preserving map keeps duplicate edge points coincident.
+    pub(crate) fn blob_shaped(
+        &mut self,
+        center: Vec3,
+        radii: Vec3,
+        key: u64,
+        jitter: f32,
+        shape: impl Fn(Vec3) -> Vec3,
+        paint: &dyn Fn(Vec3, Vec3) -> Vec3,
+    ) {
         let (lat, lon) = self.res;
         let dir = |i: usize, j: usize| {
             let t = i as f32 / lat as f32 * std::f32::consts::PI;
@@ -2802,7 +2816,7 @@ impl Builder {
                 ps.swap(1, 2);
                 cs.swap(1, 2);
             }
-            b.tri_colors(ps, cs);
+            b.tri_colors(ps.map(&shape), cs);
         };
         for i in 0..lat {
             for j in 0..lon {
