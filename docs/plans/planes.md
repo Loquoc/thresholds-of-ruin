@@ -197,14 +197,184 @@ time advances; they never decide mid-action.
 | --- | --- |
 | Overlaps, channels, light, gravity | Hooks: `plane_shifted`, `plane_shift_blocked`, `cross_plane_struck` |
 | Movement modes and their per-step checks | Queries: `ctx:plane(actor)`, `ctx:knows_plane(actor, plane)`, `ctx:check(actor, skill, dc)`, `ctx:nearest_fit(actor, plane, cell, radius)` |
-| Perception passes | Effects: `ctx:shift(actor, plane, cell)`, `ctx:reveal_plane(actor, plane)`, `ctx:open_channel(observer, target, duration)` |
+| Perception passes | Effects: `ctx:shift(actor, plane, cell)`, `ctx:reveal_plane(actor, plane)`, `ctx:open_channel(observer, target, { ticks?, until_action_of? })` |
 | Shift validation and the reject default | Lore check on arrival, `reveals`, shunts and other blocked-shift outcomes |
 | The voluntary return action | Expiry-only and timed returns (timer plus `ctx:shift`) |
-| Cross-plane contact and `is_magical` | The ghost's reveal (on `attack_resolved`) |
+| Cross-plane contact and `is_magical` | The ghost's reveal (on `cross_plane_struck`, which fires on a hit) |
 
 A synchronous resolver call on `HookHost`, letting a script decide how a shift
 resolves before the action completes, may be added if a feature needs it. It
 must stay off per-step paths.
+
+## Example scenario: the haunted chapel
+
+A small package in which the player meets ghosts attacking from the Ethereal
+Plane. It exercises every first-version mechanism and is the intended
+acceptance scenario for milestone 3, as `scenarios/haunted-chapel`.
+
+**This is a sketch, not valid current input.** Plane fields, `cross_plane_reach`,
+`plane_shift`, the `magical` flag and the new hooks do not exist yet. Existing
+syntax (species modifiers, melee strikes, regions, Luau hooks) follows the
+current [package format](../reference/scenario-packages.md); plane values such
+as light levels are illustrative.
+
+### Layout
+
+| Region | Plane | Contents |
+| --- | --- | --- |
+| 1 Lychgate | Material | Start and exit. No Ethereal counterpart, so the player cannot shift here |
+| 2 Chapel | Material | The nave (west part) touches the Ethereal; the vestry (east part) does not. A cold-iron dagger lies in the vestry |
+| 3 Crypt | Material | The reliquary (objective), a tarnished dagger (unidentified, `hit = 1`) and a censer of veil incense |
+| 1002 Grey nave | Ethereal | Derived from the nave only (a partial overlap). Two ghosts |
+| 1003 Grey crypt | Ethereal | Derived from the whole crypt. One ghost |
+
+Both derived regions are built from their material regions and get author-declared
+IDs, as milestone 1 requires. The nave and crypt form two overlap groups of two
+regions each, well under the 16-region limit.
+
+### Manifest additions
+
+```toml
+# scenario.toml (sketch)
+[planes.ethereal]
+mysterious = "a grey, sourceless mist in which walls are only suggestions"
+revealed = "the Border Ethereal, which lies against the waking world"
+lore_dc = 14
+gravity = [0, 0, 0]
+ambient_light = "dim"            # illustrative: visible at short range
+movement_modes = [{ mode = "ether_glide", check = { skill = "discipline", dc = 15 } }]
+channels = [{ to = "material", perception = "mirror", range = 12, light = "dim" }]
+derive = [
+    { from = 2, id = 1002, volume = { min = [0, 0, 0], max = [5, 4, 1] } },  # nave only
+    { from = 3, id = 1003 },                                               # whole crypt
+]
+
+[creatures.species.ghost]
+kind = "undead"
+home_plane = "ethereal"
+attributes = { strength = 0, speed = 0, intellect = 0, willpower = 2, awareness = 2, presence = 1 }
+displacement = { size = "medium", anchored = false }
+cross_plane_reach = { strikes_only = true }
+modifiers = [
+    { scope = "always", op = { kind = "locomotion", value = { kind = "flying", enabled = true } } },
+    { scope = "always", op = { kind = "add", stat = { kind = "health" }, value = 6 } },
+]
+# The chilling touch: a natural strike against Spiritual defense.
+melee = { skill = "light_weaponry", bonus = 0, wind_up = 60, recovery = 100, strikes = [{ offset = 0, check = { actor = "user", skill = { kind = "natural_attack" }, against = { kind = "defense", defense = "spiritual" } }, on_success = [{ kind = "damage", damage = { kind = "components", components = [{ category = "spirit", amount = { kind = "rolled", dice = { count = 1, sides = 4, bonus = 1 } } }] } }], on_failure = [], descriptors = [], riders = [] }] }
+
+[archetypes.cold_iron_dagger]
+identity = "item.weapon.dagger"
+name = "cold-iron dagger"
+magical = true                   # harms the Ethereal without numeric enchantment
+
+[archetypes.veil_incense]
+identity = "item.misc.veil-incense"
+name = "veil incense"
+# Burning it shifts the user; returning is an ordinary action.
+on_use = [{ kind = "plane_shift", to = "ethereal", on_blocked = "reject", return = "action", duration = 2000, reveals = false }]
+
+[scripting]
+scripts = ["scripts/haunting.luau"]
+
+[[scripting.hooks]]
+on = "region_first_visit"
+region = 2
+handler = "haunting.cold_air"
+once = true
+
+[[scripting.hooks]]
+on = "cross_plane_struck"        # proposed hook: a cross-plane strike hit
+handler = "haunting.struck"
+
+[[scripting.hooks]]
+on = "plane_shifted"             # proposed hook
+handler = "haunting.arrived"
+```
+
+### Script
+
+```lua
+-- scripts/haunting.luau (sketch)
+local haunting = {}
+
+function haunting.cold_air(ctx, facts)
+    ctx:message("The chapel is colder than the night outside.",
+        { style = "narration", to = facts[1].actor })
+end
+
+-- A ghost's touch: the victim may glimpse it until the ghost acts again.
+function haunting.struck(ctx, facts)
+    for _, fact in ipairs(facts) do
+        if ctx:check(fact.target, "perception", 15) then
+            ctx:open_channel(fact.target, fact.actor, { until_action_of = fact.actor })
+            ctx:message("For a heartbeat you see it: a pale shape in the air beside you.",
+                { style = "narration", to = fact.target })
+        else
+            ctx:message("Something unseen and cold passes through you.",
+                { style = "narration", to = fact.target })
+        end
+    end
+end
+
+-- One Lore check per arrival on a plane the actor does not know.
+function haunting.arrived(ctx, facts)
+    for _, fact in ipairs(facts) do
+        if not ctx:knows_plane(fact.actor, fact.plane)
+            and ctx:check(fact.actor, "lore", 14) then
+            ctx:reveal_plane(fact.actor, fact.plane)
+        end
+    end
+end
+
+return haunting
+```
+
+The reveal lives in the scenario's script, not the species, so another package
+can give the same ghost a different reveal or none.
+
+### What the player experiences
+
+1. **The nave.** The player walks in with an ordinary sword. Ghosts on the
+   Ethereal see them through their channel and strike across the planes with
+   their chilling touch. Each hit gives a Perception check (DC 15): on success
+   the player glimpses the ghost until its next action and may strike back; on
+   failure the hit comes from nowhere. A sword swing at a revealed ghost spends
+   its time and passes through.
+2. **The vestry.** It lies outside the overlap, so the ghosts cannot reach the
+   player there: a safe room. The cold-iron dagger here is `magical` and harms
+   revealed ghosts.
+3. **The crypt.** The tarnished dagger is unidentified. Striking a revealed
+   ghost with it does damage, which teaches the player it is enchanted.
+4. **The veil incense.** Burning it shifts the player onto the Ethereal Plane.
+   They see the mysterious description ("a grey, sourceless mist") and make a
+   Lore check (DC 14) that may reveal its name. On the Ethereal Plane the ghosts
+   are ordinary visible creatures and any weapon works, but every move needs a
+   Willpower + Discipline check (DC 15) while the ghosts fly freely. The
+   material crypt appears as a dim echo up to 12 cells away. Returning is an
+   ordinary action; it fails, and leaves the player Ethereal, if they are
+   standing where the material crypt is solid rock.
+5. **The way out.** Carry the reliquary back to the lychgate to win, by the
+   usual outcome script.
+
+### Acceptance witnesses
+
+Headless process tests drive most of this scenario:
+
+- Cross-plane strikes in the nave, not in the vestry (partial overlap).
+- Reveal success and failure, the reveal window ending at the ghost's next
+  action, and non-magical strikes passing through.
+- `magical` and numeric-enchantment weapons both harming revealed ghosts, and
+  the enchantment learning event.
+- Shifting with the incense, failed and successful ether-gliding checks
+  (including during automatic travel), the Lore check on arrival, returning by
+  action, and a return rejected inside rock.
+- Save, rewind and retry while the player is Ethereal and while a ghost is
+  revealed.
+- Co-activation: the ghosts in the grey nave act whenever the player is in the
+  nave.
+
+Text and ASCII process tests cover what those clients present: the echo layer,
+the glimpse narration and the plane descriptions.
 
 ## Milestones
 
@@ -218,7 +388,8 @@ must stay off per-step paths.
    channels, plane keys sent only when needed, descriptions and knowledge, and
    the text and ASCII layers.
 3. **Ethereal ghost.** `cross_plane_reach`, the scripted reveal, `is_magical`,
-   strikes without pushes, and enchantment learning.
+   strikes without pushes, and enchantment learning, accepted through the
+   [haunted chapel](#example-scenario-the-haunted-chapel) scenario.
 4. **Generator identity blocks.** See
    below. This brings derived planes to generated families, including Rogue.
 
